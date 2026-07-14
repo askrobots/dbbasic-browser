@@ -16,7 +16,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, shell } 
 import { createPublicClient, http as viemHttp } from "viem";
 import { baseSepolia } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
-import { PolicyEngine, Ledger, X402Engine, formatUsd } from "@dbbasic/x402-engine";
+import { PolicyEngine, Ledger, X402Engine, formatUsd, signExactEvm } from "@dbbasic/x402-engine";
 import { bypassingFetch, createPaymentHandler } from "./intercept.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -52,19 +52,70 @@ const publicClient = createPublicClient({
 let mainWindow: BrowserWindow | null = null;
 const account = privateKeyToAccount(TEST_KEY); // the wallet: signs payments AND is what we show the balance of
 
-/** Read the wallet's USDC balance on Base Sepolia and push it to the toolbar. */
+const MERCHANT_ADDRESS = process.env.X402_MERCHANT_ADDRESS as `0x${string}` | undefined;
+const MERCHANT_KEY = process.env.X402_MERCHANT_KEY as `0x${string}` | undefined;
+const FACILITATOR = process.env.X402_FACILITATOR || "https://x402.org/facilitator";
+
+/**
+ * Refund: the merchant wallet signs an EIP-3009 transfer of its whole balance back to
+ * the buyer and settles it through the facilitator. This closes the loop so testnet
+ * funds circulate instead of draining — pay, watch the merchant balance rise, refund,
+ * back to start. Uses global fetch (main-process; does NOT go through protocol.handle).
+ */
+async function refundMerchant(): Promise<{ tx?: string; error?: string }> {
+  if (!MERCHANT_KEY) return { error: "no merchant wallet configured" };
+  const merchant = privateKeyToAccount(MERCHANT_KEY);
+  const balAtomic = (await publicClient.readContract({ address: USDC_SEPOLIA, abi: BALANCE_ABI, functionName: "balanceOf", args: [merchant.address] })) as bigint;
+  if (balAtomic <= 0n) return { error: "merchant balance is 0" };
+
+  const requirements = {
+    scheme: "exact",
+    network: "eip155:84532",
+    amount: balAtomic.toString(),
+    asset: USDC_SEPOLIA,
+    payTo: account.address, // back to the buyer
+    maxTimeoutSeconds: 120,
+    extra: { assetTransferMethod: "eip3009", name: "USDC", version: "2" },
+  };
+  const payload = await signExactEvm(merchant, { requirements, priceUsdMicro: balAtomic, assetSymbol: "USDC" }, { maxAuthorizationLifetimeSeconds: 120 });
+  const res = await fetch(`${FACILITATOR}/settle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ x402Version: 2, paymentPayload: payload, paymentRequirements: requirements }),
+  });
+  const settle = (await res.json()) as { success?: boolean; transaction?: string; errorReason?: string };
+  if (!settle.success) return { error: settle.errorReason || "settlement failed" };
+  bumpBalance();
+  return { tx: settle.transaction };
+}
+
+/** Format atomic USDC (6dp) showing at least 2 and up to 6 decimals — so $0.001
+ *  payments are visible instead of rounding to $0.00. */
+function fmtUsdc(atomic: bigint): string {
+  return (Number(atomic) / 1e6).toFixed(6).replace(/(\.\d{2}\d*?)0+$/, "$1");
+}
+
+async function usdcBalance(addr: `0x${string}`): Promise<string> {
+  const bal = (await publicClient.readContract({ address: USDC_SEPOLIA, abi: BALANCE_ABI, functionName: "balanceOf", args: [addr] })) as bigint;
+  return fmtUsdc(bal);
+}
+
+/** Refresh now and again shortly after — on-chain balances settle a few seconds after
+ *  a payment/refund, so a single immediate read often misses the change. */
+function bumpBalance(): void {
+  void refreshBalance();
+  setTimeout(() => void refreshBalance(), 2500);
+  setTimeout(() => void refreshBalance(), 5500);
+}
+
+/** Push both wallet balances (buyer + merchant) to the toolbar. A free RPC query. */
 async function refreshBalance(): Promise<void> {
   try {
-    const bal = await publicClient.readContract({
-      address: USDC_SEPOLIA,
-      abi: BALANCE_ABI,
-      functionName: "balanceOf",
-      args: [account.address],
-    });
-    const usdc = (Number(bal) / 1e6).toFixed(2);
-    mainWindow?.webContents.send("x402:balance", { usdc, address: account.address });
+    const usdc = await usdcBalance(account.address);
+    const merchantUsdc = MERCHANT_ADDRESS ? await usdcBalance(MERCHANT_ADDRESS) : null;
+    mainWindow?.webContents.send("x402:balance", { usdc, address: account.address, merchantUsdc, merchantAddress: MERCHANT_ADDRESS ?? null });
   } catch {
-    mainWindow?.webContents.send("x402:balance", { usdc: null, address: account.address });
+    mainWindow?.webContents.send("x402:balance", { usdc: null, address: account.address, merchantUsdc: null, merchantAddress: MERCHANT_ADDRESS ?? null });
   }
 }
 
@@ -162,6 +213,7 @@ function buildEngine(): X402Engine {
           tx: r.txHash ?? null,
           totalSpent: formatUsd(policy.spentUsdMicro()),
         });
+        bumpBalance(); // a real (live-route) payment changes the on-chain balances
       } else if (e.type === "skipped") {
         send({ kind: "skipped", resource: e.resourceUrl, reason: e.reason });
       }
@@ -205,6 +257,7 @@ app.whenReady().then(() => {
     clipboard.writeText(account.address);
     return shell.openExternal("https://faucet.circle.com");
   });
+  ipcMain.handle("x402:refund", () => refundMerchant());
 
   createWindow();
   // Show the balance on load, then poll — so funding shows up without a restart.

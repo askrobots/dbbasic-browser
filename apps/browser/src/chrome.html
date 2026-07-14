@@ -21,6 +21,9 @@
       #bal { font-variant-numeric: tabular-nums; padding: 6px 10px; border-radius: 7px; background: #131316; color: #8a8a90; border: 1px solid #2a2a30; white-space: nowrap; cursor: pointer; }
       #bal.funded { color: #cde0ff; border-color: #3a5a9a; }
       #bal:hover { background: #1c1c20; }
+      #mbal { font-variant-numeric: tabular-nums; padding: 6px 10px; border-radius: 7px; background: #131316; color: #8a8a90; border: 1px solid #2a2a30; white-space: nowrap; }
+      #mbal.earning { color: #7ee787; border-color: #1c4a1a; }
+      .txlink { color: #7aa2ff; cursor: pointer; text-decoration: underline; }
       #main { flex: 1; display: flex; min-height: 0; }
       #page { flex: 1; border: 0; height: 100%; background: #fff; }
       #inspector { width: 400px; flex: none; background: #17171b; border-left: 1px solid #000; display: none; flex-direction: column; }
@@ -67,7 +70,9 @@
       <input id="url" placeholder="Enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
       <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
       <button class="btn" id="inspectBtn" title="x402 inspector">⚡ x402<span id="inspectCount">0</span></button>
-      <div id="bal" class="chip" title="Wallet USDC on Base Sepolia — click to copy address">◈ —</div>
+      <div id="bal" class="chip" title="Your wallet USDC on Base Sepolia — click to copy address">◈ —</div>
+      <div id="mbal" title="Merchant wallet — live payments land here" style="display:none">🏪 —</div>
+      <button class="btn" id="refundBtn" title="Refund merchant → you" style="display:none">Refund</button>
       <button class="btn" id="fundBtn" title="Copy address + open the faucet">Fund</button>
       <div id="meter" class="zero" title="Total paid this session">$0.00</div>
     </div>
@@ -207,6 +212,20 @@
         try { const x = new URL(u); return x.host + x.pathname; } catch { return u; }
       }
 
+      function isRealTx(tx) {
+        return typeof tx === "string" && /^0x[0-9a-fA-F]{64}$/.test(tx) && !tx.startsWith("0xDEMO");
+      }
+      function txCell(tx) {
+        if (!tx) return "(pending)";
+        if (isRealTx(tx)) return '<span class="txlink" data-url="https://sepolia.basescan.org/tx/' + tx + '">' + tx.slice(0, 18) + "… ↗</span>";
+        return tx.slice(0, 10) + "… (mock)";
+      }
+      // Click a real tx → open it on BaseScan in the page.
+      $("insList").addEventListener("click", (e) => {
+        const l = e.target.closest(".txlink");
+        if (l && l.dataset.url) go(l.dataset.url);
+      });
+
       function renderInspector() {
         const badge = $("inspectCount");
         badge.textContent = rows.size;
@@ -287,7 +306,7 @@
                ${e.outcome === "paid" ? `<div class="step">Settlement</div>
                  <dl>
                    <dt>status</dt><dd>${e.paidStatus}</dd>
-                   <dt>tx</dt><dd>${e.tx || "(mock / pending)"}</dd>
+                   <dt>tx</dt><dd>${txCell(e.tx)}</dd>
                  </dl>` : ""}
                ${e.rejected && e.rejected.length ? `<div class="step">Rejected options</div><dl><dt>—</dt><dd>${e.rejected.join("<br>")}</dd></dl>` : ""}
              </div>`;
@@ -349,11 +368,20 @@
       // ---- wallet balance + funding ----------------------------------------
       let walletAddress = "";
       window.x402.wallet().then(({ address }) => { walletAddress = address || ""; });
-      window.x402.onBalance(({ usdc, address }) => {
+      window.x402.onBalance(({ usdc, address, merchantUsdc, merchantAddress }) => {
         walletAddress = address || walletAddress;
         const b = $("bal");
         b.textContent = usdc == null ? "◈ —" : "◈ " + usdc + " USDC";
         b.classList.toggle("funded", usdc != null && parseFloat(usdc) > 0);
+        const mb = $("mbal");
+        if (merchantAddress && merchantUsdc != null) {
+          mb.style.display = "";
+          mb.textContent = "🏪 " + merchantUsdc;
+          mb.title = "Merchant wallet " + merchantAddress + " — live payments land here";
+          const earning = parseFloat(merchantUsdc) > 0;
+          mb.classList.toggle("earning", earning);
+          $("refundBtn").style.display = earning ? "" : "none";
+        }
       });
       $("bal").onclick = async () => {
         if (!walletAddress) return;
@@ -363,6 +391,19 @@
       $("fundBtn").onclick = () => {
         window.x402.fund();
         toast("quoted", "Address copied — faucet opened in your browser. Pick Base Sepolia.", 4500);
+      };
+      $("refundBtn").onclick = async () => {
+        const btn = $("refundBtn");
+        btn.disabled = true;
+        btn.textContent = "Refunding…";
+        try {
+          const r = await window.x402.refund();
+          if (r && r.tx) toast("paid", "Refunded → you. tx " + r.tx.slice(0, 14) + "… ✓");
+          else toast("skipped", "Refund: " + ((r && r.error) || "nothing to refund"));
+        } finally {
+          btn.disabled = false;
+          btn.textContent = "Refund";
+        }
       };
 
       if (window.x402.homepage) go(window.x402.homepage);

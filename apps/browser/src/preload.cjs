@@ -40,4 +40,8 @@ contextBridge.exposeInMainWorld("x402", {
   fund() {
     return ipcRenderer.invoke("x402:fund");
   },
+  /** Refund the merchant wallet back to the buyer ({tx} or {error}). */
+  refund() {
+    return ipcRenderer.invoke("x402:refund");
+  },
 });
