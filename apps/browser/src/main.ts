@@ -178,7 +178,8 @@ function createWindow(): void {
       webviewTag: true, // the page renders in a <webview>; chrome is the host document
       contextIsolation: true,
       nodeIntegration: false,
-      additionalArguments: [`--homepage=${process.env.HOMEPAGE ?? ""}`],
+      // Default to the local demo gallery for now — this is a demo-focused build.
+      additionalArguments: [`--homepage=${process.env.HOMEPAGE ?? "http://127.0.0.1:8899/"}`],
     },
   });
   mainWindow.loadFile(join(__dirname, "chrome.html"));
