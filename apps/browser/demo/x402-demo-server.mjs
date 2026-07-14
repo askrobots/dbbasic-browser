@@ -62,6 +62,8 @@ const NAV = `<nav class="nav">
   <a href="/">gallery</a>
   <a href="/room">room · $0.05</a>
   <a href="/article">article · $0.001</a>
+  <a href="/tip">tip</a>
+  <a href="/api/price">api</a>
   <a href="/premium">premium · $0.50</a>
   <a href="/unknown">unknown · ✕</a>
   <a href="/free">free</a>
@@ -173,13 +175,16 @@ const INDEX = shell(
   "x402 example gallery",
   `<div class="wrap"><div class="card" style="max-width:600px">
     <h1 style="margin:0 0 4px;font-size:26px;letter-spacing:-.01em">x402 example gallery</h1>
-    <p style="margin:0 0 20px;color:#6a6a72">Four x402-gated pages, each exercising a different
-      payer decision. Open them in dbbasic-browser: three should pay/prompt, one should be refused.</p>
+    <p style="margin:0 0 20px;color:#6a6a72">A set of x402-gated resources, each exercising a different
+      payer decision. Open them in dbbasic-browser and watch the toolbar: some pay, one prompts, one is refused, one is free.</p>
     ${[
       ["/room", "Room w/ Jordan", "$0.05", "auto-pays", "#1c7a3a"],
       ["/article", "Paywalled article", "$0.001", "auto-pays", "#1c7a3a"],
+      ["/tip", "Tip jar", "you pick", "variable", "#5a5a62"],
+      ["/api/price", "Price API (JSON)", "$0.002", "metered · API", "#1c7a3a"],
       ["/premium", "Premium report", "$0.50", "prompts", "#b0902f"],
       ["/unknown", "Unknown token", "5 ???", "refused", "#b03a2f"],
+      ["/free", "Free page", "—", "no 402", "#5a5a62"],
     ]
       .map(
         ([href, name, price, tag, color]) =>
@@ -196,6 +201,20 @@ const INDEX = shell(
 );
 
 // ---- server ----------------------------------------------------------------
+
+const RECEIPT = b64({ success: true, transaction: "0xDEMO0000000000000000000000000000000000000000000000000000000000", network: "eip155:84532" });
+
+/** Gate any resource: unpaid → 402 (header + card body), paid → the content. */
+function gate(req, res, { challenge, card, paid, paidType = "text/html" }) {
+  const sig = req.headers["payment-signature"] || req.headers["x-payment"];
+  if (!sig) {
+    res.writeHead(402, { "PAYMENT-REQUIRED": b64(challenge), "content-type": "text/html" });
+    res.end(card);
+    return;
+  }
+  res.writeHead(200, { "PAYMENT-RESPONSE": RECEIPT, "content-type": paidType });
+  res.end(paid);
+}
 
 createServer((req, res) => {
   const path = (req.url || "/").split("?")[0];
@@ -223,29 +242,57 @@ createServer((req, res) => {
     return;
   }
 
+  // Tip jar: a chooser page, then a per-amount gated "thank you". Shows variable
+  // amounts — the small tip auto-pays, larger ones cross the threshold and prompt.
+  if (path === "/tip") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(
+      shell(
+        "Tip jar",
+        `<div class="wrap"><div class="card">
+          <span class="tag" style="background:#e9e7e0;color:#6a6a72">tip · you pick</span>
+          <h1 style="margin:0 0 6px;font-size:24px">Leave a tip</h1>
+          <p style="margin:0 0 18px;color:#6a6a72">Different amounts trigger different behavior:
+            the small one auto-pays, the bigger ones cross the auto-approve threshold and ask first.</p>
+          ${[["/tip/2", "$0.02", "auto-pays"], ["/tip/25", "$0.25", "asks first"], ["/tip/100", "$1.00", "asks first"]]
+            .map(([h, amt, tag]) => `<a href="${h}" class="rail" style="text-decoration:none"><b style="flex:1">Tip ${amt}</b><span style="color:#6a6a72">${tag}</span></a>`)
+            .join("")}
+        </div></div>`,
+      ),
+    );
+    return;
+  }
+  const tipMatch = /^\/tip\/(\d+)$/.exec(path);
+  if (tipMatch) {
+    const cents = Math.min(100000, parseInt(tipMatch[1], 10) || 0);
+    const dollars = (cents / 100).toFixed(2);
+    gate(req, res, {
+      challenge: challenge({ path, error: `Tip of $${dollars}.`, amount: String(cents * 10000) }),
+      card: genericCard({ title: `Tip $${dollars}`, priceLabel: `$${dollars}`, blurb: "A one-time tip in USDC on Base.", tagText: "tip", tagColor: "#1c7a3a" }),
+      paid: paidPage(`Thanks for the $${dollars} tip!`, "Your tip settled. No checkout, no account — just a signed authorization and done."),
+    });
+    return;
+  }
+
+  // Metered API: x402 for machines. Returns JSON, not a page — the payment path is
+  // identical, which is the point (an agent hitting this pays exactly like the browser).
+  if (path === "/api/price") {
+    gate(req, res, {
+      challenge: challenge({ path, error: "This quote costs $0.002 per call.", amount: "2000" }),
+      card: genericCard({ title: "Price API", priceLabel: "$0.002", blurb: "A metered JSON endpoint — pays per call.", tagText: "auto-pays · API", tagColor: "#1c7a3a" }),
+      paid: JSON.stringify({ pair: "BTC-USD", price: 94213.55, asOf: "2026-07-14T00:00:00Z", note: "you paid $0.002 for this quote via x402" }, null, 2),
+      paidType: "application/json",
+    });
+    return;
+  }
+
   const route = ROUTES[path];
   if (!route) {
     res.writeHead(404, { "content-type": "text/html" });
     res.end(shell("Not found", `<div class="wrap"><div class="card"><h1>404</h1><p><a href="/">← gallery</a></p></div></div>`));
     return;
   }
-
-  const sig = req.headers["payment-signature"] || req.headers["x-payment"];
-  if (!sig) {
-    res.writeHead(402, { "PAYMENT-REQUIRED": b64(route.challenge()), "content-type": "text/html" });
-    res.end(route.card);
-    return;
-  }
-  // Mock settlement: accept the signed authorization, return the content + a receipt.
-  res.writeHead(200, {
-    "PAYMENT-RESPONSE": b64({
-      success: true,
-      transaction: "0xDEMO0000000000000000000000000000000000000000000000000000000000",
-      network: "eip155:84532",
-    }),
-    "content-type": "text/html",
-  });
-  res.end(route.paid);
+  gate(req, res, { challenge: route.challenge(), card: route.card, paid: route.paid });
 }).listen(PORT, HOST, () => {
   console.log(`x402 example gallery on http://127.0.0.1:${PORT}/ (bound ${HOST}) — mock settlement`);
 });
