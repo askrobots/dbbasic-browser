@@ -33,6 +33,18 @@ const read = (f) => readFileSync(join(__dirname, f), "utf8");
 const USDC_SEPOLIA = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const PAY_TO = "0x209693Bc6afc0C5328bA36FaF03C514EF312287C";
+
+// Load the repo .env so the /live route can settle to OUR merchant wallet.
+try {
+  for (const line of readFileSync(join(__dirname, "../../../.env"), "utf8").split("\n")) {
+    const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
+  }
+} catch {
+  /* no .env — /live will fall back to the example payTo and settlement will no-op */
+}
+const MERCHANT = process.env.X402_MERCHANT_ADDRESS || PAY_TO;
+const FACILITATOR = process.env.X402_FACILITATOR || "https://x402.org/facilitator";
 const qrDataUri = "data:image/png;base64," + readFileSync(join(__dirname, "qr.png")).toString("base64");
 
 /** Build a v2 PaymentRequired challenge for a route. */
@@ -61,6 +73,7 @@ function challenge({ path, error, amount, asset = USDC_SEPOLIA }) {
 // trigger a different payer decision (pay / prompt / refuse / free) in the inspector.
 const NAV = `<nav class="nav">
   <a href="/">gallery</a>
+  <a href="/live">live · REAL</a>
   <a href="/room">room · $0.05</a>
   <a href="/article">article · $0.001</a>
   <a href="/tip">tip</a>
@@ -180,6 +193,7 @@ const INDEX = shell(
     <p style="margin:0 0 20px;color:#6a6a72">A set of x402-gated resources, each exercising a different
       payer decision. Open them in dbbasic-browser and watch the toolbar: some pay, one prompts, one is refused, one is free.</p>
     ${[
+      ["/live", "Live payment (REAL)", "$0.001", "real on-chain tx", "#b03a2f"],
       ["/room", "Room w/ Jordan", "$0.05", "auto-pays", "#1c7a3a"],
       ["/article", "Paywalled article", "$0.001", "auto-pays", "#1c7a3a"],
       ["/tip", "Tip jar", "you pick", "variable", "#5a5a62"],
@@ -219,8 +233,54 @@ function gate(req, res, { challenge, card, paid, paidType = "text/html" }) {
   res.end(paid);
 }
 
-createServer((req, res) => {
+createServer(async (req, res) => {
   const path = (req.url || "/").split("?")[0];
+
+  // LIVE route: real settlement. Unpaid → 402; paid → POST the signed payload to the
+  // facilitator's /settle, which moves real testnet USDC (buyer → our merchant wallet)
+  // and returns a real tx. payTo is OUR merchant so funds circulate, not drain.
+  if (path === "/live") {
+    const requirements = {
+      scheme: "exact",
+      network: "eip155:84532",
+      amount: "1000", // $0.001
+      asset: USDC_SEPOLIA,
+      payTo: MERCHANT,
+      maxTimeoutSeconds: 120,
+      extra: { assetTransferMethod: "eip3009", name: "USDC", version: "2" },
+    };
+    const sig = req.headers["payment-signature"] || req.headers["x-payment"];
+    if (!sig) {
+      const challenge = { x402Version: 2, error: "Live $0.001 — real on-chain settlement.", resource: { url: `http://127.0.0.1:${PORT}/live`, mimeType: "text/html" }, accepts: [requirements] };
+      res.writeHead(402, { "PAYMENT-REQUIRED": b64(challenge), "content-type": "text/html" });
+      res.end(genericCard({ title: "Live payment", priceLabel: "$0.001", blurb: "REAL settlement on Base Sepolia — moves testnet USDC to the merchant wallet.", tagText: "live · real tx", tagColor: "#b03a2f" }));
+      return;
+    }
+    let payload;
+    try {
+      payload = JSON.parse(Buffer.from(sig, "base64").toString("utf8"));
+    } catch {
+      res.writeHead(400, { "content-type": "text/plain" });
+      res.end("bad PAYMENT-SIGNATURE");
+      return;
+    }
+    try {
+      const sr = await fetch(`${FACILITATOR}/settle`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ x402Version: 2, paymentPayload: payload, paymentRequirements: requirements }) });
+      const settle = await sr.json();
+      console.error("[/live settle]", sr.status, JSON.stringify(settle));
+      if (!settle.success) {
+        res.writeHead(402, { "PAYMENT-REQUIRED": b64({ x402Version: 2, error: "settlement failed", accepts: [requirements] }), "PAYMENT-RESPONSE": b64(settle), "content-type": "text/html" });
+        res.end(genericCard({ title: "Settlement failed", priceLabel: "$0.001", blurb: settle.errorReason || "unknown reason", tagText: "failed", tagColor: "#b03a2f" }));
+        return;
+      }
+      res.writeHead(200, { "PAYMENT-RESPONSE": b64(settle), "content-type": "text/html" });
+      res.end(paidPage("Paid for real", `Settled on-chain — tx <code>${(settle.transaction || "").slice(0, 18)}…</code>. This moved $0.001 of real testnet USDC to the merchant wallet. Watch the two balances in the toolbar.`));
+    } catch (err) {
+      res.writeHead(502, { "content-type": "text/html" });
+      res.end(shell("Facilitator error", `<div class="wrap"><div class="card"><h1>Facilitator error</h1><p>${String(err)}</p><p><a href="/">← gallery</a></p></div></div>`));
+    }
+    return;
+  }
 
   if (path === "/") {
     res.writeHead(200, { "content-type": "text/html" });
