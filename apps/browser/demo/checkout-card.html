@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Design Critique w/ Jordan — checkout</title>
+<style>
+  :root { --ink:#1a1a1e; --muted:#6a6a72; --line:#e6e4df; --card:#fff; --bg:#eceae4; }
+  * { box-sizing: border-box; }
+  html,body { margin:0; background:var(--bg); font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; color:var(--ink); }
+  .wrap { min-height:100vh; display:flex; align-items:flex-start; justify-content:center; padding:40px 16px; }
+  .card { width:100%; max-width:520px; background:var(--card); border-radius:22px; padding:36px 34px 28px; box-shadow:0 30px 80px rgba(0,0,0,.14); }
+  .top { display:flex; align-items:flex-start; gap:14px; }
+  .avatar { width:52px; height:52px; border-radius:13px; background:#5b5f97; color:#fff; display:flex; align-items:center; justify-content:center; font-size:24px; font-weight:600; flex:none; }
+  .who h1 { margin:0; font-size:22px; letter-spacing:-.01em; }
+  .who p { margin:2px 0 0; color:var(--muted); font-size:15px; }
+  .bal { margin-left:auto; text-align:right; }
+  .bal .lbl { color:var(--muted); font-size:13px; }
+  .bal .amt { font-weight:700; font-size:18px; }
+  .tabs { display:flex; background:#f0eee9; border-radius:12px; padding:5px; margin:22px 0 8px; }
+  .tabs button { flex:1; border:0; background:transparent; padding:11px; border-radius:9px; font-size:15px; font-weight:600; color:var(--muted); cursor:pointer; }
+  .tabs button.on { background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .price { text-align:center; font-size:64px; font-weight:800; letter-spacing:-.03em; margin:22px 0 4px; }
+  .sub { text-align:center; color:var(--muted); font-size:15px; margin-bottom:22px; }
+  .apple { width:100%; border:0; background:#000; color:#fff; font-size:18px; font-weight:600; padding:18px; border-radius:14px; cursor:pointer; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+  .rail { display:flex; align-items:center; gap:10px; padding:16px; border:1px solid var(--line); border-radius:14px; background:#fff; font-weight:600; cursor:pointer; }
+  .dot { width:10px; height:10px; border-radius:50%; flex:none; }
+  .div { display:flex; align-items:center; gap:14px; margin:26px 0 18px; color:var(--muted); font-size:12px; letter-spacing:.12em; font-weight:600; }
+  .div::before,.div::after { content:""; height:1px; background:var(--line); flex:1; }
+  .scan { display:flex; gap:18px; align-items:flex-start; }
+  .scan img { width:132px; height:132px; border:1px solid var(--line); border-radius:14px; }
+  .scan h3 { margin:0 0 4px; font-size:16px; }
+  .scan .chains { color:var(--muted); font-size:14px; margin:0 0 8px; }
+  .scan .addr { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:#8a8a90; }
+  .scan .wait { margin:8px 0 0; color:#b0902f; font-size:14px; display:flex; align-items:center; gap:7px; }
+  .scan .wait .dot { background:#d8b24a; }
+  .note { margin-top:24px; padding-top:20px; border-top:1px solid var(--line); color:var(--muted); font-size:13.5px; line-height:1.55; }
+  .foot { text-align:center; color:#9a9aa0; font-size:13px; margin-top:16px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="top">
+        <div class="avatar">J</div>
+        <div class="who"><h1>Design Critique w/ Jordan</h1><p>30-minute room access</p></div>
+        <div class="bal"><div class="lbl">wallet balance</div><div class="amt">$1.89</div></div>
+      </div>
+
+      <div class="tabs"><button class="on">Pay once</button><button>Fund wallet</button></div>
+
+      <div class="price">$0.05</div>
+      <div class="sub">one-time · enters the room immediately · nothing recurring</div>
+
+      <button class="apple">&#63743; Pay</button>
+      <div class="grid">
+        <div class="rail"><span class="dot" style="background:#f6851b"></span>MetaMask</div>
+        <div class="rail"><span class="dot" style="background:#1652f0"></span>Coinbase Wallet</div>
+        <div class="rail"><span class="dot" style="background:#142c8e"></span>PayPal · PYUSD</div>
+        <div class="rail"><span class="dot" style="background:#635bff"></span>Card · Stripe</div>
+      </div>
+
+      <div class="div">OR SCAN FROM ANY WALLET</div>
+      <div class="scan">
+        <img src="{{QR}}" alt="EIP-681 payment QR" />
+        <div>
+          <h3>0.05 USDC <span style="font-weight:400;color:var(--muted)">on</span> Base</h3>
+          <p class="chains">Trust · Rainbow · Gemini · Phantom · any EVM wallet</p>
+          <div class="addr">0x209693Bc6afc0C5328bA36FaF03C5…</div>
+          <p class="wait"><span class="dot"></span> Waiting for payment…</p>
+        </div>
+      </div>
+
+      <p class="note">The QR encodes a standard EIP-681 payment link. Some wallets pre-fill
+        only the address and ignore the amount — confirm <b>the amount shown above</b> before
+        sending. Wallet payments settle on-chain and you pay the network's own gas (a few cents
+        on Base). Apple Pay and card payments fund your wallet balance instead, because card
+        rails carry a fixed ~$0.30 fee that makes per-nickel charges uneconomical — fund once,
+        then drawing from the balance costs nothing to authorize.</p>
+      <p class="foot">Prototype — buttons simulate the handoff; nothing is charged.</p>
+    </div>
+  </div>
+</body>
+</html>

@@ -74,7 +74,7 @@ npm test             # runs the engine, proxy, and browser test suites
 **See it pay, in a real browser window:**
 
 ```bash
-# terminal 1 — a local x402-gated page (real 402 on the wire, mock settlement)
+# terminal 1 — a local x402-gated "room" (real 402 on the wire, mock settlement)
 node apps/browser/demo/x402-demo-server.mjs
 
 # terminal 2 — build and launch the browser
@@ -82,9 +82,13 @@ npm run build   -w @dbbasic/browser
 npm start       -w @dbbasic/browser
 ```
 
-Type `127.0.0.1:8899` into the address bar. It auto-pays $0.01 and the paywall opens;
-the spend meter in the toolbar ticks up. Open the same URL in a normal browser and
-you'll see the raw `402` instead — that side-by-side is the point.
+Type `127.0.0.1:8899` into the address bar. dbbasic-browser auto-pays $0.05 in USDC and
+drops you straight into the room; the spend meter in the toolbar ticks up.
+
+Now open the **same URL in a normal browser.** It can't pay, so it renders the 402's
+human fallback body: a checkout card with Apple Pay, MetaMask, and a QR to scan. Same
+server, same URL — one browser shows a payment card, the other shows the content. That
+contrast is the entire pitch: with x402 in the browser, the checkout screen disappears.
 
 **Or use the proxy with any browser or agent:**
 

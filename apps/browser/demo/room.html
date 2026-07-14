@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Design Critique w/ Jordan — you're in</title>
+<style>
+  * { box-sizing:border-box; }
+  html,body { margin:0; min-height:100vh; background:#0d1117; color:#e8e8ea;
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    display:flex; align-items:center; justify-content:center; }
+  .room { max-width:660px; padding:48px; }
+  .badge { display:inline-flex; align-items:center; gap:8px; background:#10240f; color:#7ee787;
+    border:1px solid #1c4a1a; padding:5px 12px; border-radius:999px; font-size:13px; margin-bottom:22px; }
+  h1 { margin:0 0 6px; font-size:32px; letter-spacing:-.02em; }
+  .host { color:#8a8a92; margin:0 0 26px; }
+  .stage { aspect-ratio:16/9; background:linear-gradient(160deg,#161b22,#0f1319);
+    border:1px solid #21262d; border-radius:16px; display:flex; align-items:center; justify-content:center;
+    color:#4a4a52; font-size:15px; margin-bottom:24px; }
+  p { color:#b8b8c0; }
+  code { background:#161b22; border:1px solid #21262d; border-radius:6px; padding:2px 7px; font-size:13px; color:#7ee787; }
+  .meta { margin-top:22px; font-size:13px; color:#6a6a72; }
+</style>
+</head>
+<body>
+  <div class="room">
+    <div class="badge">&#10003; Paid $0.05 USDC · you're in the room</div>
+    <h1>Design Critique w/ Jordan</h1>
+    <p class="host">30-minute room access · started just now</p>
+    <div class="stage">live room would render here</div>
+    <p>You never saw a checkout screen. This page returned <code>402 Payment Required</code>
+      with a machine-readable price; your browser read it, signed an EIP-3009 authorization,
+      retried with a <code>PAYMENT-SIGNATURE</code> header, and you walked straight in.</p>
+    <p>Open this same URL in a normal browser and you'll get the payment card instead — Apple Pay,
+      MetaMask, a QR to scan. That card is the fallback for browsers that can't pay for you. This
+      one can.</p>
+    <p class="meta">Demo: real x402 v2 on the wire, mock settlement (no chain, throwaway test key).</p>
+  </div>
+</body>
+</html>
