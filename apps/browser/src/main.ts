@@ -107,8 +107,12 @@ function createWindow(): void {
 app.whenReady().then(() => {
   const engine = buildEngine();
 
-  // Take over https. From here, every https request the browser makes is paid-aware.
-  protocol.handle("https", createPaymentHandler(engine));
+  // Take over https AND http. From here, every request the browser makes is
+  // paid-aware. x402 works over plain http too (the spec is transport-agnostic), and
+  // it's what lets a local http demo exercise the same path as a real https site.
+  const payHandler = createPaymentHandler(engine);
+  protocol.handle("https", payHandler);
+  protocol.handle("http", payHandler);
 
   ipcMain.handle("x402:receipts", () => engine.ledger.all());
   ipcMain.handle("x402:spent", () => formatUsd(engine.policy.spentUsdMicro()));
