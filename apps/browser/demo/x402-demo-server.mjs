@@ -56,11 +56,22 @@ function challenge({ path, error, amount, asset = USDC_SEPOLIA }) {
 
 // ---- shared HTML shells ----------------------------------------------------
 
+// A persistent nav so you can click through the gallery and watch each navigation
+// trigger a different payer decision (pay / prompt / refuse / free) in the inspector.
+const NAV = `<nav class="nav">
+  <a href="/">gallery</a>
+  <a href="/room">room · $0.05</a>
+  <a href="/article">article · $0.001</a>
+  <a href="/premium">premium · $0.50</a>
+  <a href="/unknown">unknown · ✕</a>
+  <a href="/free">free</a>
+</nav>`;
+
 const shell = (title, body, bg = "#eceae4") => `<!doctype html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title><style>
 *{box-sizing:border-box}html,body{margin:0;background:${bg};font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1a1a1e}
-a{color:inherit}.wrap{min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px}
+a{color:inherit}.wrap{min-height:calc(100vh - 46px);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px}
 .card{width:100%;max-width:520px;background:#fff;border-radius:22px;padding:34px;box-shadow:0 30px 80px rgba(0,0,0,.12)}
 .price{text-align:center;font-size:60px;font-weight:800;letter-spacing:-.03em;margin:14px 0 2px}
 .sub{text-align:center;color:#6a6a72;margin-bottom:22px}
@@ -68,7 +79,10 @@ a{color:inherit}.wrap{min-height:100vh;display:flex;align-items:flex-start;justi
 .dot{width:10px;height:10px;border-radius:50%}
 .tag{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;margin-bottom:14px}
 .foot{text-align:center;color:#9a9aa0;font-size:13px;margin-top:18px}
-</style></head><body>${body}</body></html>`;
+.nav{display:flex;gap:4px;flex-wrap:wrap;align-items:center;padding:8px 14px;background:rgba(255,255,255,.7);backdrop-filter:blur(8px);border-bottom:1px solid #dedcd6;position:sticky;top:0;font-size:13px}
+.nav a{text-decoration:none;color:#4a4a52;padding:5px 10px;border-radius:7px}
+.nav a:hover{background:#00000010}
+</style></head><body>${NAV}${body}</body></html>`;
 
 /** Generic human-facing 402 card for the non-flagship examples. */
 function genericCard({ title, priceLabel, blurb, tagText, tagColor }) {
@@ -186,9 +200,26 @@ const INDEX = shell(
 createServer((req, res) => {
   const path = (req.url || "/").split("?")[0];
 
-  if (path === "/" ) {
+  if (path === "/") {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(INDEX);
+    return;
+  }
+
+  if (path === "/free") {
+    // A normal 200 — no 402, no payment. Navigate here and the meter doesn't move.
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(
+      shell(
+        "Free page",
+        `<div class="wrap"><div class="card">
+          <span class="tag" style="background:#e9e7e0;color:#6a6a72">free · no 402</span>
+          <h1 style="margin:0 0 6px;font-size:24px">This page is free</h1>
+          <p style="margin:0;color:#6a6a72">It returns a plain <b>200 OK</b> — no payment required, nothing
+            in the inspector, the spend meter stays put. Click a paid page above and watch the difference.</p>
+        </div></div>`,
+      ),
+    );
     return;
   }
 

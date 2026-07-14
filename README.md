@@ -91,9 +91,11 @@ pages, each designed to trigger a different payer decision:
 | Paywalled article | $0.001 | auto-pays |
 | Premium report | $0.50 | **asks first** (over the auto-approve threshold) |
 | Unknown token | — | **refuses** (asset not in the pinned registry) |
+| Free page | — | loads normally, pays nothing |
 
-Click through them: three pay or prompt, one is refused, and the spend meter only moves
-for the ones that settle. Now open the **same gallery in a normal browser** — it can't
+The pages are linked, so click through them and watch the toolbar: three pay or prompt,
+one is refused, one is free — and the spend meter only moves for the ones that settle.
+Open the **⚡x402 inspector** in the toolbar to see each challenge, decision, and receipt. Now open the **same gallery in a normal browser** — it can't
 pay, so every page renders its human fallback body (a checkout card with Apple Pay,
 MetaMask, a QR). One browser shows payment cards; the other shows the content. That
 contrast is the entire pitch — and because each page exercises a distinct code path,
