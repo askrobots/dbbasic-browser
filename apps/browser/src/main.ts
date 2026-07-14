@@ -61,29 +61,55 @@ function buildEngine(): X402Engine {
       return response === 0;
     },
     onEvent: (e) => {
-      if (e.type === "paid") {
+      // One structured event stream drives both the toolbar (meter/toasts) and the
+      // per-tab inspector. All bigints are pre-formatted so IPC stays plain JSON.
+      const send = (payload: Record<string, unknown>) =>
+        mainWindow?.webContents.send("x402:event", payload);
+
+      if (e.type === "quoted") {
+        // Price-before-paying: the 402 is free, so we can report cost before paying.
+        send({
+          kind: "quoted",
+          resource: e.resourceUrl,
+          quotes: e.quotes.map((q) => ({
+            scheme: q.requirements.scheme,
+            network: q.requirements.network,
+            asset: q.assetSymbol,
+            assetAddress: q.requirements.asset,
+            amountAtomic: q.requirements.amount,
+            price: formatUsd(q.priceUsdMicro),
+            payTo: q.requirements.payTo,
+            maxTimeoutSeconds: q.requirements.maxTimeoutSeconds,
+          })),
+          rejected: e.rejected,
+        });
+      } else if (e.type === "decided") {
+        send({
+          kind: "decided",
+          resource: e.resourceUrl,
+          action: e.verdict.action, // allow | prompt | deny
+          reason: e.verdict.reason,
+          price: formatUsd(e.quote.priceUsdMicro),
+          asset: e.quote.assetSymbol,
+        });
+      } else if (e.type === "paid") {
         const r = e.receipt;
-        mainWindow?.webContents.send("x402:event", {
+        send({
           kind: "paid",
+          resource: r.resourceUrl,
           amount: formatUsd(r.priceUsdMicro),
           asset: r.assetSymbol,
           dest: r.destOrigin,
+          network: r.network,
+          payTo: r.payTo,
+          nonce: r.nonce,
+          validBefore: r.validBefore,
           status: r.status,
           tx: r.txHash ?? null,
           totalSpent: formatUsd(policy.spentUsdMicro()),
         });
       } else if (e.type === "skipped") {
-        mainWindow?.webContents.send("x402:event", { kind: "skipped", resource: e.resourceUrl, reason: e.reason });
-      } else if (e.type === "quoted" && e.quotes.length > 0) {
-        // Price-before-paying: the 402 itself is free, so we can always tell the user
-        // the cost before any payment is made.
-        const cheapest = e.quotes.reduce((a, b) => (b.priceUsdMicro < a.priceUsdMicro ? b : a));
-        mainWindow?.webContents.send("x402:event", {
-          kind: "quoted",
-          resource: e.resourceUrl,
-          price: formatUsd(cheapest.priceUsdMicro),
-          asset: cheapest.assetSymbol,
-        });
+        send({ kind: "skipped", resource: e.resourceUrl, reason: e.reason });
       }
     },
   });

@@ -11,11 +11,36 @@
       #bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #26262b; border-bottom: 1px solid #000; }
       #url { flex: 1; padding: 7px 12px; border-radius: 7px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; font-size: 13px; }
       #url:focus { outline: none; border-color: #5b8cff; }
-      .btn { padding: 7px 10px; border-radius: 7px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; cursor: pointer; }
+      .btn { padding: 7px 10px; border-radius: 7px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; cursor: pointer; white-space: nowrap; }
       .btn:hover { background: #1c1c20; }
+      .btn.on { background: #23324e; border-color: #3a5a9a; color: #cde0ff; }
+      #inspectBtn { position: relative; }
+      #inspectCount { position: absolute; top: -6px; right: -6px; background: #5b8cff; color: #fff; border-radius: 999px; font-size: 10px; min-width: 16px; height: 16px; padding: 0 4px; display: none; align-items: center; justify-content: center; }
       #meter { font-variant-numeric: tabular-nums; padding: 6px 10px; border-radius: 7px; background: #10240f; color: #7ee787; border: 1px solid #1c4a1a; white-space: nowrap; }
       #meter.zero { background: #131316; color: #8a8a90; border-color: #2a2a30; }
-      #page { flex: 1; border: 0; width: 100%; background: #fff; }
+      #main { flex: 1; display: flex; min-height: 0; }
+      #page { flex: 1; border: 0; height: 100%; background: #fff; }
+      #inspector { width: 400px; flex: none; background: #17171b; border-left: 1px solid #000; display: none; flex-direction: column; }
+      #inspector.open { display: flex; }
+      #insHead { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2a2a30; font-weight: 600; }
+      #insHead .sub { color: #8a8a90; font-weight: 400; font-size: 12px; margin-left: auto; }
+      #insList { overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+      #insEmpty { color: #6a6a72; padding: 24px 12px; text-align: center; font-size: 12px; line-height: 1.6; }
+      .row { background: #1e1e24; border: 1px solid #2a2a30; border-radius: 9px; overflow: hidden; }
+      .row > .top { display: flex; align-items: center; gap: 8px; padding: 9px 11px; cursor: pointer; }
+      .row .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: #c8c8ce; }
+      .row .price { font-variant-numeric: tabular-nums; color: #e8e8ea; }
+      .pill { font-size: 10.5px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+      .pill.paid { background: #10240f; color: #7ee787; }
+      .pill.quoted { background: #201a0a; color: #f0c674; }
+      .pill.prompt { background: #1a2033; color: #9ab4ff; }
+      .pill.refused { background: #241010; color: #ff9a9a; }
+      .detail { display: none; border-top: 1px solid #2a2a30; padding: 9px 11px; font-size: 11.5px; }
+      .row.open .detail { display: block; }
+      .detail dl { display: grid; grid-template-columns: 96px 1fr; gap: 3px 10px; margin: 0; }
+      .detail dt { color: #7a7a82; }
+      .detail dd { margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 11px; word-break: break-all; color: #cdcdd3; }
+      .detail .step { margin: 8px 0 2px; color: #8a8a90; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; font-size: 10px; }
       #toast { position: fixed; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 10; }
       .note { padding: 8px 12px; border-radius: 8px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.4); animation: in .15s ease-out; }
       .note.paid { background: #10240f; color: #7ee787; border: 1px solid #1c4a1a; }
@@ -28,10 +53,17 @@
     <div id="bar">
       <button class="btn" id="back">‹</button>
       <button class="btn" id="fwd">›</button>
-      <input id="url" placeholder="Enter a URL — https:// requests are x402 pay-aware" spellcheck="false" />
+      <input id="url" placeholder="Enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
+      <button class="btn" id="inspectBtn" title="x402 inspector">⚡ x402<span id="inspectCount">0</span></button>
       <div id="meter" class="zero" title="Total paid this session">$0.00</div>
     </div>
-    <webview id="page" src="about:blank"></webview>
+    <div id="main">
+      <webview id="page" src="about:blank"></webview>
+      <div id="inspector">
+        <div id="insHead">x402 inspector <span class="sub" id="insSub">this page</span></div>
+        <div id="insList"><div id="insEmpty">No x402 activity yet.<br />Load a page that returns 402 Payment Required — every challenge, decision, and payment shows up here.</div></div>
+      </div>
+    </div>
     <div id="toast"></div>
 
     <script>
@@ -45,15 +77,14 @@
         if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) {
           // Default to https, but loopback and private-LAN dev hosts are almost always
           // http — forcing https there just fails the handshake and shows a blank page.
-          // (Proper fix later: try https, fall back to http on connection failure.)
           const host = u.split("/")[0].split(":")[0];
           const isLocal =
             host === "localhost" ||
             host.endsWith(".local") ||
-            /^127(\.\d+){3}$/.test(host) || // loopback
-            /^10(\.\d+){3}$/.test(host) || // 10.0.0.0/8
-            /^192\.168(\.\d+){2}$/.test(host) || // 192.168.0.0/16
-            /^172\.(1[6-9]|2\d|3[01])(\.\d+){2}$/.test(host); // 172.16.0.0/12
+            /^127(\.\d+){3}$/.test(host) ||
+            /^10(\.\d+){3}$/.test(host) ||
+            /^192\.168(\.\d+){2}$/.test(host) ||
+            /^172\.(1[6-9]|2\d|3[01])(\.\d+){2}$/.test(host);
           u = (isLocal ? "http://" : "https://") + u;
         }
         urlInput.value = u;
@@ -62,6 +93,12 @@
       urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") go(urlInput.value); });
       $("back").onclick = () => page.canGoBack() && page.goBack();
       $("fwd").onclick = () => page.canGoForward() && page.goForward();
+      // Reset the inspector when navigation STARTS — the page's payment events fire
+      // during the load, so resetting on did-navigate (after) would wipe the very
+      // entries that belong to this page.
+      page.addEventListener("did-start-navigation", (e) => {
+        if (e.isMainFrame && !e.isInPlace) resetInspector();
+      });
       page.addEventListener("did-navigate", (e) => { urlInput.value = e.url; });
 
       function toast(cls, text, ms = 4000) {
@@ -72,15 +109,122 @@
         setTimeout(() => n.remove(), ms);
       }
 
+      // ---- inspector -------------------------------------------------------
+      const rows = new Map(); // resource URL -> accumulated lifecycle
+      let inspectorOpen = false;
+      let userClosed = false; // once the user closes it on a page, stop auto-opening
+
+      function setInspector(open) {
+        inspectorOpen = open;
+        $("inspector").classList.toggle("open", open);
+        $("inspectBtn").classList.toggle("on", open);
+      }
+      $("inspectBtn").onclick = () => {
+        setInspector(!inspectorOpen);
+        userClosed = !inspectorOpen;
+      };
+
+      function resetInspector() {
+        rows.clear();
+        userClosed = false; // new page — allow auto-open again
+        renderInspector();
+      }
+
+      function cheapest(quotes) {
+        return (quotes || []).reduce((a, b) => (!a || parseFloat(b.price.replace("$","")) < parseFloat(a.price.replace("$","")) ? b : a), null);
+      }
+
+      function statusOf(e) {
+        if (e.outcome === "paid") return { cls: "paid", label: e.paidStatus === "delivered" ? "paid" : (e.paidStatus || "paid") };
+        if (e.outcome === "skipped") {
+          const r = (e.skipReason || "").toLowerCase();
+          if (r.includes("declined by user")) return { cls: "refused", label: "you declined" };
+          if (r.includes("unknown asset") || r.includes("cannot price") || r.includes("not allowed") || r.includes("scheme")) return { cls: "refused", label: "refused" };
+          return { cls: "refused", label: "skipped" };
+        }
+        if (e.decision === "prompt") return { cls: "prompt", label: "waiting…" };
+        if (e.decision === "deny") return { cls: "refused", label: "refused" };
+        if (e.quote) return { cls: "quoted", label: "quoted" };
+        return { cls: "quoted", label: "…" };
+      }
+
+      function shortPath(u) {
+        try { const x = new URL(u); return x.host + x.pathname; } catch { return u; }
+      }
+
+      function renderInspector() {
+        const list = $("insList");
+        const count = rows.size;
+        const badge = $("inspectCount");
+        badge.textContent = count;
+        badge.style.display = count ? "flex" : "none";
+        $("insSub").textContent = count ? `${count} on this page` : "this page";
+
+        if (count === 0) {
+          list.innerHTML = '<div id="insEmpty">No x402 activity yet.<br />Load a page that returns 402 Payment Required — every challenge, decision, and payment shows up here.</div>';
+          return;
+        }
+        list.innerHTML = "";
+        for (const e of rows.values()) {
+          const st = statusOf(e);
+          const q = e.quote;
+          const row = document.createElement("div");
+          row.className = "row";
+          row.innerHTML =
+            `<div class="top">
+               <span class="path" title="${e.resource}">${shortPath(e.resource)}</span>
+               <span class="price">${q ? q.price : "—"}</span>
+               <span class="pill ${st.cls}">${st.label}</span>
+             </div>
+             <div class="detail">
+               <div class="step">Challenge</div>
+               <dl>
+                 <dt>scheme</dt><dd>${q ? q.scheme : "—"}</dd>
+                 <dt>network</dt><dd>${q ? q.network : "—"}</dd>
+                 <dt>asset</dt><dd>${q ? q.asset + " · " + q.assetAddress : "—"}</dd>
+                 <dt>amount</dt><dd>${q ? q.amountAtomic + " atomic" : "—"}</dd>
+                 <dt>pay to</dt><dd>${q ? q.payTo : "—"}</dd>
+                 <dt>max ttl</dt><dd>${q ? q.maxTimeoutSeconds + "s" : "—"}</dd>
+               </dl>
+               <div class="step">Decision</div>
+               <dl><dt>action</dt><dd>${e.decision || "—"}</dd><dt>reason</dt><dd>${e.reason || "—"}</dd></dl>
+               ${e.outcome === "paid" ? `<div class="step">Settlement</div>
+                 <dl>
+                   <dt>status</dt><dd>${e.paidStatus}</dd>
+                   <dt>nonce</dt><dd>${e.nonce || "—"}</dd>
+                   <dt>valid&lt;</dt><dd>${e.validBefore ? new Date(e.validBefore*1000).toLocaleTimeString() : "—"}</dd>
+                   <dt>tx</dt><dd>${e.tx || "(mock / pending)"}</dd>
+                 </dl>` : ""}
+               ${e.rejected && e.rejected.length ? `<div class="step">Rejected options</div><dl><dt>—</dt><dd>${e.rejected.join("<br>")}</dd></dl>` : ""}
+             </div>`;
+          row.querySelector(".top").onclick = () => row.classList.toggle("open");
+          list.appendChild(row);
+        }
+      }
+
+      function upsert(resource, patch) {
+        const e = rows.get(resource) || { resource };
+        Object.assign(e, patch);
+        rows.set(resource, e);
+        if (!inspectorOpen && !userClosed) setInspector(true); // surface payment activity
+        renderInspector();
+      }
+
       window.x402.onEvent((ev) => {
-        if (ev.kind === "paid") {
+        if (ev.kind === "quoted") {
+          const c = cheapest(ev.quotes);
+          upsert(ev.resource, { quote: c, rejected: ev.rejected });
+          if (c) toast("quoted", `Price: ${c.price} ${c.asset} — ${shortPath(ev.resource)}`, 2500);
+        } else if (ev.kind === "decided") {
+          upsert(ev.resource, { decision: ev.action, reason: ev.reason });
+        } else if (ev.kind === "paid") {
           const meter = $("meter");
           meter.textContent = ev.totalSpent;
           meter.classList.toggle("zero", ev.totalSpent === "$0.00");
+          upsert(ev.resource, { outcome: "paid", paidStatus: ev.status, nonce: ev.nonce, validBefore: ev.validBefore, tx: ev.tx });
           toast("paid", `Paid ${ev.amount} ${ev.asset} → ${new URL(ev.dest).host}${ev.tx ? " ✓" : ""}`);
-        } else if (ev.kind === "quoted") {
-          toast("quoted", `Price: ${ev.price} ${ev.asset} — ${new URL(ev.resource).host}`, 2500);
         } else if (ev.kind === "skipped") {
+          upsert(ev.resource, { outcome: "skipped", skipReason: ev.reason });
           toast("skipped", `Skipped: ${ev.reason}`);
         }
       });
@@ -91,7 +235,6 @@
         meter.classList.toggle("zero", s === "$0.00");
       });
 
-      // Open the homepage (HOMEPAGE env), if one was provided, else stay on about:blank.
       if (window.x402.homepage) go(window.x402.homepage);
       urlInput.focus();
     </script>
