@@ -127,8 +127,9 @@ export class X402Engine {
       topOrigin,
       destOrigin,
       resourceUrl,
-      nonce: payload.payload.authorization.nonce,
-      validBefore: payload.payload.authorization.validBefore,
+      requestedUrl: request.url,
+      authorization: payload.payload.authorization,
+      signature: payload.payload.signature,
     });
     this.policy.record(quote, ctx);
 

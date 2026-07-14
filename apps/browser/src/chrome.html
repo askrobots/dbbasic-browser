@@ -47,6 +47,7 @@
       .detail dl { display: grid; grid-template-columns: 96px 1fr; gap: 3px 10px; margin: 0; }
       .detail dt { color: #7a7a82; }
       .detail dd { margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 11px; word-break: break-all; color: #cdcdd3; }
+      .detail dd.warn { color: #f0c674; }
       .detail .step { margin: 8px 0 2px; color: #8a8a90; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; font-size: 10px; }
       #toast { position: fixed; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 10; }
       .note { padding: 8px 12px; border-radius: 8px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.4); animation: in .15s ease-out; }
@@ -251,6 +252,11 @@
                <span class="pill ${st.cls}">${st.label}</span>
              </div>
              <div class="detail">
+               <div class="step">Request</div>
+               <dl>
+                 <dt>requested</dt><dd>${e.requested || e.resource}</dd>
+                 ${e.requested && e.requested !== e.resource ? `<dt>402 claims</dt><dd class="warn">${e.resource}</dd>` : ""}
+               </dl>
                <div class="step">Challenge</div>
                <dl>
                  <dt>scheme</dt><dd>${q ? q.scheme : "—"}</dd>
@@ -262,11 +268,18 @@
                </dl>
                <div class="step">Decision</div>
                <dl><dt>action</dt><dd>${e.decision || "—"}</dd><dt>reason</dt><dd>${e.reason || "—"}</dd></dl>
+               ${e.outcome === "paid" && e.auth ? `<div class="step">Signed authorization (EIP-3009)</div>
+                 <dl>
+                   <dt>from</dt><dd>${e.auth.from}</dd>
+                   <dt>to</dt><dd>${e.auth.to}</dd>
+                   <dt>value</dt><dd>${e.auth.value} atomic</dd>
+                   <dt>valid</dt><dd>${new Date(e.auth.validAfter*1000).toLocaleTimeString()} – ${new Date(e.auth.validBefore*1000).toLocaleTimeString()}</dd>
+                   <dt>nonce</dt><dd>${e.nonce || "—"}</dd>
+                   <dt>signature</dt><dd>${e.signature ? e.signature.slice(0,42) + "…" : "—"}</dd>
+                 </dl>` : ""}
                ${e.outcome === "paid" ? `<div class="step">Settlement</div>
                  <dl>
                    <dt>status</dt><dd>${e.paidStatus}</dd>
-                   <dt>nonce</dt><dd>${e.nonce || "—"}</dd>
-                   <dt>valid&lt;</dt><dd>${e.validBefore ? new Date(e.validBefore*1000).toLocaleTimeString() : "—"}</dd>
                    <dt>tx</dt><dd>${e.tx || "(mock / pending)"}</dd>
                  </dl>` : ""}
                ${e.rejected && e.rejected.length ? `<div class="step">Rejected options</div><dl><dt>—</dt><dd>${e.rejected.join("<br>")}</dd></dl>` : ""}
@@ -310,7 +323,7 @@
           const meter = $("meter");
           meter.textContent = ev.totalSpent;
           meter.classList.toggle("zero", ev.totalSpent === "$0.00");
-          upsert(ev.resource, { outcome: "paid", paidStatus: ev.status, nonce: ev.nonce, validBefore: ev.validBefore, tx: ev.tx });
+          upsert(ev.resource, { outcome: "paid", paidStatus: ev.status, nonce: ev.nonce, validBefore: ev.validBefore, tx: ev.tx, requested: ev.requested, auth: ev.auth, signature: ev.signature });
           logHistory(ev.resource);
           toast("paid", `Paid ${ev.amount} ${ev.asset} → ${new URL(ev.dest).host}${ev.tx ? " ✓" : ""}`);
         } else if (ev.kind === "skipped") {

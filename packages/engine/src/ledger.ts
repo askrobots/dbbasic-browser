@@ -8,7 +8,7 @@
  * visible instead of vanishing.
  */
 
-import type { Quote, SettlementResponse } from "./types.js";
+import type { Eip3009Authorization, Quote, SettlementResponse } from "./types.js";
 
 export type ReceiptStatus = "signed" | "settled" | "delivered" | "failed";
 
@@ -17,13 +17,19 @@ export interface Receipt {
   at: number;
   topOrigin: string;
   destOrigin: string;
+  /** The URL the server's 402 claimed as the resource (challenge.resource.url). */
   resourceUrl: string;
+  /** The URL we actually requested. Can differ from resourceUrl — worth surfacing. */
+  requestedUrl: string;
   priceUsdMicro: bigint;
   assetSymbol: string;
   network: string;
   payTo: string;
   nonce: string;
   validBefore: number;
+  /** The full signed authorization and its signature, for inspection. */
+  authorization?: Eip3009Authorization;
+  signature?: string;
   status: ReceiptStatus;
   txHash?: string;
   error?: string;
@@ -40,8 +46,9 @@ export class Ledger {
     topOrigin: string;
     destOrigin: string;
     resourceUrl: string;
-    nonce: string;
-    validBefore: string;
+    requestedUrl: string;
+    authorization: Eip3009Authorization;
+    signature: string;
   }): Receipt {
     const r: Receipt = {
       id: `rcpt_${++this.seq}`,
@@ -49,12 +56,15 @@ export class Ledger {
       topOrigin: args.topOrigin,
       destOrigin: args.destOrigin,
       resourceUrl: args.resourceUrl,
+      requestedUrl: args.requestedUrl,
       priceUsdMicro: args.quote.priceUsdMicro,
       assetSymbol: args.quote.assetSymbol,
       network: args.quote.requirements.network,
       payTo: args.quote.requirements.payTo,
-      nonce: args.nonce,
-      validBefore: Number(args.validBefore),
+      nonce: args.authorization.nonce,
+      validBefore: Number(args.authorization.validBefore),
+      authorization: args.authorization,
+      signature: args.signature,
       status: "signed",
     };
     this.receipts.push(r);

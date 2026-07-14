@@ -97,6 +97,7 @@ function buildEngine(): X402Engine {
         send({
           kind: "paid",
           resource: r.resourceUrl,
+          requested: r.requestedUrl,
           amount: formatUsd(r.priceUsdMicro),
           asset: r.assetSymbol,
           dest: r.destOrigin,
@@ -104,6 +105,16 @@ function buildEngine(): X402Engine {
           payTo: r.payTo,
           nonce: r.nonce,
           validBefore: r.validBefore,
+          auth: r.authorization
+            ? {
+                from: r.authorization.from,
+                to: r.authorization.to,
+                value: r.authorization.value,
+                validAfter: r.authorization.validAfter,
+                validBefore: r.authorization.validBefore,
+              }
+            : null,
+          signature: r.signature ?? null,
           status: r.status,
           tx: r.txHash ?? null,
           totalSpent: formatUsd(policy.spentUsdMicro()),
