@@ -2,7 +2,12 @@
 // CommonJS on purpose — preload runs before the ESM app and stays tiny and sandbox-safe.
 const { contextBridge, ipcRenderer } = require("electron");
 
+const homepageArg = process.argv.find((a) => a.startsWith("--homepage="));
+const homepage = homepageArg ? homepageArg.slice("--homepage=".length) : "";
+
 contextBridge.exposeInMainWorld("x402", {
+  /** Optional URL to open on startup (from the HOMEPAGE env var), or "". */
+  homepage,
   /** Subscribe to payment events (paid / skipped / quoted). Returns an unsubscribe fn. */
   onEvent(callback) {
     const listener = (_event, payload) => callback(payload);

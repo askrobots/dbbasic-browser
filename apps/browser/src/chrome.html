@@ -42,7 +42,13 @@
       function go(raw) {
         let u = raw.trim();
         if (!u) return;
-        if (!/^https?:\/\//.test(u)) u = "https://" + u;
+        if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) {
+          // Default to https, but loopback/dev hosts are almost always http — forcing
+          // https there just fails the TLS handshake and shows a blank page.
+          const host = u.split("/")[0].split(":")[0];
+          const isLocal = host === "localhost" || /^127(\.\d+){3}$/.test(host) || host.endsWith(".local");
+          u = (isLocal ? "http://" : "https://") + u;
+        }
         urlInput.value = u;
         page.src = u;
       }
@@ -77,6 +83,10 @@
         meter.textContent = s;
         meter.classList.toggle("zero", s === "$0.00");
       });
+
+      // Open the homepage (HOMEPAGE env), if one was provided, else stay on about:blank.
+      if (window.x402.homepage) go(window.x402.homepage);
+      urlInput.focus();
     </script>
   </body>
 </html>

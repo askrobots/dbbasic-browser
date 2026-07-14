@@ -98,6 +98,7 @@ function createWindow(): void {
       webviewTag: true, // the page renders in a <webview>; chrome is the host document
       contextIsolation: true,
       nodeIntegration: false,
+      additionalArguments: [`--homepage=${process.env.HOMEPAGE ?? ""}`],
     },
   });
   mainWindow.loadFile(join(__dirname, "chrome.html"));
