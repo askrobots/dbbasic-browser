@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>dbbasic-browser</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; font: 13px -apple-system, system-ui, sans-serif; }
+      body { display: flex; flex-direction: column; background: #1e1e22; color: #e8e8ea; }
+      #bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #26262b; border-bottom: 1px solid #000; }
+      #url { flex: 1; padding: 7px 12px; border-radius: 7px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; font-size: 13px; }
+      #url:focus { outline: none; border-color: #5b8cff; }
+      .btn { padding: 7px 10px; border-radius: 7px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; cursor: pointer; }
+      .btn:hover { background: #1c1c20; }
+      #meter { font-variant-numeric: tabular-nums; padding: 6px 10px; border-radius: 7px; background: #10240f; color: #7ee787; border: 1px solid #1c4a1a; white-space: nowrap; }
+      #meter.zero { background: #131316; color: #8a8a90; border-color: #2a2a30; }
+      #page { flex: 1; border: 0; width: 100%; background: #fff; }
+      #toast { position: fixed; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 10; }
+      .note { padding: 8px 12px; border-radius: 8px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.4); animation: in .15s ease-out; }
+      .note.paid { background: #10240f; color: #7ee787; border: 1px solid #1c4a1a; }
+      .note.quoted { background: #201a0a; color: #f0c674; border: 1px solid #4a3a12; }
+      .note.skipped { background: #241010; color: #ff9a9a; border: 1px solid #4a1a1a; }
+      @keyframes in { from { opacity: 0; transform: translateY(6px); } }
+    </style>
+  </head>
+  <body>
+    <div id="bar">
+      <button class="btn" id="back">‹</button>
+      <button class="btn" id="fwd">›</button>
+      <input id="url" placeholder="Enter a URL — https:// requests are x402 pay-aware" spellcheck="false" />
+      <div id="meter" class="zero" title="Total paid this session">$0.00</div>
+    </div>
+    <webview id="page" src="about:blank"></webview>
+    <div id="toast"></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const page = $("page");
+      const urlInput = $("url");
+
+      function go(raw) {
+        let u = raw.trim();
+        if (!u) return;
+        if (!/^https?:\/\//.test(u)) u = "https://" + u;
+        urlInput.value = u;
+        page.src = u;
+      }
+      urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") go(urlInput.value); });
+      $("back").onclick = () => page.canGoBack() && page.goBack();
+      $("fwd").onclick = () => page.canGoForward() && page.goForward();
+      page.addEventListener("did-navigate", (e) => { urlInput.value = e.url; });
+
+      function toast(cls, text, ms = 4000) {
+        const n = document.createElement("div");
+        n.className = "note " + cls;
+        n.textContent = text;
+        $("toast").appendChild(n);
+        setTimeout(() => n.remove(), ms);
+      }
+
+      window.x402.onEvent((ev) => {
+        if (ev.kind === "paid") {
+          const meter = $("meter");
+          meter.textContent = ev.totalSpent;
+          meter.classList.toggle("zero", ev.totalSpent === "$0.00");
+          toast("paid", `Paid ${ev.amount} ${ev.asset} → ${new URL(ev.dest).host}${ev.tx ? " ✓" : ""}`);
+        } else if (ev.kind === "quoted") {
+          toast("quoted", `Price: ${ev.price} ${ev.asset} — ${new URL(ev.resource).host}`, 2500);
+        } else if (ev.kind === "skipped") {
+          toast("skipped", `Skipped: ${ev.reason}`);
+        }
+      });
+
+      window.x402.spent().then((s) => {
+        const meter = $("meter");
+        meter.textContent = s;
+        meter.classList.toggle("zero", s === "$0.00");
+      });
+    </script>
+  </body>
+</html>
