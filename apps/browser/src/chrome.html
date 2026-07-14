@@ -406,7 +406,17 @@
         }
       };
 
-      if (window.x402.homepage) go(window.x402.homepage);
+      // Load the homepage once the webview is actually ready to navigate. Setting
+      // page.src at parse time races the <webview>'s own async init, which can
+      // re-apply its original src="about:blank" and leave us stranded there.
+      let homeLoaded = false;
+      function loadHome() {
+        if (homeLoaded || !window.x402.homepage) return;
+        homeLoaded = true;
+        go(window.x402.homepage);
+      }
+      page.addEventListener("dom-ready", loadHome);   // fires when the webview is ready
+      setTimeout(loadHome, 600);                       // fallback if dom-ready already fired
       urlInput.focus();
     </script>
   </body>
