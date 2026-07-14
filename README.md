@@ -82,13 +82,22 @@ npm run build   -w @dbbasic/browser
 npm start       -w @dbbasic/browser
 ```
 
-Type `127.0.0.1:8899` into the address bar. dbbasic-browser auto-pays $0.05 in USDC and
-drops you straight into the room; the spend meter in the toolbar ticks up.
+Type `127.0.0.1:8899` into the address bar. It's a small **gallery** of x402-gated
+pages, each designed to trigger a different payer decision:
 
-Now open the **same URL in a normal browser.** It can't pay, so it renders the 402's
-human fallback body: a checkout card with Apple Pay, MetaMask, and a QR to scan. Same
-server, same URL — one browser shows a payment card, the other shows the content. That
-contrast is the entire pitch: with x402 in the browser, the checkout screen disappears.
+| Page | Price | dbbasic-browser does |
+|------|-------|----------------------|
+| Room w/ Jordan | $0.05 | auto-pays, opens the room |
+| Paywalled article | $0.001 | auto-pays |
+| Premium report | $0.50 | **asks first** (over the auto-approve threshold) |
+| Unknown token | — | **refuses** (asset not in the pinned registry) |
+
+Click through them: three pay or prompt, one is refused, and the spend meter only moves
+for the ones that settle. Now open the **same gallery in a normal browser** — it can't
+pay, so every page renders its human fallback body (a checkout card with Apple Pay,
+MetaMask, a QR). One browser shows payment cards; the other shows the content. That
+contrast is the entire pitch — and because each page exercises a distinct code path,
+the gallery doubles as a functional test rig for the payer.
 
 **Or use the proxy with any browser or agent:**
 
