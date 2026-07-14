@@ -18,6 +18,9 @@
       #inspectCount { position: absolute; top: -6px; right: -6px; background: #5b8cff; color: #fff; border-radius: 999px; font-size: 10px; min-width: 16px; height: 16px; padding: 0 4px; display: none; align-items: center; justify-content: center; }
       #meter { font-variant-numeric: tabular-nums; padding: 6px 10px; border-radius: 7px; background: #10240f; color: #7ee787; border: 1px solid #1c4a1a; white-space: nowrap; }
       #meter.zero { background: #131316; color: #8a8a90; border-color: #2a2a30; }
+      #bal { font-variant-numeric: tabular-nums; padding: 6px 10px; border-radius: 7px; background: #131316; color: #8a8a90; border: 1px solid #2a2a30; white-space: nowrap; cursor: pointer; }
+      #bal.funded { color: #cde0ff; border-color: #3a5a9a; }
+      #bal:hover { background: #1c1c20; }
       #main { flex: 1; display: flex; min-height: 0; }
       #page { flex: 1; border: 0; height: 100%; background: #fff; }
       #inspector { width: 400px; flex: none; background: #17171b; border-left: 1px solid #000; display: none; flex-direction: column; }
@@ -64,6 +67,8 @@
       <input id="url" placeholder="Enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
       <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
       <button class="btn" id="inspectBtn" title="x402 inspector">⚡ x402<span id="inspectCount">0</span></button>
+      <div id="bal" class="chip" title="Wallet USDC on Base Sepolia — click to copy address">◈ —</div>
+      <button class="btn" id="fundBtn" title="Copy address + open the faucet">Fund</button>
       <div id="meter" class="zero" title="Total paid this session">$0.00</div>
     </div>
     <div id="main">
@@ -340,6 +345,25 @@
         meter.textContent = s;
         meter.classList.toggle("zero", s === "$0.00");
       });
+
+      // ---- wallet balance + funding ----------------------------------------
+      let walletAddress = "";
+      window.x402.wallet().then(({ address }) => { walletAddress = address || ""; });
+      window.x402.onBalance(({ usdc, address }) => {
+        walletAddress = address || walletAddress;
+        const b = $("bal");
+        b.textContent = usdc == null ? "◈ —" : "◈ " + usdc + " USDC";
+        b.classList.toggle("funded", usdc != null && parseFloat(usdc) > 0);
+      });
+      $("bal").onclick = async () => {
+        if (!walletAddress) return;
+        await window.x402.copy(walletAddress);
+        toast("quoted", "Address copied: " + walletAddress.slice(0, 12) + "…", 2200);
+      };
+      $("fundBtn").onclick = () => {
+        window.x402.fund();
+        toast("quoted", "Address copied — faucet opened in your browser. Pick Base Sepolia.", 4500);
+      };
 
       if (window.x402.homepage) go(window.x402.homepage);
       urlInput.focus();

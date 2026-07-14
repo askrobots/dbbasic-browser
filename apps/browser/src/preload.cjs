@@ -22,4 +22,22 @@ contextBridge.exposeInMainWorld("x402", {
   receipts() {
     return ipcRenderer.invoke("x402:receipts");
   },
+  /** Subscribe to wallet balance updates ({usdc, address}). */
+  onBalance(callback) {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("x402:balance", listener);
+    return () => ipcRenderer.removeListener("x402:balance", listener);
+  },
+  /** The wallet address ({address}). */
+  wallet() {
+    return ipcRenderer.invoke("x402:wallet");
+  },
+  /** Copy text to the clipboard. */
+  copy(text) {
+    return ipcRenderer.invoke("x402:copy", text);
+  },
+  /** Copy the address and open the faucet in the OS browser. */
+  fund() {
+    return ipcRenderer.invoke("x402:fund");
+  },
 });

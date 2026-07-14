@@ -9,23 +9,66 @@
  *   - stream payment events to the chrome UI for the live spend meter.
  */
 
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, net, protocol } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, shell } from "electron";
+import { createPublicClient, http as viemHttp } from "viem";
+import { baseSepolia } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { PolicyEngine, Ledger, X402Engine, formatUsd } from "@dbbasic/x402-engine";
 import { bypassingFetch, createPaymentHandler } from "./intercept.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// TEST KEY ONLY — never fund. Replaced by the session hot wallet task.
+// Load .env (the local hot-wallet key) so the browser signs with — and shows the
+// balance of — the funded wallet, not the placeholder. Never overrides an existing env.
+for (const p of [join(__dirname, "..", "..", "..", ".env"), join(process.cwd(), ".env")]) {
+  try {
+    for (const line of readFileSync(p, "utf8").split("\n")) {
+      const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+      if (m && m[1] && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
+    }
+    break;
+  } catch {
+    /* no .env here — fine */
+  }
+}
+
+// Falls back to the well-known public Anvil key (never fund THAT one) when no .env.
 const TEST_KEY = (process.env.X402_PRIVATE_KEY ??
   "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d") as `0x${string}`;
 
+// Base Sepolia USDC — read the wallet's on-chain balance (a free query, no gas, no key).
+const USDC_SEPOLIA = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+const BALANCE_ABI = [
+  { name: "balanceOf", type: "function", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] },
+] as const;
+const publicClient = createPublicClient({
+  chain: baseSepolia,
+  transport: viemHttp(process.env.X402_RPC_URL || "https://sepolia.base.org"),
+});
+
 let mainWindow: BrowserWindow | null = null;
+const account = privateKeyToAccount(TEST_KEY); // the wallet: signs payments AND is what we show the balance of
+
+/** Read the wallet's USDC balance on Base Sepolia and push it to the toolbar. */
+async function refreshBalance(): Promise<void> {
+  try {
+    const bal = await publicClient.readContract({
+      address: USDC_SEPOLIA,
+      abi: BALANCE_ABI,
+      functionName: "balanceOf",
+      args: [account.address],
+    });
+    const usdc = (Number(bal) / 1e6).toFixed(2);
+    mainWindow?.webContents.send("x402:balance", { usdc, address: account.address });
+  } catch {
+    mainWindow?.webContents.send("x402:balance", { usdc: null, address: account.address });
+  }
+}
 
 function buildEngine(): X402Engine {
-  const account = privateKeyToAccount(TEST_KEY);
   const policy = new PolicyEngine();
   const ledger = new Ledger();
 
@@ -154,8 +197,19 @@ app.whenReady().then(() => {
 
   ipcMain.handle("x402:receipts", () => engine.ledger.all());
   ipcMain.handle("x402:spent", () => formatUsd(engine.policy.spentUsdMicro()));
+  ipcMain.handle("x402:wallet", () => ({ address: account.address }));
+  ipcMain.handle("x402:copy", (_e, text: string) => clipboard.writeText(String(text)));
+  // Open the funding faucet in the OS browser with the address already on the clipboard.
+  ipcMain.handle("x402:fund", () => {
+    clipboard.writeText(account.address);
+    return shell.openExternal("https://faucet.circle.com");
+  });
 
   createWindow();
+  // Show the balance on load, then poll — so funding shows up without a restart.
+  mainWindow?.webContents.once("did-finish-load", () => void refreshBalance());
+  setInterval(() => void refreshBalance(), 20_000);
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
