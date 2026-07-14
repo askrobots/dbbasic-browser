@@ -31,6 +31,7 @@ const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
 const read = (f) => readFileSync(join(__dirname, f), "utf8");
 
 const USDC_SEPOLIA = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const PAY_TO = "0x209693Bc6afc0C5328bA36FaF03C514EF312287C";
 const qrDataUri = "data:image/png;base64," + readFileSync(join(__dirname, "qr.png")).toString("base64");
 
@@ -64,6 +65,7 @@ const NAV = `<nav class="nav">
   <a href="/article">article · $0.001</a>
   <a href="/tip">tip</a>
   <a href="/api/price">api</a>
+  <a href="/multi">multi</a>
   <a href="/premium">premium · $0.50</a>
   <a href="/unknown">unknown · ✕</a>
   <a href="/free">free</a>
@@ -182,6 +184,7 @@ const INDEX = shell(
       ["/article", "Paywalled article", "$0.001", "auto-pays", "#1c7a3a"],
       ["/tip", "Tip jar", "you pick", "variable", "#5a5a62"],
       ["/api/price", "Price API (JSON)", "$0.002", "metered · API", "#1c7a3a"],
+      ["/multi", "Two ways to pay", "$0.10 / $0.04", "picks cheapest", "#1c7a3a"],
       ["/premium", "Premium report", "$0.50", "prompts", "#b0902f"],
       ["/unknown", "Unknown token", "5 ???", "refused", "#b03a2f"],
       ["/free", "Free page", "—", "no 402", "#5a5a62"],
@@ -270,6 +273,27 @@ createServer((req, res) => {
       challenge: challenge({ path, error: `Tip of $${dollars}.`, amount: String(cents * 10000) }),
       card: genericCard({ title: `Tip $${dollars}`, priceLabel: `$${dollars}`, blurb: "A one-time tip in USDC on Base.", tagText: "tip", tagColor: "#1c7a3a" }),
       paid: paidPage(`Thanks for the $${dollars} tip!`, "Your tip settled. No checkout, no account — just a signed authorization and done."),
+    });
+    return;
+  }
+
+  // Multi-accepts: one resource offered several ways. The server lists the expensive
+  // option FIRST; a client acting in its own interest ignores that ordering and picks
+  // the cheapest. Watch the inspector — it prices every option and pays the cheapest.
+  if (path === "/multi") {
+    const multi = {
+      x402Version: 2,
+      error: "Pay any accepted way — cheapest wins.",
+      resource: { url: `http://127.0.0.1:${PORT}/multi`, mimeType: "text/html" },
+      accepts: [
+        { scheme: "exact", network: "eip155:84532", amount: "100000", asset: USDC_SEPOLIA, payTo: PAY_TO, maxTimeoutSeconds: 60, extra: { assetTransferMethod: "eip3009", name: "USDC", version: "2" } },
+        { scheme: "exact", network: "eip155:8453", amount: "40000", asset: USDC_BASE, payTo: PAY_TO, maxTimeoutSeconds: 60, extra: { assetTransferMethod: "eip3009", name: "USD Coin", version: "2" } },
+      ],
+    };
+    gate(req, res, {
+      challenge: multi,
+      card: genericCard({ title: "Two ways to pay", priceLabel: "$0.10 / $0.04", blurb: "Offered on two networks. A smart client takes the cheaper one.", tagText: "picks cheapest", tagColor: "#1c7a3a" }),
+      paid: paidPage("Paid the cheaper option", "The server listed $0.10 first, but the browser priced both and paid the $0.04 option. The client works for you, not the server's ordering."),
     });
     return;
   }

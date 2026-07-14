@@ -266,6 +266,8 @@
                  <dt>pay to</dt><dd>${q ? q.payTo : "—"}</dd>
                  <dt>max ttl</dt><dd>${q ? q.maxTimeoutSeconds + "s" : "—"}</dd>
                </dl>
+               ${e.quotes && e.quotes.length > 1 ? `<div class="step">Offered (cheapest wins)</div>
+                 <dl>${e.quotes.map((o) => `<dt>${o.network}</dt><dd>${o.price} ${o.asset}${o === e.quote ? ' <span class="warn">← paid</span>' : ""}</dd>`).join("")}</dl>` : ""}
                <div class="step">Decision</div>
                <dl><dt>action</dt><dd>${e.decision || "—"}</dd><dt>reason</dt><dd>${e.reason || "—"}</dd></dl>
                ${e.outcome === "paid" && e.auth ? `<div class="step">Signed authorization (EIP-3009)</div>
@@ -315,7 +317,7 @@
       window.x402.onEvent((ev) => {
         if (ev.kind === "quoted") {
           const c = cheapest(ev.quotes);
-          upsert(ev.resource, { quote: c, rejected: ev.rejected });
+          upsert(ev.resource, { quote: c, quotes: ev.quotes, rejected: ev.rejected });
           if (c) toast("quoted", `Price: ${c.price} ${c.asset} — ${shortPath(ev.resource)}`, 2500);
         } else if (ev.kind === "decided") {
           upsert(ev.resource, { decision: ev.action, reason: ev.reason });
