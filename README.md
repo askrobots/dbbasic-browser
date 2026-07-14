@@ -5,6 +5,13 @@ in stablecoins, transparently, at machine speed. Point it at a page that returns
 `402 Payment Required` and it reads the price, pays, and shows you the content. No
 popup, no API key, no subscription.
 
+![dbbasic-browser paying a $0.05 x402 paywall, with the payment inspector open](docs/screenshot.png)
+
+*Same URL that shows a checkout card in a normal browser opens straight into the paid
+content here. The **⚡x402 inspector** (right) shows the payment that just happened —
+challenge, decision, receipt — and the toolbar meter tracks what you've spent. (Local
+demo; loopback addresses, mock settlement.)*
+
 > **Status: early.** The engine, a local proxy, and an Electron shell all work and are
 > tested end to end against a mock origin. It has **not** yet moved real money on-chain
 > — settlement is stubbed pending a hardware-isolated wallet and a live facilitator
