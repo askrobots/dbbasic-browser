@@ -22,8 +22,15 @@
       #page { flex: 1; border: 0; height: 100%; background: #fff; }
       #inspector { width: 400px; flex: none; background: #17171b; border-left: 1px solid #000; display: none; flex-direction: column; }
       #inspector.open { display: flex; }
-      #insHead { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #2a2a30; font-weight: 600; }
+      #insHead { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid #2a2a30; font-weight: 600; }
       #insHead .sub { color: #8a8a90; font-weight: 400; font-size: 12px; margin-left: auto; }
+      .insTab { border: 1px solid #2a2a30; background: #131316; color: #8a8a90; font-size: 11px; padding: 3px 9px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+      .insTab.on { background: #23324e; border-color: #3a5a9a; color: #cde0ff; }
+      .histrow { display: flex; align-items: center; gap: 8px; padding: 8px 11px; background: #1e1e24; border: 1px solid #2a2a30; border-radius: 8px; }
+      .histrow .t { color: #7a7a82; font-variant-numeric: tabular-nums; font-size: 11px; white-space: nowrap; }
+      .histrow .h { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #c8c8ce; }
+      .histrow .p { font-variant-numeric: tabular-nums; }
+      #histTotal { padding: 8px 11px; color: #8a8a90; font-size: 12px; border-bottom: 1px solid #2a2a30; }
       #insList { overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
       #insEmpty { color: #6a6a72; padding: 24px 12px; text-align: center; font-size: 12px; line-height: 1.6; }
       .row { background: #1e1e24; border: 1px solid #2a2a30; border-radius: 9px; overflow: hidden; }
@@ -54,13 +61,19 @@
       <button class="btn" id="back">‹</button>
       <button class="btn" id="fwd">›</button>
       <input id="url" placeholder="Enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
+      <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
       <button class="btn" id="inspectBtn" title="x402 inspector">⚡ x402<span id="inspectCount">0</span></button>
       <div id="meter" class="zero" title="Total paid this session">$0.00</div>
     </div>
     <div id="main">
       <webview id="page" src="about:blank"></webview>
       <div id="inspector">
-        <div id="insHead">x402 inspector <span class="sub" id="insSub">this page</span></div>
+        <div id="insHead">
+          <span>x402</span>
+          <button class="insTab on" id="tabPage">this page</button>
+          <button class="insTab" id="tabSession">session</button>
+          <span class="sub" id="insSub">this page</span>
+        </div>
         <div id="insList"><div id="insEmpty">No x402 activity yet.<br />Load a page that returns 402 Payment Required — every challenge, decision, and payment shows up here.</div></div>
       </div>
     </div>
@@ -109,8 +122,36 @@
         setTimeout(() => n.remove(), ms);
       }
 
+      // ---- guided tour -----------------------------------------------------
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      function currentBase() {
+        try {
+          const u = new URL(page.getURL());
+          if (u.protocol.startsWith("http")) return u.origin;
+        } catch {}
+        return "http://127.0.0.1:8899"; // default demo gallery
+      }
+      const TOUR = [["/", 2600], ["/room", 3400], ["/article", 3400], ["/free", 2800], ["/unknown", 3400], ["/", 1600]];
+      let touring = false;
+      $("tourBtn").onclick = async () => {
+        if (touring) { touring = false; return; } // second click stops
+        touring = true;
+        $("tourBtn").classList.add("on");
+        setInspector(true);
+        const base = currentBase();
+        for (const [route, dwell] of TOUR) {
+          if (!touring) break;
+          go(base + route);
+          await sleep(dwell);
+        }
+        touring = false;
+        $("tourBtn").classList.remove("on");
+      };
+
       // ---- inspector -------------------------------------------------------
-      const rows = new Map(); // resource URL -> accumulated lifecycle
+      const rows = new Map(); // resource URL -> accumulated lifecycle (this page)
+      const history = []; // persistent session log, newest-first
+      let view = "page"; // "page" | "session"
       let inspectorOpen = false;
       let userClosed = false; // once the user closes it on a page, stop auto-opening
 
@@ -123,6 +164,14 @@
         setInspector(!inspectorOpen);
         userClosed = !inspectorOpen;
       };
+      function setView(v) {
+        view = v;
+        $("tabPage").classList.toggle("on", v === "page");
+        $("tabSession").classList.toggle("on", v === "session");
+        renderInspector();
+      }
+      $("tabPage").onclick = () => setView("page");
+      $("tabSession").onclick = () => setView("session");
 
       function resetInspector() {
         rows.clear();
@@ -153,11 +202,36 @@
       }
 
       function renderInspector() {
+        const badge = $("inspectCount");
+        badge.textContent = rows.size;
+        badge.style.display = rows.size ? "flex" : "none";
+        if (view === "session") return renderSession();
+        return renderPage();
+      }
+
+      function renderSession() {
+        const list = $("insList");
+        $("insSub").textContent = history.length ? `${history.length} events` : "session";
+        if (history.length === 0) {
+          list.innerHTML = '<div id="insEmpty">Nothing charged yet this session.<br />Every payment and refusal is logged here, timestamped — and it persists as you navigate.</div>';
+          return;
+        }
+        list.innerHTML = `<div id="histTotal">Session total <b style="color:#7ee787">${$("meter").textContent}</b> · ${history.length} events</div>`;
+        for (const h of history) {
+          const el = document.createElement("div");
+          el.className = "histrow";
+          el.innerHTML =
+            `<span class="t">${h.at}</span>
+             <span class="h" title="${h.resource}">${shortPath(h.resource)}</span>
+             <span class="p">${h.price}</span>
+             <span class="pill ${h.cls}">${h.label}</span>`;
+          list.appendChild(el);
+        }
+      }
+
+      function renderPage() {
         const list = $("insList");
         const count = rows.size;
-        const badge = $("inspectCount");
-        badge.textContent = count;
-        badge.style.display = count ? "flex" : "none";
         $("insSub").textContent = count ? `${count} on this page` : "this page";
 
         if (count === 0) {
@@ -210,6 +284,21 @@
         renderInspector();
       }
 
+      // Log a terminal outcome (paid / refused) to the persistent session history.
+      function logHistory(resource) {
+        const e = rows.get(resource);
+        if (!e) return;
+        const st = statusOf(e);
+        history.unshift({
+          resource,
+          price: e.quote ? e.quote.price : "—",
+          label: st.label,
+          cls: st.cls,
+          at: new Date().toLocaleTimeString(),
+        });
+        if (view === "session") renderInspector();
+      }
+
       window.x402.onEvent((ev) => {
         if (ev.kind === "quoted") {
           const c = cheapest(ev.quotes);
@@ -222,9 +311,11 @@
           meter.textContent = ev.totalSpent;
           meter.classList.toggle("zero", ev.totalSpent === "$0.00");
           upsert(ev.resource, { outcome: "paid", paidStatus: ev.status, nonce: ev.nonce, validBefore: ev.validBefore, tx: ev.tx });
+          logHistory(ev.resource);
           toast("paid", `Paid ${ev.amount} ${ev.asset} → ${new URL(ev.dest).host}${ev.tx ? " ✓" : ""}`);
         } else if (ev.kind === "skipped") {
           upsert(ev.resource, { outcome: "skipped", skipReason: ev.reason });
+          logHistory(ev.resource);
           toast("skipped", `Skipped: ${ev.reason}`);
         }
       });
