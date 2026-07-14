@@ -2,6 +2,14 @@
   "name": "@dbbasic/x402-engine",
   "version": "0.1.0",
   "type": "module",
+  "description": "Transport-agnostic x402 payment engine: pinned-asset trust model, policy/rate caps, EIP-3009 signing, receipt ledger.",
+  "license": "Apache-2.0",
+  "author": "AskRobots",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/askrobots/dbbasic-browser.git",
+    "directory": "packages/engine"
+  },
   "main": "src/index.ts",
   "scripts": {
     "test": "vitest run",

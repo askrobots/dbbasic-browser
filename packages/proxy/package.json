@@ -2,6 +2,14 @@
   "name": "@dbbasic/x402-proxy",
   "version": "0.1.0",
   "type": "module",
+  "description": "Local x402 payment proxy (127.0.0.1:8402) — gives any browser or agent transparent x402 over HTTP and HTTPS.",
+  "license": "Apache-2.0",
+  "author": "AskRobots",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/askrobots/dbbasic-browser.git",
+    "directory": "packages/proxy"
+  },
   "main": "src/index.ts",
   "bin": {
     "x402-proxy": "src/cli.ts"

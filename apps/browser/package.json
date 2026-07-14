@@ -2,6 +2,14 @@
   "name": "@dbbasic/browser",
   "version": "0.1.0",
   "type": "module",
+  "description": "The dbbasic-browser Electron shell — owns the network stack via protocol.handle to pay x402 challenges transparently.",
+  "license": "Apache-2.0",
+  "author": "AskRobots",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/askrobots/dbbasic-browser.git",
+    "directory": "apps/browser"
+  },
   "main": "src/main.ts",
   "scripts": {
     "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:electron --external:viem --outfile=dist/main.js && cp src/chrome.html src/preload.cjs dist/",

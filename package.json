@@ -2,11 +2,23 @@
   "name": "dbbasic-browser",
   "private": true,
   "type": "module",
+  "description": "A browser with first-class x402 support — transparent stablecoin payments for web resources.",
+  "license": "Apache-2.0",
+  "author": "AskRobots",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/askrobots/dbbasic-browser.git"
+  },
+  "homepage": "https://github.com/askrobots/dbbasic-browser#readme",
+  "bugs": {
+    "url": "https://github.com/askrobots/dbbasic-browser/issues"
+  },
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   }
 }
