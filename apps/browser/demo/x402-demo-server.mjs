@@ -120,14 +120,14 @@ function genericCard({ title, priceLabel, blurb, tagText, tagColor }) {
   );
 }
 
-const paidPage = (title, note) =>
+const paidPage = (title, note, foot = "Demo: real x402 v2 on the wire, mock settlement.") =>
   shell(
     title,
     `<div class="wrap"><div class="card" style="background:#0d1117;color:#e8e8ea;border:1px solid #21262d">
       <span class="tag" style="background:#10240f;color:#7ee787">&#10003; paid · you're through</span>
       <h1 style="margin:0 0 8px;font-size:26px">${title}</h1>
       <p style="color:#b8b8c0">${note}</p>
-      <p class="foot" style="color:#6a6a72">Demo: real x402 v2 on the wire, mock settlement.</p>
+      <p class="foot" style="color:#6a6a72">${foot}</p>
     </div></div>`,
     "#0d1117",
   );
@@ -274,7 +274,11 @@ createServer(async (req, res) => {
         return;
       }
       res.writeHead(200, { "PAYMENT-RESPONSE": b64(settle), "content-type": "text/html" });
-      res.end(paidPage("Paid for real", `Settled on-chain — tx <code>${(settle.transaction || "").slice(0, 18)}…</code>. This moved $0.001 of real testnet USDC to the merchant wallet. Watch the two balances in the toolbar.`));
+      res.end(paidPage(
+        "Paid for real",
+        `Settled on-chain — tx <code>${(settle.transaction || "").slice(0, 18)}…</code>. This moved $0.001 of real testnet USDC to the merchant wallet. Watch the two balances in the toolbar, then hit Refund to send it back.`,
+        "REAL settlement — this is an actual transaction on Base Sepolia.",
+      ));
     } catch (err) {
       res.writeHead(502, { "content-type": "text/html" });
       res.end(shell("Facilitator error", `<div class="wrap"><div class="card"><h1>Facilitator error</h1><p>${String(err)}</p><p><a href="/">← gallery</a></p></div></div>`));
