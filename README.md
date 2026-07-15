@@ -9,13 +9,16 @@ popup, no API key, no subscription.
 
 *Same URL that shows a checkout card in a normal browser opens straight into the paid
 content here. The **⚡x402 inspector** (right) shows the payment that just happened —
-challenge, decision, receipt — and the toolbar meter tracks what you've spent. (Local
-demo; loopback addresses, mock settlement.)*
+challenge, decision, signed authorization, receipt — while the toolbar tracks your
+wallet balance and spend. (Local demo gallery.)*
 
-> **Status: early.** The engine, a local proxy, and an Electron shell all work and are
-> tested end to end against a mock origin. It has **not** yet moved real money on-chain
-> — settlement is stubbed pending a hardware-isolated wallet and a live facilitator
-> round trip. Do not point it at mainnet with real funds yet. See [Status](#status).
+> **Status: early, but it moves real money.** The engine, proxy, and Electron shell
+> work and are tested. The browser signs real EIP-3009 authorizations and **settles them
+> on-chain through a live facilitator on Base Sepolia** — see the
+> [`/live` route](#real-on-chain-settlement-base-sepolia) and a
+> [confirmed transaction](https://sepolia.basescan.org/tx/0x13c171c0a11d9d23c98318cf8a07cb5fec0fe4fd956a3bd6790e50267c594e50).
+> It is **testnet-only and unaudited** — do not point it at mainnet with real funds. See
+> [Status](#status).
 
 ---
 
@@ -81,32 +84,52 @@ npm test             # runs the engine, proxy, and browser test suites
 **See it pay, in a real browser window:**
 
 ```bash
-# terminal 1 — a local x402-gated "room" (real 402 on the wire, mock settlement)
+# terminal 1 — a local x402 example gallery
 node apps/browser/demo/x402-demo-server.mjs
 
-# terminal 2 — build and launch the browser
+# terminal 2 — build and launch the browser (opens on the gallery)
 npm run build   -w @dbbasic/browser
 npm start       -w @dbbasic/browser
 ```
 
-Type `127.0.0.1:8899` into the address bar. It's a small **gallery** of x402-gated
-pages, each designed to trigger a different payer decision:
+The browser opens on a **gallery** of x402-gated pages, each designed to trigger a
+different payer decision. Click through them and watch the toolbar and the **⚡x402
+inspector**:
 
 | Page | Price | dbbasic-browser does |
 |------|-------|----------------------|
-| Room w/ Jordan | $0.05 | auto-pays, opens the room |
-| Paywalled article | $0.001 | auto-pays |
+| Live payment | $0.001 | **settles for real on Base Sepolia** — merchant balance rises, refundable |
+| Room / article | $0.05 / $0.001 | auto-pays (mock settlement) |
+| Tip jar | you pick | variable — small auto-pays, larger ones prompt |
+| Metered API | $0.002 | a JSON endpoint — an agent pays it identically to the browser |
+| Two ways to pay | $0.10 / $0.04 | prices both, pays the **cheaper** one |
 | Premium report | $0.50 | **asks first** (over the auto-approve threshold) |
 | Unknown token | — | **refuses** (asset not in the pinned registry) |
 | Free page | — | loads normally, pays nothing |
 
-The pages are linked, so click through them and watch the toolbar: three pay or prompt,
-one is refused, one is free — and the spend meter only moves for the ones that settle.
-Open the **⚡x402 inspector** in the toolbar to see each challenge, decision, and receipt. Now open the **same gallery in a normal browser** — it can't
-pay, so every page renders its human fallback body (a checkout card with Apple Pay,
-MetaMask, a QR). One browser shows payment cards; the other shows the content. That
-contrast is the entire pitch — and because each page exercises a distinct code path,
-the gallery doubles as a functional test rig for the payer.
+Everything but `/live` uses mock settlement, so clicking around is free. Now open the
+**same gallery in a normal browser** — it can't pay, so every page renders its human
+fallback body (a checkout card with Apple Pay, a wallet, a QR). One browser shows
+payment cards; the other shows the content. That contrast is the entire pitch — and
+because each page exercises a distinct code path, the gallery doubles as a functional
+test rig for the payer.
+
+### Real on-chain settlement (Base Sepolia)
+
+The browser is **wallet-aware**: the toolbar shows your USDC balance read live over RPC,
+a **Fund** button opens the faucet with your address copied, and the **`/live`** route
+settles a real $0.001 payment through the [x402.org facilitator](https://x402.org/facilitator).
+Watch your balance drop and the merchant's rise, then hit **Refund** to send it back —
+so testnet funds circulate instead of draining (the facilitator pays the gas).
+
+To try it: generate a fresh testnet key, fund the address with USDC from
+[faucet.circle.com](https://faucet.circle.com) (Base Sepolia), and set `X402_PRIVATE_KEY`
+and `X402_MERCHANT_KEY` in `.env` (see [`.env.example`](.env.example)). A gated live test
+proves settlement independently:
+
+```bash
+RUN_LIVE_SETTLE=1 npx vitest run live-settlement   # from packages/engine — moves $0.001
+```
 
 **Or use the proxy with any browser or agent:**
 
@@ -117,19 +140,24 @@ curl -x http://127.0.0.1:8402 http://127.0.0.1:8899/
 
 ## Status
 
-Works and is tested (against a mock origin): the engine, the proxy (HTTP + HTTPS via a
-local MITM CA), and the Electron shell (`protocol.handle` interception, native approval
-dialog that shows the price before signing, live spend meter).
+Works and is tested: the engine, the proxy (HTTP + HTTPS via a local MITM CA), and the
+Electron shell (`protocol.handle` interception, native approval dialog that shows the
+price before signing, live spend meter, per-tab payment inspector). The browser signs
+real EIP-3009 authorizations and settles them **on-chain on Base Sepolia** via a live
+facilitator, with a working buyer→merchant→refund loop.
 
 Not done yet:
 
-- **No real wallet.** Signs with a public test key. A session hot wallet (OS keychain,
-  auto-funded, isolated from main funds) is next.
-- **Settlement is stubbed.** No live facilitator round trip yet — a Base Sepolia
-  `verify`/`settle` is the first time real money would move.
+- **The wallet is a local key.** It reads `X402_PRIVATE_KEY` from `.env` (gitignored,
+  `chmod 600`). Moving it into the OS keychain, isolated from any real funds, is the
+  next hardening step.
+- **Testnet only, and unaudited.** Real settlement is proven on Base Sepolia; nothing
+  here has been security-reviewed, and it must not touch mainnet funds yet.
 - **EVM only.** Solana (`exact` SVM) is not implemented.
 - **USDC price is hardcoded at $1.** Fine for USDC, wrong for EURC or anything
   non-pegged — needs a real FX source.
+- **The seller side is minimal.** The demo server settles via the facilitator for the
+  `/live` route; a general resource-server/"seller" library lives elsewhere.
 
 ## Security
 
