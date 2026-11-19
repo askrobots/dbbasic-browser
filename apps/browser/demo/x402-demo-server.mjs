@@ -426,6 +426,18 @@ ${para("fourth")}${para("fifth")}
   }
   if (path === "/ws-count") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ upgrades })); return; }
 
+  // Pages that move themselves after loading: a script (through a server redirect chain) and a real meta refresh.
+  if (path === "/moves-js") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Moves (script)</title><body style="font:18px system-ui;padding:40px"><h1>This page moves itself</h1><script>setTimeout(() => location.replace("/redir/chain"), 600)</script>`);
+    return;
+  }
+  if (path === "/moves-meta") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Moves (meta)</title><meta http-equiv="refresh" content="1;url=/free"><body style="font:18px system-ui;padding:40px"><h1>This page refreshes itself</h1>`);
+    return;
+  }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });

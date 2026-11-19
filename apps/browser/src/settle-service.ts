@@ -17,6 +17,11 @@ import { newMemo, resolveConfig, step, type SettleConfig, type Snapshot, type Ve
 import { netEvents, type NetEvent } from "./transport.js";
 
 export interface Lifecycle {
+  /** Top-level navigations in the current visit (a visit starts when the BROWSER navigates, e.g. a goto). */
+  navigations: number;
+  /** Times the PAGE moved itself after it began (a script, a meta refresh, a link click) — not server redirects. */
+  moves: Array<{ to: string; afterMs: number }>;
+  visitStart: number;
   crashed: boolean;
   failed: { description: string; code?: number } | null;
   download: string | null;
@@ -47,7 +52,7 @@ netEvents.on("event", (e: NetEvent) => {
 export function lifecycleOf(wcId: number): Lifecycle {
   let l = lifecycles.get(wcId);
   if (!l) {
-    l = { crashed: false, failed: null, download: null, status: null };
+    l = { navigations: 0, moves: [], visitStart: Date.now(), crashed: false, failed: null, download: null, status: null };
     lifecycles.set(wcId, l);
   }
   return l;
@@ -61,6 +66,17 @@ export function trackLifecycle(wc: WebContents): void {
     // A new top-level navigation starts a fresh outcome; same-document changes (#hash, pushState) don't. When a load
     // fails, Chromium then navigates to its own error page: that must not erase the failure that caused it.
     if (details.isMainFrame && !details.isSameDocument && !isErrorPage(details.url)) {
+      const now = Date.now();
+      // A navigation has an initiator frame when the PAGE started it, and none when the browser did. Server
+      // redirects are not navigations here at all (they continue the same one), so they never count as moves.
+      if (!details.initiator) {
+        l.navigations = 0;
+        l.moves = [];
+        l.visitStart = now; // the browser (or a caller) began a new visit
+      } else {
+        l.moves.push({ to: details.url, afterMs: now - l.visitStart });
+      }
+      l.navigations++;
       l.failed = null;
       l.download = null;
       l.status = null;
@@ -172,6 +188,8 @@ export interface SettleResult extends Verdict {
   bytes: number;
   hosts: string[];
   redirects: Array<{ status?: number; to: string }>;
+  /** Times the PAGE moved itself after loading (script, meta refresh, link), apart from the server redirects above. */
+  moves: Array<{ to: string; afterMs: number }>;
 }
 
 export async function runSettle(ctx: SettleContext, input: unknown): Promise<SettleResult> {
@@ -187,6 +205,7 @@ export async function runSettle(ctx: SettleContext, input: unknown): Promise<Set
     bytes: last?.stats.bytes ?? 0,
     hosts: last?.stats.hosts ?? [],
     redirects: last?.stats.redirects ?? [],
+    moves: [...lifecycleOf(ctx.wcId).moves],
   });
 
   const loop = async (): Promise<SettleResult> => {
@@ -212,6 +231,12 @@ export async function runSettle(ctx: SettleContext, input: unknown): Promise<Set
       if (!r.done && r.action === "check-frames") {
         const matched = await framesMatch(wc, cfg.frameGapMs);
         r = step({ ...snap, nowMs: Date.now() - t0, frames: { matched } }, cfg, memo);
+      }
+      // If the page moved itself while we were deciding, the verdict is about a page we have already left.
+      if (r.done && r.verdict.settled && ["quiet", "frames-match", "animating"].includes(r.verdict.rule) && lifecycleOf(ctx.wcId).navigations !== snap.lifecycle.navigations) {
+        memo.okSince = null;
+        await sleep(cfg.pollMs);
+        continue;
       }
       if (r.done) return finish(r.verdict);
       await sleep(cfg.pollMs);

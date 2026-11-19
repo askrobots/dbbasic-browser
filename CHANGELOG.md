@@ -31,7 +31,8 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   timeout it returns a verdict that separates *what ended the wait* (two identical frames, quiet, animating, deadline…) from
   *what happened* (ok, error status with the number, blank, failed and why, bot check, payment required, a download).
   Long-lived streams are ignored, late images and fonts are waited for, and at the deadline it names what was still unmet.
-  Also returns facts about the load: final URL, redirect chain, status, requests, bytes and hosts.
+  Also returns facts about the load: final URL, redirect chain, status, requests, bytes and hosts. A page that navigates itself
+  after loading (script, meta refresh, link) restarts the wait and is reported in `moves`, separately from server redirects.
 - **`net.policy {blockWebSockets}`** in the automation API (also `DBB_BLOCK_WEBSOCKETS=1`): refuses WebSockets before any
   connection is opened, since Chromium opens them outside our network layer. Every refusal is announced as an event.
 - **End-to-end test suites** (`npm run e2e -w @dbbasic/browser`, 88 checks) that drive the real browser through its own

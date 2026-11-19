@@ -18,6 +18,17 @@ export default async function (ctx) {
   v = await settle(base + "/redir/chain");
   check(v.settled && v.final.url === base + "/free" && v.redirects.length === 2, "a redirect chain: the final URL and each hop are reported", v.redirects.map((r) => `${r.status}→${r.to.replace(base, "")}`).join(", "));
 
+  // ---- a page that moves itself after loading ----
+  v = await settle(base + "/free");
+  check(Array.isArray(v.moves) && v.moves.length === 0, "an ordinary page reports no client-side moves");
+  const slowQuiet = { quietMs: 1500 };
+  v = await settle(base + "/moves-js", slowQuiet);
+  check(v.settled && v.final.url === base + "/free", "a page that moves itself (script): the wait restarts and settles on the page it ended up on", v.final.url.replace(base, ""));
+  check(v.moves.length === 1 && v.moves[0].to === base + "/redir/chain", "…the PAGE's own move is reported, separately from…", JSON.stringify(v.moves.map((m) => [m.to.replace(base, ""), m.afterMs])));
+  check(v.redirects.length === 2 && v.redirects.every((r) => r.status === 301 || r.status === 302), "…the server redirects it then went through (two hops)", v.redirects.map((r) => r.status).join(","));
+  v = await settle(base + "/moves-meta", slowQuiet);
+  check(v.settled && v.final.url === base + "/free" && v.moves.length === 1, "a real <meta refresh>: also a client-side move, and the wait settles on the final page", `${v.moves.length} move(s), final ${v.final.url.replace(base, "")}`);
+
   // ---- pages that fool a guess ----
   const t0 = Date.now();
   v = await settle(base + "/slow?ms=1500");

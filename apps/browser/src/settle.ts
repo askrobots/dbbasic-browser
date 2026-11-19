@@ -117,6 +117,8 @@ export interface Snapshot {
     download: string | null;
     /** HTTP status of the main document, once known. */
     status: number | null;
+    /** How many top-level navigations this visit has made so far (the page moving itself adds to it). */
+    navigations?: number;
   };
   net: {
     inFlight: InFlight[];
@@ -159,11 +161,13 @@ export interface Verdict {
 export interface Memo {
   /** When every rule except frames first held, continuously. */
   okSince: number | null;
+  /** The navigation count last seen: a page that navigates itself restarts the wait. */
+  navs: number | null;
 }
 
 export type Step = { done: true; verdict: Verdict } | { done: false; action?: "check-frames" };
 
-export const newMemo = (): Memo => ({ okSince: null });
+export const newMemo = (): Memo => ({ okSince: null, navs: null });
 
 /** The unmet rules in a snapshot (empty = everything holds, apart from the frame comparison). */
 export function blockers(s: Snapshot, cfg: SettleConfig): Blocker[] {
@@ -208,6 +212,11 @@ export function step(s: Snapshot, cfg: SettleConfig, memo: Memo): Step {
     return { done: true, verdict: { settled: false, outcome: "failed", rule: "navigation-failed", failure: { kind: classifyFailure(f.description), description: f.description }, ...base } };
   }
   if (s.net.pay) return { done: true, verdict: { settled: false, outcome: "payment-required", rule: "payment", ...base } };
+
+  // The page moved itself (a script, a meta refresh, a link): what was true of the page we were on no longer counts.
+  const navs = s.lifecycle.navigations ?? null;
+  if (navs !== null && memo.navs !== null && navs !== memo.navs) memo.okSince = null;
+  memo.navs = navs;
 
   const unmet = blockers(s, cfg);
   if (unmet.length === 0) {

@@ -55,6 +55,26 @@ describe("each unmet rule blocks, and is named", () => {
   });
 });
 
+describe("a page that moves itself restarts the wait", () => {
+  it("a changed navigation count resets the everything-holds clock, so 'animating' isn't declared too early", () => {
+    const memo = newMemo();
+    const lc = (navigations: number) => ({ crashed: false, failed: null, download: null, status: 200, navigations });
+    // On page 1 everything held from t=1000.
+    expect(step(snap({ nowMs: 1000, lifecycle: lc(1), frames: { matched: false } }), CFG, memo)).toEqual({ done: false, action: "check-frames" });
+    expect(memo.okSince).toBe(1000);
+    // The page moved itself (navigations 1 -> 2). Without the reset, 4500-1000 >= frameTimeoutMs would settle as "animating".
+    const r = step(snap({ nowMs: 4500, lifecycle: lc(2), frames: { matched: false } }), CFG, memo);
+    expect(r).toEqual({ done: false, action: "check-frames" });
+    expect(memo.okSince).toBe(4500);
+  });
+  it("an unchanged count changes nothing", () => {
+    const memo = newMemo();
+    const lc = { crashed: false, failed: null, download: null, status: 200, navigations: 1 };
+    step(snap({ nowMs: 1000, lifecycle: lc, frames: { matched: false } }), CFG, memo);
+    expect(step(snap({ nowMs: 4500, lifecycle: lc, frames: { matched: false } }), CFG, memo)).toMatchObject({ done: true, verdict: { rule: "animating" } });
+  });
+});
+
 describe("a stuck navigation: the page can't be asked, but the request that never answered is named", () => {
   it("reports the network blocker first and page-unreachable after it", () => {
     const hang = { url: "https://a.test/hang", phase: "waiting" as const, ageMs: 5000, longLived: false };

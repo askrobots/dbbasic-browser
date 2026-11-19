@@ -205,8 +205,7 @@
           tab.rows.clear();
           tab.paid = false;
           tab.failed = null; tab.netError = null; tab.redirect = null; tab.settledUntil = 0;
-          tab.stats = { requests: 0, bytes: 0, hosts: new Set(), redirects: [] }; // facts about THIS load
-          tab.lastActivity = Date.now();
+          tab.lastActivity = Date.now(); // a navigation starting is network activity (it restarts the quiet clock)
           // Requests that predate this navigation belong to the page we're leaving. Chromium doesn't tell
           // our handler they were abandoned, so drop them here (the small margin keeps the new page's own
           // first request, whose net event can race this one).
@@ -593,6 +592,7 @@
         const u = toUrl(raw);
         if (!u) return;
         tab.url = u.startsWith("data:") || u.startsWith("dbb-reader:") ? "" : u;
+        tab.stats = { requests: 0, bytes: 0, hosts: new Set(), redirects: [] }; // a new VISIT: facts start over (a page moving itself continues it)
         if (tab === active) setUrlBar(tab);
         renderTabs();
         if (tab.ready) tab.wv.src = u;
