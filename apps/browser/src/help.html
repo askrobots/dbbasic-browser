@@ -37,6 +37,7 @@
   <a href="#start">Getting started</a>
   <a href="#shortcuts">Keyboard shortcuts</a>
   <a href="#tabs">Tabs</a>
+  <a href="#loading">Loading indicators</a>
   <a href="#x402">x402 payments</a>
   <a href="#passwords">Password manager</a>
   <a href="#automation">Automation API</a>
@@ -67,6 +68,10 @@
 
   <h2 id="tabs">Tabs</h2>
   <p>Each tab is its own page with its own payment inspector, so spend is attributed to the page that caused it. A <b>⚡</b> on a tab means something was paid for there. Links that open a new window (<code>target="_blank"</code>) open as tabs; clicking a transaction in the inspector opens it beside the paid page rather than replacing it. Tabs are not yet restored between launches.</p>
+
+  <h2 id="loading">Loading indicators</h2>
+  <p>Each tab shows what it is doing, and the status line at the bottom left says it in words: <b>waiting</b> (request sent, no answer yet), <b>receiving</b> (with the bytes so far), <b>redirecting</b>, a site's <b>bot check</b>, an <b>x402 payment</b> (needed, paying, paid), <b>slow</b> (still waiting after 6 s), <b>failed</b> or <b>offline</b>. These come from real signals — what our own network layer and the payment engine see — so DNS, TCP and TLS, which happen inside Chromium, appear as "waiting" rather than as invented phases.</p>
+  <p>The animations follow your system's "Reduce motion" accessibility setting (on macOS: System Settings ▸ Accessibility ▸ Display): with it on, each state shows a still frame. <b>View ▸ Loading Animations</b> lets you override that with Always or Never.</p>
 
   <h2 id="x402">x402 payments</h2>
   <p>When a server answers <code>402 Payment Required</code>, the browser reads the price <i>before</i> paying, applies your spending policy, and either pays, asks you, or refuses.</p>

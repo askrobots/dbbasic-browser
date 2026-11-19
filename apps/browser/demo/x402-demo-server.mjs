@@ -294,6 +294,24 @@ createServer(async (req, res) => {
     return;
   }
 
+  // Loading-state rigs: a slow start then a trickling body, a request that never answers, a dropped connection.
+  if (path === "/slow") {
+    const ms = Math.min(Number(new URL(req.url, "http://x").searchParams.get("ms")) || 1500, 20000);
+    setTimeout(() => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.write("<!doctype html><title>Slow</title><body style='font:16px system-ui;padding:40px'><h1>slow page</h1>");
+      let n = 0;
+      const t = setInterval(() => {
+        res.write(`<p>chunk ${++n}</p>` + " ".repeat(2048));
+        if (n >= 5) { clearInterval(t); res.end("<p id='done'>done</p>"); }
+      }, 350);
+    }, ms);
+    return;
+  }
+  if (path === "/redir/slow") { setTimeout(() => { res.writeHead(302, { location: "/slow?ms=1500" }); res.end(); }, 1200); return; }
+  if (path === "/hang") { setTimeout(() => { res.writeHead(200); res.end("finally"); }, 25000); return; }
+  if (path === "/fail") { req.socket.destroy(); return; }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });

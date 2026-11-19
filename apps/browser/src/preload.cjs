@@ -39,6 +39,12 @@ contextBridge.exposeInMainWorld("x402", {
     ipcRenderer.on("x402:event", listener);
     return () => ipcRenderer.removeListener("x402:event", listener);
   },
+  /** Tell the main process the loading-animation preference (always|system|never) so the menu can show it. */
+  reportMotion(mode) {
+    ipcRenderer.send("pref:motion", mode);
+  },
+  /** Per-request network progress: {id,url,type:start|headers|progress|end|redirect|error,...}. */
+  onNetEvent: sub("net:event"),
   /** Menu accelerator commands: new | close | focus-url | next | prev | reload. */
   onTabCommand(callback) {
     const listener = (_event, cmd) => callback(cmd);

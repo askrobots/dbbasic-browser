@@ -31,6 +31,7 @@
  * removes it, and the end-to-end transport tests cover it.
  */
 
+import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import { net, session, type Session } from "electron";
 import { chromiumRequestHeaders, type Hints } from "./compat.js";
@@ -52,6 +53,28 @@ export function setClientHints(h: Hints | null): void {
   hintsValue = h;
   resolveHints(h);
 }
+
+/**
+ * Progress of every request through this transport, for the UI ("waiting for…", "receiving 1.2 MB…",
+ * "redirecting…"). Listen on the "event" channel. We can only report what is observable here — request
+ * out, response headers in, body bytes, redirect, error; DNS/TCP/TLS happen inside Chromium and are
+ * invisible, so they are folded into "waiting".
+ */
+export interface NetEvent {
+  id: number;
+  url: string;
+  type: "start" | "headers" | "progress" | "end" | "redirect" | "error";
+  status?: number;
+  /** Content-Length when the server sent one. */
+  total?: number;
+  /** Body bytes received so far (progress/end). */
+  bytes?: number;
+  location?: string;
+  error?: string;
+}
+export const netEvents = new EventEmitter();
+let netSeq = 0;
+const emitNet = (e: NetEvent) => netEvents.emit("event", e);
 
 /** Headers the network stack owns (or that would leak/duplicate state) — never copy these onto the request. */
 const REQUEST_HEADERS_WE_DONT_SET = new Set([
@@ -109,6 +132,9 @@ export function netRequestFetch(ses: Session = session.defaultSession): RawFetch
       referrerPolicy: input.referrerPolicy,
     });
 
+    const id = ++netSeq;
+    const url = input.url;
+    emitNet({ id, url, type: "start" });
     return new Promise<Response>((resolve, reject) => {
       let settled = false;
       const settle = (fn: () => void) => {
@@ -142,6 +168,7 @@ export function netRequestFetch(ses: Session = session.defaultSession): RawFetch
       req.on("redirect", (status, _method, redirectUrl, headers) => {
         const h = toHeaders(headers, new Set(["set-cookie"])); // already stored by the network stack
         h.set("location", redirectUrl);
+        emitNet({ id, url, type: "redirect", status, location: redirectUrl });
         settle(() => resolve(new Response(null, { status, headers: h })));
       });
 
@@ -150,16 +177,44 @@ export function netRequestFetch(ses: Session = session.defaultSession): RawFetch
         const res = incoming as typeof incoming & Readable;
         const status = res.statusCode;
         const headers = toHeaders(res.headers); // passed through untouched, as Electron's own net.fetch does
+        const total = Number(res.headers["content-length"]);
+        emitNet({ id, url, type: "headers", status, ...(Number.isFinite(total) ? { total } : {}) });
         let body: ReadableStream<Uint8Array> | null = null;
-        if (NULL_BODY_STATUS.has(status) || input.method === "HEAD") res.on("data", () => {});
-        else body = Readable.toWeb(res) as ReadableStream<Uint8Array>; // handles backpressure and cancellation
+        if (NULL_BODY_STATUS.has(status) || input.method === "HEAD") {
+          res.on("data", () => {});
+          emitNet({ id, url, type: "end", bytes: 0 });
+        } else {
+          // Count bytes in a pass-through stage (a 'data' listener on `res` would steal chunks from toWeb).
+          let bytes = 0;
+          let lastEmit = 0;
+          body = (Readable.toWeb(res) as ReadableStream<Uint8Array>).pipeThrough(
+            new TransformStream<Uint8Array, Uint8Array>({
+              transform(chunk, controller) {
+                bytes += chunk.byteLength;
+                const now = Date.now();
+                if (now - lastEmit > 120) {
+                  lastEmit = now;
+                  emitNet({ id, url, type: "progress", bytes });
+                }
+                controller.enqueue(chunk);
+              },
+              flush() {
+                emitNet({ id, url, type: "end", bytes });
+              },
+            }),
+          ); // handles backpressure and cancellation
+        }
         settle(() => resolve(new Response(body, { status, statusText: res.statusMessage, headers })));
       });
 
-      req.on("error", (e) => settle(() => reject(e)));
+      req.on("error", (e) => {
+        if (!settled) emitNet({ id, url, type: "error", error: e.message });
+        settle(() => reject(e));
+      });
 
       input.signal.addEventListener("abort", () => {
         req.abort();
+        if (!settled) emitNet({ id, url, type: "error", error: "aborted" });
         settle(() => reject(new DOMException("The operation was aborted.", "AbortError")));
       });
 

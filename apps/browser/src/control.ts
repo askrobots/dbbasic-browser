@@ -35,6 +35,8 @@ export interface TabInfo {
   title: string;
   active: boolean;
   loading: boolean;
+  /** What the tab is doing: connecting|waiting|slow|receiving|redirecting|challenge|pay-pending|pay-paying|pay-settled|summarizing|failed|offline, or null when idle. */
+  state: string | null;
 }
 
 export interface ApprovalPolicy {

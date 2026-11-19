@@ -19,7 +19,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { PolicyEngine, Ledger, X402Engine, formatUsd, signExactEvm } from "@dbbasic/x402-engine";
 import { createPaymentHandler } from "./intercept.js";
 import { brandedUserAgent } from "./compat.js";
-import { netRequestFetch, setClientHints } from "./transport.js";
+import { netEvents, netRequestFetch, setClientHints, type NetEvent } from "./transport.js";
 import { safeExternalUrl } from "./urls.js";
 import { registerVault } from "./vault-service.js";
 import { setTabs, startControl, type ApprovalPolicy, type ControlHandle, type TabInfo } from "./control.js";
@@ -286,6 +286,9 @@ function openHelp(anchor: string): void {
   mainWindow?.webContents.send("tab:open", url);
 }
 
+/** Loading-animation preference. The chrome UI owns it (localStorage); we only mirror it for the menu's radio check. */
+let motionPref: "always" | "system" | "never" = "system";
+
 /** Tell the chrome UI to do a tab action (new/close/focus-url/next/prev/reload). */
 const tabCmd = (cmd: string) => () => mainWindow?.webContents.send("tab:cmd", cmd);
 
@@ -318,6 +321,14 @@ function buildMenu(): void {
       label: "View",
       submenu: [
         { label: "Reload Page", accelerator: "CmdOrCtrl+R", click: tabCmd("reload") },
+        {
+          label: "Loading Animations",
+          submenu: [
+            { label: "Always", type: "radio", checked: motionPref === "always", click: tabCmd("motion:always") },
+            { label: "Follow System “Reduce Motion”", type: "radio", checked: motionPref === "system", click: tabCmd("motion:system") },
+            { label: "Never", type: "radio", checked: motionPref === "never", click: tabCmd("motion:never") },
+          ],
+        },
         { role: "toggleDevTools" },
         { type: "separator" },
         { role: "togglefullscreen" },
@@ -464,6 +475,14 @@ app.whenReady().then(() => {
       )
       .then(setClientHints, () => setClientHints(null));
   });
+  ipcMain.on("pref:motion", (_e, m: unknown) => {
+    if ((m === "always" || m === "system" || m === "never") && m !== motionPref) {
+      motionPref = m;
+      buildMenu();
+    }
+  });
+  // Per-request progress for the tab throbbers and status line.
+  netEvents.on("event", (e: NetEvent) => mainWindow?.webContents.send("net:event", e));
   mainWindow?.webContents.on("did-finish-load", () => {
     if (control) mainWindow?.webContents.send("ctl:status", { port: control.port });
   });
