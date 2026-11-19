@@ -370,6 +370,48 @@ ${para("fourth")}${para("fifth")}
     return;
   }
 
+  // Page-finished-loading rigs: a held-open stream, content that arrives late, an animation, an empty page,
+  // arbitrary status codes, and a redirect loop.
+  if (path === "/events") {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+    const t = setInterval(() => res.write("data: tick\n\n"), 300);
+    req.on("close", () => clearInterval(t));
+    return;
+  }
+  if (path === "/stream-open") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Stream open</title><body style="font:18px system-ui;padding:40px"><h1>A finished page holding a stream open</h1><p>Its text is complete; an event stream keeps ticking in the background.</p><script>new EventSource("/events")</script>`);
+    return;
+  }
+  if (path === "/slow-image.png") {
+    const ms = Math.min(Number(new URL(req.url, "http://x").searchParams.get("ms")) || 1500, 20000);
+    setTimeout(() => {
+      res.writeHead(200, { "content-type": "image/png" });
+      res.end(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8Dwn4EIwDiqkL4KAAAvYQf8mZy4mgAAAABJRU5ErkJggg==", "base64"));
+    }, ms);
+    return;
+  }
+  if (path === "/late") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Late</title><body style="font:18px system-ui;padding:40px"><h1>Content that arrives after the load event</h1><div id="slot"></div><script>
+      addEventListener("load", () => setTimeout(() => { const i = new Image(); i.width = 160; i.height = 160; i.src = "/slow-image.png?ms=1500"; document.getElementById("slot").appendChild(i); }, 400));
+    </script>`);
+    return;
+  }
+  if (path === "/animated") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Animated</title><style>@keyframes slide { from { transform: translateX(0) } to { transform: translateX(300px) } } .box { width: 80px; height: 80px; background: #5b8cff; animation: slide 1s linear infinite alternate }</style><body style="font:18px system-ui;padding:40px"><h1>A page that never stops moving</h1><div class="box"></div>`);
+    return;
+  }
+  if (path === "/blank") { res.writeHead(200, { "content-type": "text/html" }); res.end("<!doctype html><title>Blank</title><body></body>"); return; }
+  if (path.startsWith("/status/")) {
+    const code = Number(path.split("/")[2]) || 500;
+    res.writeHead(code, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Status ${code}</title><body style="font:18px system-ui;padding:40px"><h1>Status ${code}</h1><p>The server answered ${code}.</p>`);
+    return;
+  }
+  if (path === "/redir/loop") { res.writeHead(302, { location: "/redir/loop" }); res.end(); return; }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });

@@ -67,6 +67,8 @@ export interface NetEvent {
   status?: number;
   /** Content-Length when the server sent one. */
   total?: number;
+  /** The response's Content-Type (lowercased, without parameters), e.g. "text/event-stream". */
+  contentType?: string;
   /** Body bytes received so far (progress/end). */
   bytes?: number;
   location?: string;
@@ -178,7 +180,8 @@ export function netRequestFetch(ses: Session = session.defaultSession): RawFetch
         const status = res.statusCode;
         const headers = toHeaders(res.headers); // passed through untouched, as Electron's own net.fetch does
         const total = Number(res.headers["content-length"]);
-        emitNet({ id, url, type: "headers", status, ...(Number.isFinite(total) ? { total } : {}) });
+        const ct = String(res.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
+        emitNet({ id, url, type: "headers", status, ...(Number.isFinite(total) ? { total } : {}), ...(ct ? { contentType: ct } : {}) });
         let body: ReadableStream<Uint8Array> | null = null;
         if (NULL_BODY_STATUS.has(status) || input.method === "HEAD") {
           res.on("data", () => {});

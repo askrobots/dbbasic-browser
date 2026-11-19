@@ -170,13 +170,14 @@
         wv.setAttribute("allowpopups", ""); // main's windowOpenHandler turns these into tabs
         if (window.x402.webviewPreload) wv.setAttribute("preload", window.x402.webviewPreload);
         const tab = { id: nextTabId++, wv, wcId: null, url: "", title: "", rows: new Map(), userClosed: false, paid: false, ready: false, pending: null, loading: false, saveOffer: null, fillOffer: null, waiters: [], navSeen: false,
-          el: null, reader: null, aiBusy: null, net: { reqs: new Map() }, redirect: null, settledUntil: 0, failed: null, netError: null, thState: null, thText: "" };
+          el: null, reader: null, aiBusy: null, net: { reqs: new Map() }, lastActivity: 0, stats: { requests: 0, bytes: 0, hosts: new Set(), redirects: [] }, redirect: null, settledUntil: 0, failed: null, netError: null, thState: null, thText: "" };
 
         // Navigate only once the webview is really ready — setting src at creation
         // races its own init and can leave us stranded on about:blank.
         wv.addEventListener("dom-ready", () => {
           tab.ready = true;
           try { tab.wcId = wv.getWebContentsId(); } catch {}
+          syncTabs(); // the automation API addresses pages by this id: publish it the moment it exists
           if (tab.pending) { const p = tab.pending; tab.pending = null; wv.src = p; }
         });
         wv.addEventListener("did-start-loading", () => { tab.loading = true; refreshThrobber(tab); syncTabs(); });
@@ -198,11 +199,14 @@
         // fire during the load, so resetting on did-navigate (after) would wipe them.
         wv.addEventListener("did-start-navigation", (e) => {
           if (!e.isMainFrame || e.isInPlace) return;
+          if (e.url.startsWith("chrome-error:")) return; // Chromium's own error page: keep the failure that caused it
           if (e.url !== "about:blank") tab.navSeen = true;
           if (shown(e.url)) tab.url = e.url;
           tab.rows.clear();
           tab.paid = false;
           tab.failed = null; tab.netError = null; tab.redirect = null; tab.settledUntil = 0;
+          tab.stats = { requests: 0, bytes: 0, hosts: new Set(), redirects: [] }; // facts about THIS load
+          tab.lastActivity = Date.now();
           // Requests that predate this navigation belong to the page we're leaving. Chromium doesn't tell
           // our handler they were abandoned, so drop them here (the small margin keeps the new page's own
           // first request, whose net event can race this one).
@@ -410,20 +414,32 @@
       }
       setInterval(() => { for (const t of tabs) { for (const [id, r] of t.net.reqs) if (Date.now() - r.last > 20000) t.net.reqs.delete(id); refreshThrobber(t); } }, 250);
 
+      // A response that is held open on purpose: an event stream, or a body gone quiet with no Content-Length.
+      // A finished page can hold one open, so these must not count as "still loading" (see settle.ts).
+      const STREAM_IDLE_MS = 1000;
+      const isEventStream = (r) => /text\/event-stream/i.test(r.contentType || "");
+      const isLongLived = (r, now) => r.phase === "receiving" && (isEventStream(r) || (r.total == null && now - r.last > STREAM_IDLE_MS));
+
       window.x402.onNetEvent((e) => {
         if (e.type === "start") owners.delete(e.url); // a new request begins a new lifecycle
         const tab = ownerOf(e.url);
         const reqs = tab.net.reqs;
         const now = Date.now();
-        if (e.type === "start") reqs.set(e.id, { url: e.url, t0: now, last: now, phase: "waiting", bytes: 0 });
-        else {
+        if (e.type === "start") {
+          reqs.set(e.id, { url: e.url, t0: now, last: now, phase: "waiting", bytes: 0 });
+          tab.stats.requests++;
+          try { tab.stats.hosts.add(new URL(e.url).host); } catch {}
+          tab.lastActivity = now;
+        } else {
           const r = reqs.get(e.id);
           if (!r) return;
+          // Progress on an event stream is not "the page is still loading": it must not reset the quiet clock.
+          if (!(e.type === "progress" && isEventStream(r))) tab.lastActivity = now;
           r.last = now;
-          if (e.type === "headers") { r.phase = "receiving"; r.total = e.total; }
+          if (e.type === "headers") { r.phase = "receiving"; r.total = e.total; r.contentType = e.contentType; }
           else if (e.type === "progress") r.bytes = e.bytes;
-          else if (e.type === "redirect") { reqs.delete(e.id); tab.redirect = { to: e.location, until: now + 700 }; }
-          else if (e.type === "end") reqs.delete(e.id);
+          else if (e.type === "redirect") { reqs.delete(e.id); tab.redirect = { to: e.location, until: now + 700 }; tab.stats.redirects.push({ status: e.status, to: e.location }); }
+          else if (e.type === "end") { reqs.delete(e.id); tab.stats.bytes += e.bytes || 0; }
           else if (e.type === "error") { reqs.delete(e.id); tab.netError = String(e.error || "").replace(/^net::/, ""); }
         }
         refreshThrobber(tab);
@@ -462,11 +478,33 @@
           }
           case "tab.close": closeTab(tab); return { closed: a.id };
           case "tab.activate": switchTo(tab); return summary(tab, {});
-          case "tab.goto": { const w = waitLoad(tab); go(a.url, tab); return summary(tab, a.wait ? await w : {}); }
+          case "tab.goto": {
+            if (a.wait === "start") {
+              // Return once the navigation has actually BEGUN (not finished), so a settle that follows can't run
+              // against the page we are leaving.
+              tab.navSeen = false;
+              go(a.url, tab);
+              for (let i = 0; i < 250 && !tab.navSeen; i++) await new Promise((r) => setTimeout(r, 20));
+              return summary(tab, {});
+            }
+            const w = waitLoad(tab); go(a.url, tab); return summary(tab, a.wait ? await w : {});
+          }
           case "tab.back": { const w = waitLoad(tab); tab.wv.goBack(); return summary(tab, a.wait ? await w : {}); }
           case "tab.forward": { const w = waitLoad(tab); tab.wv.goForward(); return summary(tab, a.wait ? await w : {}); }
           case "tab.reload": { const w = waitLoad(tab); tab.wv.reload(); return summary(tab, a.wait ? await w : {}); }
           case "tab.waitLoad": return summary(tab, await waitLoad(tab, a.ms || 15000));
+          case "tab.netState": {
+            // What the network layer sees for this tab right now, for "has the page finished loading?" (settle.ts)
+            const now = Date.now();
+            const rows = [...tab.rows.values()];
+            const pay = rows.some((x) => x.decision === "prompt" && !x.outcome) ? "pending" : rows.some((x) => x.outcome === "skipped" || (x.decision === "deny" && !x.outcome)) ? "refused" : null;
+            return {
+              url: tab.url, title: tab.title, state: tab.thState, pay,
+              inFlight: [...tab.net.reqs.values()].map((x) => ({ url: x.url, phase: x.phase, ageMs: now - x.t0, longLived: isLongLived(x, now) })),
+              sinceActivityMs: now - (tab.lastActivity || now),
+              stats: { requests: tab.stats.requests, bytes: tab.stats.bytes, hosts: [...tab.stats.hosts], redirects: tab.stats.redirects },
+            };
+          }
           default: throw new Error("unknown op " + op);
         }
       });

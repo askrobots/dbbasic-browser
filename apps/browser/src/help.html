@@ -138,7 +138,8 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><th>Method</th><th>Params → result</th></tr>
     <tr><td>status</td><td>tabs, approval policy, spend, vault state</td></tr>
     <tr><td>tabs.list / new / close / activate</td><td><code>new</code>: <code>{url?, activate?, wait?}</code></td></tr>
-    <tr><td>page.goto</td><td><code>{url, wait?}</code> — waits for the load to finish (default)</td></tr>
+    <tr><td>page.goto</td><td><code>{url, wait?, settle?}</code> — waits for the load to finish (default); with <code>settle</code> it returns the <a href="#settled">finished-loading verdict</a> instead</td></tr>
+    <tr><td>page.settle</td><td><code>{timeoutMs?, quietMs?, frames?, frameTimeoutMs?}</code> — wait until the page has <a href="#settled">really finished loading</a> and say why</td></tr>
     <tr><td>page.back / forward / reload</td><td><code>{wait?}</code></td></tr>
     <tr><td>page.text / html</td><td><code>{selector?}</code> → page text / HTML</td></tr>
     <tr><td>page.eval</td><td><code>{js}</code> → <code>{value}</code> (JSON-serializable)</td></tr>
@@ -155,6 +156,14 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><td>reader.open / ai.status / ai.provider</td><td>the AI Reader — see <a href="#reader">above</a></td></tr>
     <tr><td>x402.approval</td><td><code>{mode: "ask"|"auto"|"deny", maxUsd}</code> — who answers payment prompts; call with no params to read</td></tr>
   </table>
+  <h3 id="settled">Knowing when a page has finished loading</h3>
+  <p>Waiting for "loaded", or for the network to be quiet for half a second, or sleeping a fixed time, is a guess: pages that stream, poll or build themselves late fool it, and when it gives up all you learn is that time passed. <code>page.settle</code> (or the <code>settle</code> option of <code>page.goto</code>) decides from what the browser actually observes, and answers <b>two separate questions</b>:</p>
+  <ul>
+    <li><b><code>rule</code> — what ended the wait.</b> <code>frames-match</code> (everything below held and two frames a moment apart were identical), <code>quiet</code> (same, with the frame test off), <code>animating</code> (everything held but the page keeps changing by itself), or <code>deadline</code>, <code>navigation-failed</code>, <code>crashed</code>, <code>download</code>, <code>payment</code>.</li>
+    <li><b><code>outcome</code> — what happened.</b> <code>ok</code>, <code>error-status</code> (with the number; <code>slowDown: true</code> for 429), <code>blank</code>, <code>failed</code> (with a <code>failure.kind</code> such as <code>could-not-find-site</code>, <code>could-not-connect</code>, <code>certificate</code>, <code>redirect-loop</code>, <code>offline</code>), <code>crashed</code>, <code>bot-check</code>, <code>payment-required</code>, <code>not-a-page</code> (a download), <code>deadline</code>.</li>
+  </ul>
+  <p>A page counts as settled when the load event has fired; no request is in flight (apart from long-lived streams, which a finished page can hold open and which are ignored and counted in <code>streams</code>); nothing has moved on the network for <code>quietMs</code>; web fonts are in; the visible images are decoded; and two frames <code>frameGapMs</code> apart match. At the deadline the call still returns, with <code>blockedBy</code> naming what was unmet (for example the one request that never answered). The verdict also carries <code>waitedMs</code>, <code>status</code>, the final URL and title, the redirect chain, and the request, byte and host counts.</p>
+  <div class="note warn"><b>What it cannot see:</b> DNS, TCP and TLS happen inside Chromium, so they are part of "waiting". <b>WebSockets</b> bypass the network layer, so a page driven by a socket can look quiet while it is still receiving. The frame test brings the tab forward, like a screenshot.</div>
   <div class="note"><b>Why use this instead of Playwright/CDP?</b> It controls the real, visible browser; input is genuinely trusted (sites that ignore synthetic clicks work); payments are inspectable and assertable (<code>x402.events</code>) rather than a dialog your test can't dismiss; and <code>login</code> signs you in without your script ever holding a password. Input methods bring the tab and the window to the front (taking keyboard focus), because real input needs a visible, focused page.</div>
 
   <h2 id="identity">How we identify ourselves</h2>

@@ -24,7 +24,7 @@ import { makeCtx } from "../test/e2e/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const SUITES = ["api", "ui", "transport", "states", "reader", "downloads", "live-net"];
+const SUITES = ["api", "ui", "transport", "states", "reader", "downloads", "settle", "live-net"];
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const run = wanted.length ? wanted : SUITES;
 for (const s of run) if (!SUITES.includes(s)) { console.error(`unknown suite "${s}" (have: ${SUITES.join(", ")})`); process.exit(2); }
@@ -81,7 +81,7 @@ async function launchApp(suite) {
   const url = `http://127.0.0.1:${controlPort}/rpc`;
   await waitFor(async () => {
     const r = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ method: "status" }) }).then((x) => x.json());
-    return r.ok && r.result.tabs.some((t) => t.url.startsWith(base)); // up, and the first tab has loaded
+    return r.ok && r.result.tabs.some((t) => t.url.startsWith(base) && t.wcId != null && !t.loading); // up, and the first tab has loaded
   }, "the browser to start");
   return { app, url, token, debugPort, controlPort, log, downloadDir: join(tmp, `downloads-${suite}`), quit: () => { try { app.kill("SIGTERM"); } catch {} } };
 }

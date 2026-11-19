@@ -25,6 +25,7 @@ import { netEvents, netRequestFetch, setClientHints, type NetEvent } from "./tra
 import { safeExternalUrl } from "./urls.js";
 import { describeAi, loadAiEnv, resolveAi, type AiConfig, type Provider } from "./ai-config.js";
 import { createReader } from "./reader-service.js";
+import { noteDownload, runSettle, trackLifecycle } from "./settle-service.js";
 import { EXPIRED_HTML, READER_SCHEME, ReaderPages, readerIdFromUrl } from "./reader-pages.js";
 import { READER_CSP } from "./reader.js";
 import { registerVault } from "./vault-service.js";
@@ -249,7 +250,8 @@ function paidFor(url: string): string | undefined {
 }
 
 function setupDownloads(): void {
-  session.defaultSession.on("will-download", (_event, item) => {
+  session.defaultSession.on("will-download", (_event, item, sourceContents) => {
+    if (sourceContents) noteDownload(sourceContents.id, item.getFilename());
     const id = ++downloadSeq;
     let host = "";
     try {
@@ -586,6 +588,7 @@ app.whenReady().then(() => {
   // stray native window. Only web URLs — never let a page spawn file:/custom schemes.
   app.on("web-contents-created", (_e, wc) => {
     if (wc.getType() !== "webview") return;
+    trackLifecycle(wc);
     wc.setWindowOpenHandler(({ url }) => {
       if (/^https?:\/\//i.test(url)) mainWindow?.webContents.send("tab:open", url);
       return { action: "deny" };
@@ -662,6 +665,7 @@ app.whenReady().then(() => {
           return { ok: r.ok, reason: r.reason, message: r.message, tab: r.tab, state: r.ai, summary: ai };
         },
         downloads: () => [...downloads.values()],
+        settle: (ctx, opts) => runSettle(ctx, opts),
         aiStatus: () => describeAi(aiCfg),
         setAiProvider: (p) => (p === "anthropic" || p === "openai" ? setAiProvider(p) : false),
         spent: () => formatUsd(engine.policy.spentUsdMicro()),

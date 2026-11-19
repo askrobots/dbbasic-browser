@@ -27,6 +27,11 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   x402 demo gallery has its own toolbar button.
 - **Help menu** and a built-in help page; **File ▸ Open Page in Default Browser** (⌘⇧O); an app icon and a branded dev
   launcher (correct Dock name and icon on macOS).
+- **"Has the page finished loading?" signal** in the automation API (`page.settle`, or `settle` on `page.goto`). Instead of a
+  timeout it returns a verdict that separates *what ended the wait* (two identical frames, quiet, animating, deadline…) from
+  *what happened* (ok, error status with the number, blank, failed and why, bot check, payment required, a download).
+  Long-lived streams are ignored, late images and fonts are waited for, and at the deadline it names what was still unmet.
+  Also returns facts about the load: final URL, redirect chain, status, requests, bytes and hosts.
 - **End-to-end test suites** (`npm run e2e -w @dbbasic/browser`, 88 checks) that drive the real browser through its own
   automation API, plus 94 unit tests and a test that fails if an API key is ever committed.
 
@@ -38,6 +43,8 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 - Development tooling: esbuild 0.21 → 0.28, vitest 2 → 5, and in-range patch updates. `npm audit` reports 0 findings.
 
 ### Fixed
+- A page's web-contents id is now published to the automation API the moment it exists, and the API waits briefly for a
+  tab that is listed but not yet addressable, instead of failing right after launch or right after opening a tab.
 - **Redirects were followed inside the network layer**, so after a redirect the page showed the destination's content under
   the *original* URL and origin. This broke the address bar and same-origin checks, let a redirect into a paid page skip its
   payment decision, and made askrobots.com's bot check misbehave. Redirects now go back to the page, which re-requests the

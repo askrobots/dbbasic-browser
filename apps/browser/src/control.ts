@@ -27,6 +27,7 @@ import { randomBytes } from "node:crypto";
 import { webContents, type WebContents } from "electron";
 import { safeEqual } from "@dbbasic/vault";
 import type { VaultService } from "./vault-service.js";
+import type { SettleContext } from "./settle-service.js";
 
 export interface TabInfo {
   id: number;
@@ -59,6 +60,8 @@ export interface ControlDeps {
   reader(p: Record<string, unknown>): Promise<unknown>;
   aiStatus(): unknown;
   downloads(): unknown;
+  /** Wait until a page has finished loading and say why (see settle.ts). */
+  settle(ctx: SettleContext, opts: unknown): Promise<unknown>;
   setAiProvider(p: unknown): boolean;
   receipts(): unknown;
 }
@@ -85,6 +88,19 @@ function resolveTab(p: Record<string, unknown>): TabInfo {
   if (!t) throw new RpcError("no-tab", p.tab == null ? "no active tab" : `no tab ${String(p.tab)}`);
   return t;
 }
+/**
+ * A tab can be listed a moment before its page exists (the id is published at dom-ready). Wait briefly for it
+ * instead of failing, so a script that starts right after launch or right after opening a tab just works.
+ */
+async function addressable(t: TabInfo): Promise<number> {
+  for (let i = 0; i < 250; i++) {
+    const cur = tabs.find((x) => x.id === t.id);
+    if (cur?.wcId != null) return cur.wcId;
+    await sleep(20);
+  }
+  throw new RpcError("tab-not-ready", `tab ${t.id} is not ready yet`);
+}
+
 function guest(t: TabInfo): WebContents {
   const wc = t.wcId == null ? undefined : webContents.fromId(t.wcId);
   if (!wc || wc.isDestroyed()) throw new RpcError("tab-not-ready", `tab ${t.id} is not ready yet`);
@@ -97,6 +113,18 @@ async function evalIn(wc: WebContents, js: string): Promise<unknown> {
   } catch (e) {
     throw new RpcError("eval-error", e instanceof Error ? e.message : String(e));
   }
+}
+
+/**
+ * "Has this page finished loading?" Returns a verdict: whether it settled, which rule ended the wait, what
+ * actually happened (ok, error status, blank, failed and why, bot check, payment, download…), and facts about
+ * the load. The two-frame test needs a visible page, so (like a screenshot) it brings the tab forward.
+ */
+async function settleTab(d: ControlDeps, t: TabInfo, opts: unknown): Promise<unknown> {
+  const wcId = await addressable(t);
+  const o = (opts && typeof opts === "object" ? opts : {}) as Record<string, unknown>;
+  if (o.frames !== false) await front(d, t);
+  return d.settle({ tabId: t.id, wcId, askChrome: d.askChrome.bind(d) }, o);
 }
 
 /**
@@ -131,8 +159,16 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       return d.askChrome("tab.activate", { id: resolveTab(p).id });
 
     // ---- navigation ---------------------------------------------------------
-    case "page.goto":
-      return d.askChrome("tab.goto", { id: resolveTab(p).id, url: str(p.url, "url"), wait: p.wait !== false });
+    case "page.goto": {
+      const t = resolveTab(p);
+      if (!p.settle) return d.askChrome("tab.goto", { id: t.id, url: str(p.url, "url"), wait: p.wait !== false });
+      // `settle: true` (or an options object) waits until the page is REALLY finished and says why. It starts once
+      // the navigation has begun, so it never judges the page being left; the verdict replaces the plain load wait.
+      const loaded = (await d.askChrome("tab.goto", { id: t.id, url: str(p.url, "url"), wait: "start" })) as Record<string, unknown>;
+      return { ...loaded, settle: await settleTab(d, t, p.settle === true ? {} : p.settle) };
+    }
+    case "page.settle":
+      return settleTab(d, resolveTab(p), p);
     case "page.back":
     case "page.forward":
     case "page.reload":
