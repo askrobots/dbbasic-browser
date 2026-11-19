@@ -55,6 +55,54 @@ describe("each unmet rule blocks, and is named", () => {
   });
 });
 
+describe("the blank test: minText and blankWaitMs", () => {
+  const tiny = { readyState: "complete", fonts: "loaded", imagesPending: 0, textLength: 5, hasMedia: false };
+  const text = { ...tiny, textLength: 500 };
+  const settled = (page: typeof tiny, nowMs: number, cfg = CFG, memo = newMemo()) => step({ ...snap({ page, nowMs }), frames: { matched: true } }, cfg, memo);
+  it("a page with under 20 characters of text and no media is blank by default", () => {
+    expect(settled(tiny, 1000)).toMatchObject({ done: true, verdict: { outcome: "blank" } });
+  });
+  it("minText sets the threshold, and 0 turns the test off", () => {
+    expect(settled(tiny, 1000, { ...CFG, minText: 5 })).toMatchObject({ verdict: { outcome: "ok" } });
+    expect(settled(tiny, 1000, { ...CFG, minText: 6 })).toMatchObject({ verdict: { outcome: "blank" } });
+    expect(settled({ ...tiny, textLength: 0 }, 1000, { ...CFG, minText: 0 })).toMatchObject({ verdict: { outcome: "ok" } });
+  });
+  it("blankWaitMs keeps checking while the page would settle as blank, then reports blank if it stayed blank", () => {
+    const cfg = { ...CFG, blankWaitMs: 5000 };
+    const memo = newMemo();
+    expect(settled(tiny, 1000, cfg, memo)).toEqual({ done: false });
+    expect(memo.blankSince).toBe(1000);
+    expect(settled(tiny, 5999, cfg, memo)).toEqual({ done: false });
+    expect(settled(tiny, 6000, cfg, memo)).toMatchObject({ done: true, verdict: { outcome: "blank", settled: true, waitedMs: 6000 } });
+  });
+  it("…and settles at once when text turns up during the wait", () => {
+    const cfg = { ...CFG, blankWaitMs: 5000 };
+    const memo = newMemo();
+    settled(tiny, 1000, cfg, memo);
+    expect(settled(text, 2500, cfg, memo)).toMatchObject({ done: true, verdict: { outcome: "ok", waitedMs: 2500 } });
+    expect(memo.blankSince).toBeNull();
+  });
+  it("media counts as content, so a page of only an image is not waited on", () => {
+    expect(settled({ ...tiny, textLength: 0, hasMedia: true }, 1000, { ...CFG, blankWaitMs: 5000 })).toMatchObject({ done: true, verdict: { outcome: "ok" } });
+  });
+  it("a page that moves itself starts the blank wait over", () => {
+    const cfg = { ...CFG, blankWaitMs: 5000 };
+    const memo = newMemo();
+    const lc = (n: number) => ({ crashed: false, failed: null, download: null, status: 200, navigations: n });
+    step({ ...snap({ page: tiny, nowMs: 1000, lifecycle: lc(1) }), frames: { matched: true } }, cfg, memo);
+    expect(memo.blankSince).toBe(1000);
+    step({ ...snap({ page: tiny, nowMs: 4000, lifecycle: lc(2) }), frames: { matched: true } }, cfg, memo);
+    expect(memo.blankSince).toBe(4000);
+  });
+  it("resolveConfig clamps both", () => {
+    expect(resolveConfig({ minText: -5 }).minText).toBe(0);
+    expect(resolveConfig({ minText: 1e9 }).minText).toBe(10_000);
+    expect(resolveConfig({ blankWaitMs: 1e9 }).blankWaitMs).toBe(120_000);
+    expect(resolveConfig({}).minText).toBe(20);
+    expect(resolveConfig({}).blankWaitMs).toBe(0);
+  });
+});
+
 describe("a page that moves itself restarts the wait", () => {
   it("a changed navigation count resets the everything-holds clock, so 'animating' isn't declared too early", () => {
     const memo = newMemo();

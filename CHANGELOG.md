@@ -35,6 +35,9 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   Long-lived streams are ignored, late images and fonts are waited for, and at the deadline it names what was still unmet.
   Also returns facts about the load: final URL, redirect chain, status, requests, bytes and hosts. A page that navigates itself
   after loading (script, meta refresh, link) restarts the wait and is reported in `moves`, separately from server redirects.
+- **Blank-page options** on the finished-loading verdict: `minText` (visible text below this many characters, default 20, makes a page
+  "blank"; 0 turns the test off) and `blankWaitMs` (default 0: keep checking for that long, while the page would settle as blank, for text
+  or media to appear). A page that stays blank is still reported blank, and the wait is in `waitedMs`.
 - **A network layer the caller supplies** (`net.provider`, `net.pending`, `net.answer`, `net.fail`, `page.load`). While on, the
   browser makes no request of its own: each one is handed to the caller, which answers it or refuses it with a reason. A 3xx
   goes back to the page, so every hop is the caller's decision. The caller's identity is required and the desktop browser's is

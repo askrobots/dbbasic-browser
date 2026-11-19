@@ -485,6 +485,14 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     return;
   }
 
+  // Pages for the blank test: a tiny page, and one that is empty until a script draws into it 2.5 s later.
+  if (path === "/tiny") { res.writeHead(200, { "content-type": "text/html" }); res.end("<!doctype html><title>tiny</title><p>hi</p>"); return; }
+  if (path === "/late-text") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>late text</title><body style="font:18px system-ui;padding:40px"><div id="a"></div><script>setTimeout(() => { document.getElementById("a").textContent = "This text was drawn by a script two and a half seconds after the page loaded."; }, 2500)</script>`);
+    return;
+  }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });

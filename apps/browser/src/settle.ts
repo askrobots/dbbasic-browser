@@ -32,6 +32,10 @@ export interface SettleConfig {
   frameTimeoutMs: number;
   /** A response with headers but no Content-Length that is still open after this long counts as a stream. */
   streamAfterMs: number;
+  /** A settled page with less visible text than this (and no image, canvas, video or svg) is called "blank". 0 turns the test off. */
+  minText: number;
+  /** When a page would settle as blank, keep checking for this long for text or media to appear, then settle (still blank if it stayed blank). */
+  blankWaitMs: number;
   pollMs: number;
 }
 
@@ -42,6 +46,8 @@ export const SETTLE_DEFAULTS: SettleConfig = {
   frameGapMs: 250,
   frameTimeoutMs: 3_000,
   streamAfterMs: 1_000,
+  minText: 20,
+  blankWaitMs: 0,
   pollMs: 100,
 };
 
@@ -59,6 +65,8 @@ export function resolveConfig(input: unknown): SettleConfig {
     frameGapMs: num("frameGapMs", 50, 2_000),
     frameTimeoutMs: num("frameTimeoutMs", 0, 30_000),
     streamAfterMs: num("streamAfterMs", 100, 60_000),
+    minText: num("minText", 0, 10_000),
+    blankWaitMs: num("blankWaitMs", 0, 120_000),
     pollMs: num("pollMs", 20, 1_000),
   };
 }
@@ -170,11 +178,13 @@ export interface Memo {
   okSince: number | null;
   /** The navigation count last seen: a page that navigates itself restarts the wait. */
   navs: number | null;
+  /** When the page first looked blank at the point of settling (for blankWaitMs). */
+  blankSince: number | null;
 }
 
 export type Step = { done: true; verdict: Verdict } | { done: false; action?: "check-frames" };
 
-export const newMemo = (): Memo => ({ okSince: null, navs: null });
+export const newMemo = (): Memo => ({ okSince: null, navs: null, blankSince: null });
 
 /** The unmet rules in a snapshot (empty = everything holds, apart from the frame comparison). */
 export function blockers(s: Snapshot, cfg: SettleConfig): Blocker[] {
@@ -199,10 +209,10 @@ export function blockers(s: Snapshot, cfg: SettleConfig): Blocker[] {
 }
 
 /** What actually happened, once we know the page settled. */
-function settledOutcome(s: Snapshot): Pick<Verdict, "outcome" | "status" | "slowDown"> {
+function settledOutcome(s: Snapshot, cfg: SettleConfig): Pick<Verdict, "outcome" | "status" | "slowDown"> {
   const status = s.lifecycle.status ?? undefined;
   if (status !== undefined && status >= 400) return { outcome: "error-status", status, ...(status === 429 ? { slowDown: true } : {}) };
-  if (s.page && s.page.textLength < 20 && !s.page.hasMedia) return { outcome: "blank", ...(status !== undefined ? { status } : {}) };
+  if (s.page && s.page.textLength < cfg.minText && !s.page.hasMedia) return { outcome: "blank", ...(status !== undefined ? { status } : {}) };
   return { outcome: "ok", ...(status !== undefined ? { status } : {}) };
 }
 
@@ -227,15 +237,24 @@ export function step(s: Snapshot, cfg: SettleConfig, memo: Memo): Step {
 
   // The page moved itself (a script, a meta refresh, a link): what was true of the page we were on no longer counts.
   const navs = s.lifecycle.navigations ?? null;
-  if (navs !== null && memo.navs !== null && navs !== memo.navs) memo.okSince = null;
+  if (navs !== null && memo.navs !== null && navs !== memo.navs) {
+    memo.okSince = null;
+    memo.blankSince = null;
+  }
   memo.navs = navs;
 
   const unmet = blockers(s, cfg);
   if (unmet.length === 0) {
     memo.okSince ??= s.nowMs;
-    if (!cfg.frames) return { done: true, verdict: { settled: true, rule: "quiet", ...settledOutcome(s), ...streamField, ...base } };
-    if (s.frames?.matched) return { done: true, verdict: { settled: true, rule: "frames-match", ...settledOutcome(s), ...streamField, ...base } };
-    if (s.nowMs - memo.okSince >= cfg.frameTimeoutMs) return { done: true, verdict: { settled: true, rule: "animating", animating: true, ...settledOutcome(s), ...streamField, ...base } };
+    // Would it settle as blank? Give it blankWaitMs to draw something first (a page that fills itself in late). Still blank after
+    // that, it is reported blank; the time waited is part of waitedMs.
+    if (cfg.blankWaitMs > 0 && settledOutcome(s, cfg).outcome === "blank") {
+      memo.blankSince ??= s.nowMs;
+      if (s.nowMs - memo.blankSince < cfg.blankWaitMs) return { done: false };
+    } else memo.blankSince = null;
+    if (!cfg.frames) return { done: true, verdict: { settled: true, rule: "quiet", ...settledOutcome(s, cfg), ...streamField, ...base } };
+    if (s.frames?.matched) return { done: true, verdict: { settled: true, rule: "frames-match", ...settledOutcome(s, cfg), ...streamField, ...base } };
+    if (s.nowMs - memo.okSince >= cfg.frameTimeoutMs) return { done: true, verdict: { settled: true, rule: "animating", animating: true, ...settledOutcome(s, cfg), ...streamField, ...base } };
     return { done: false, action: "check-frames" };
   }
   memo.okSince = null; // something moved again: the "everything holds" clock restarts

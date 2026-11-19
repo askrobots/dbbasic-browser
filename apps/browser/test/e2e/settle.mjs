@@ -18,6 +18,18 @@ export default async function (ctx) {
   v = await settle(base + "/redir/chain");
   check(v.settled && v.status === 200 && v.final.url === base + "/free" && v.redirects.length === 2, "a redirect chain: the final URL, its status (200, not the first hop's 302) and each hop are reported", v.redirects.map((r) => `${r.status}→${r.to.replace(base, "")}`).join(", "));
 
+  // ---- the blank test ----
+  v = await settle(base + "/tiny", quick);
+  check(v.settled && v.outcome === "blank", "a tiny page (under 20 characters of text) is 'blank' by default", v.outcome);
+  v = await settle(base + "/tiny", { ...quick, minText: 0 });
+  check(v.settled && v.outcome === "ok", "…with minText 0 the same page is ok", v.outcome);
+  v = await settle(base + "/late-text", quick);
+  check(v.settled && v.outcome === "blank" && v.waitedMs < 2500, "a page that draws late settles as blank before it draws, by default", `${v.outcome} at ${v.waitedMs} ms`);
+  v = await settle(base + "/late-text", { ...quick, blankWaitMs: 6000 });
+  check(v.settled && v.outcome === "ok" && v.waitedMs >= 2400, "with blankWaitMs it keeps waiting while blank, and settles ok once the text is drawn", `${v.outcome} at ${v.waitedMs} ms`);
+  v = await settle(base + "/blank", { ...quick, blankWaitMs: 1500 });
+  check(v.settled && v.outcome === "blank" && v.waitedMs >= 1400, "a page that stays blank is still reported blank, and the wait is in waitedMs", `${v.outcome} at ${v.waitedMs} ms`);
+
   // ---- a page that moves itself after loading ----
   v = await settle(base + "/free");
   check(Array.isArray(v.moves) && v.moves.length === 0, "an ordinary page reports no client-side moves");
