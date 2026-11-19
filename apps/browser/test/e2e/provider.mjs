@@ -114,6 +114,17 @@ export default async function (ctx) {
   check(seen.some((r) => new URL(r.url).pathname === "/prefetched/dir/pic.png"), "…while the page's own subresources still go to the caller", seen.map((r) => new URL(r.url).pathname).join(","));
   check((await rejects(T("page.load", { url: base + "/x", status: 7, bodyText: "x" })))?.code === "bad-params", "a bad document is refused up front");
 
+  // ---- nothing a page leaves behind reaches the next page ----
+  await settle(base + "/free");
+  await T("page.eval", { js: "document.cookie = 'left=behind; path=/'; localStorage.setItem('left', 'behind'); sessionStorage.setItem('left', 'behind'); 1" });
+  seen.length = 0;
+  await settle(base + "/headers");
+  const next = JSON.parse((await T("page.text")).text);
+  const handed = seen.find((r) => r.navigate && new URL(r.url).pathname === "/headers");
+  check(!handed || !("cookie" in handed.headers), "a cookie a page set itself is not handed to the caller with the next request", handed && JSON.stringify(handed.headers.cookie));
+  const left = (await T("page.eval", { js: "JSON.stringify([document.cookie, localStorage.getItem('left'), sessionStorage.getItem('left')])" })).value;
+  check(left === JSON.stringify(["", null, null]), "…and the next page finds no cookie, localStorage or sessionStorage from the last one", left);
+
   // ---- turning it off puts everything back ----
   stop = true;
   await T("net.provider", { enabled: false });

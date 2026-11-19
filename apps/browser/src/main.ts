@@ -738,6 +738,19 @@ app.whenReady().then(() => {
           pending: (afterId, waitMs) => callerNet.pending(afterId, waitMs),
           answer: (id, a) => callerNet.answer(id, a as unknown as Answer),
           fail: (id, kind, detail) => callerNet.fail(id, kind, detail),
+          // A new visit starts with a clean slate: nothing a previous page left in the session (cookies, localStorage,
+          // IndexedDB, caches, service workers) is there, and the page being left drops its sessionStorage. A page that
+          // moves ITSELF is the same visit and keeps what it set. (Tabs share one session, so this is meant for one visit at a time.)
+          freshVisit: async (wcId) => {
+            if (!callerNet.enabled) return;
+            const wc = webContents.fromId(wcId);
+            try {
+              await Promise.race([wc?.executeJavaScript("try { sessionStorage.clear(); } catch {}", false), new Promise((r) => setTimeout(r, 1000))]);
+            } catch {
+              /* a page that cannot be asked has nothing we can clear */
+            }
+            await session.defaultSession.clearStorageData();
+          },
           registerDocument: (doc) => callerNet.registerDocument(doc as unknown as Document),
           noteKnownDocument,
         },

@@ -42,6 +42,9 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   (not "timed out"), and that wait does not count toward the settle deadline. A failure now says who decided it (`source`:
   `observed` or `caller`). `page.load` takes a main document the caller already fetched, with its final address, status,
   headers and the redirects that led to it. Nothing is retried, remembered, or stored (cookies are the caller's).
+  Each new visit (`page.goto`, `page.load`) starts with a clean slate: cookies, localStorage, IndexedDB, caches and service workers
+  left by an earlier page are cleared, while a page that moves itself keeps what it set. Tabs share one session, so use one visit
+  at a time per browser.
   `DBB_CALLER_NETWORK_USER_AGENT=<identity>` starts the browser with this mode already on, before any page exists, and the
   wallet balance poll (a request of the browser's own) is skipped while it is on. A one-file example caller, which answers
   requests with a plain HTTP client and prints the verdict, is in `apps/browser/examples/`.

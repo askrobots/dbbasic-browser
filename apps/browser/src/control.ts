@@ -68,6 +68,7 @@ export interface ControlDeps {
     answer(id: number, a: Record<string, unknown>): void;
     fail(id: number, kind: unknown, detail?: unknown): void;
     registerDocument(doc: Record<string, unknown>): void;
+    freshVisit(wcId: number): Promise<void>;
     noteKnownDocument(wcId: number, url: string, redirects: Array<{ status?: number; to: string }>): void;
   };
   setNetPolicy(p: { websockets?: boolean }): void;
@@ -142,6 +143,11 @@ async function evalIn(wc: WebContents, js: string): Promise<unknown> {
  * actually happened (ok, error status, blank, failed and why, bot check, payment, download…), and facts about
  * the load. The two-frame test needs a visible page, so (like a screenshot) it brings the tab forward.
  */
+/** In caller-network mode, a new visit starts with a clean slate (only then; it needs the page to be addressable). */
+async function freshVisit(d: ControlDeps, t: TabInfo): Promise<void> {
+  if ((d.callerNet.state() as { enabled?: boolean }).enabled) await d.callerNet.freshVisit(await addressable(t));
+}
+
 async function settleTab(d: ControlDeps, t: TabInfo, opts: unknown): Promise<unknown> {
   const wcId = await addressable(t);
   const o = (opts && typeof opts === "object" ? opts : {}) as Record<string, unknown>;
@@ -183,6 +189,7 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
     // ---- navigation ---------------------------------------------------------
     case "page.goto": {
       const t = resolveTab(p);
+      await freshVisit(d, t);
       if (!p.settle) return d.askChrome("tab.goto", { id: t.id, url: str(p.url, "url"), wait: p.wait !== false });
       // `settle: true` (or an options object) waits until the page is REALLY finished and says why. It starts once
       // the navigation has begun, so it never judges the page being left; the verdict replaces the plain load wait.
@@ -336,6 +343,7 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       const { settle: settleOpt, ...doc } = p;
       const redirects = Array.isArray(p.redirects) ? (p.redirects as Array<{ status?: number; to: string }>) : [];
       provider(() => d.callerNet.registerDocument({ ...doc, url }));
+      await freshVisit(d, t);
       d.callerNet.noteKnownDocument(await addressable(t), url, redirects);
       const loaded = (await d.askChrome("tab.goto", { id: t.id, url, wait: settleOpt ? "start" : true })) as Record<string, unknown>;
       return settleOpt ? { ...loaded, settle: await settleTab(d, t, settleOpt === true ? {} : settleOpt) } : loaded;
