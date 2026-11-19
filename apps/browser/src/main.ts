@@ -12,12 +12,13 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell } from "electron";
 import { createPublicClient, http as viemHttp } from "viem";
 import { baseSepolia } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { PolicyEngine, Ledger, X402Engine, formatUsd, signExactEvm } from "@dbbasic/x402-engine";
-import { bypassingFetch, createPaymentHandler } from "./intercept.js";
+import { createPaymentHandler } from "./intercept.js";
+import { netRequestFetch } from "./transport.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -123,18 +124,10 @@ function buildEngine(): X402Engine {
   const policy = new PolicyEngine();
   const ledger = new Ledger();
 
-  // The engine's own network calls must bypass our protocol.handle('https') or they
-  // loop back into us forever. This is the single most important wiring detail here.
-  const rawFetch = bypassingFetch((input) =>
-    net.fetch(input.url, {
-      method: input.method,
-      headers: input.headers,
-      body: input.body as ReadableStream | null,
-      // @ts-expect-error duplex required by undici for streamed bodies
-      duplex: input.body ? "half" : undefined,
-      bypassCustomProtocolHandlers: true,
-    }),
-  );
+  // The engine's network calls go through netRequestFetch (see transport.ts): it never follows
+  // redirects itself — it returns 3xx to the renderer so URL/origin stay truthful — and it
+  // bypasses our own protocol.handle handler so it can't recurse into it.
+  const rawFetch = netRequestFetch();
 
   return new X402Engine({
     account,
