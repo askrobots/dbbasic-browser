@@ -800,7 +800,9 @@ app.whenReady().then(() => {
             } catch {
               /* a page that cannot be asked has nothing we can clear */
             }
-            await session.defaultSession.clearStorageData();
+            // Never let clearing storage hold a visit up for ever: past 8 s the visit goes ahead and the problem is announced.
+            const cleared = await Promise.race([session.defaultSession.clearStorageData().then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 8000))]);
+            if (!cleared) emit({ kind: "visit-clean-slate-timeout", message: "clearing stored data took more than 8 s; the visit started anyway" });
           },
           registerDocument: (doc) => callerNet.registerDocument(doc as unknown as Document),
           noteKnownDocument,

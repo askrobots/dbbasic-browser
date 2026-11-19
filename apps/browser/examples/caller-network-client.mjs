@@ -67,7 +67,8 @@ if (!url || !token) {
 }
 let n = 0;
 async function call(method, params = {}) {
-  const res = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ id: ++n, method, params }) });
+  // A call that gets no answer must not hang this script for ever: the browser answers every call, so 90 s means something is wrong.
+  const res = await fetch(url, { method: "POST", signal: AbortSignal.timeout(90_000), headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ id: ++n, method, params }) });
   const body = await res.json();
   if (!body.ok) throw Object.assign(new Error(`${body.error?.code}: ${body.error?.message}`), { code: body.error?.code });
   return body.result;
