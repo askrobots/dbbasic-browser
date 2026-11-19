@@ -21,6 +21,8 @@ import { createPaymentHandler } from "./intercept.js";
 import { brandedUserAgent } from "./compat.js";
 import { netEvents, netRequestFetch, setClientHints, type NetEvent } from "./transport.js";
 import { safeExternalUrl } from "./urls.js";
+import { describeAi, loadAiEnv, resolveAi, type AiConfig, type Provider } from "./ai-config.js";
+import { createReader } from "./reader-service.js";
 import { registerVault } from "./vault-service.js";
 import { setTabs, startControl, type ApprovalPolicy, type ControlHandle, type TabInfo } from "./control.js";
 
@@ -289,6 +291,20 @@ function openHelp(anchor: string): void {
 /** Loading-animation preference. The chrome UI owns it (localStorage); we only mirror it for the menu's radio check. */
 let motionPref: "always" | "system" | "never" = "system";
 
+/**
+ * AI Reader provider/model. Keys come from the environment or a private file outside the repo
+ * (see ai-config.ts); they never leave this process. Anthropic is the default provider.
+ */
+const aiLoaded = loadAiEnv();
+let aiCfg: AiConfig | null = resolveAi(aiLoaded);
+function setAiProvider(p: Provider): boolean {
+  if (!aiCfg?.available.includes(p)) return false;
+  aiCfg = resolveAi({ ...aiLoaded, values: { ...aiLoaded.values, DBB_AI_PROVIDER: p } });
+  buildMenu();
+  emit({ kind: "ai-provider", provider: aiCfg?.provider, model: aiCfg?.model });
+  return true;
+}
+
 /** Tell the chrome UI to do a tab action (new/close/focus-url/next/prev/reload). */
 const tabCmd = (cmd: string) => () => mainWindow?.webContents.send("tab:cmd", cmd);
 
@@ -329,6 +345,26 @@ function buildMenu(): void {
             { label: "Never", type: "radio", checked: motionPref === "never", click: tabCmd("motion:never") },
           ],
         },
+        { type: "separator" },
+        { label: "AI Reader", accelerator: "CmdOrCtrl+Shift+R", click: tabCmd("reader") },
+        {
+          label: "AI Provider",
+          enabled: !!aiCfg,
+          submenu: aiCfg
+            ? [
+                ...(["anthropic", "openai"] as const).map((p) => ({
+                  label: p === "anthropic" ? "Anthropic" : "OpenAI",
+                  type: "radio" as const,
+                  enabled: aiCfg!.available.includes(p),
+                  checked: aiCfg!.provider === p,
+                  click: () => void setAiProvider(p),
+                })),
+                { type: "separator" as const },
+                { label: `Model: ${aiCfg.model}`, enabled: false },
+              ]
+            : [{ label: "No API key found — see Help ▸ AI Reader", enabled: false }],
+        },
+        { type: "separator" },
         { role: "toggleDevTools" },
         { type: "separator" },
         { role: "togglefullscreen" },
@@ -427,6 +463,14 @@ app.whenReady().then(() => {
     });
   });
   buildMenu();
+  const reader = createReader({ getWindow: () => mainWindow, askChrome, emit, getAi: () => aiCfg });
+  // From the chrome UI (a human clicked Reader): ask before anything is sent.
+  ipcMain.handle("reader:open", async (_e, a: { wcId?: number }) => {
+    const r = await reader.open({ wcId: Number(a?.wcId), interactive: true });
+    return { ok: r.ok, reason: r.reason, message: r.message, ai: r.ai };
+  });
+  ipcMain.handle("reader:ai", () => describeAi(aiCfg));
+  ipcMain.handle("reader:provider", (_e, p: unknown) => (p === "anthropic" || p === "openai" ? setAiProvider(p) : false));
   const vaultSvc = registerVault({ path: process.env.DBB_VAULT || join(app.getPath("userData"), "vault.json"), getWindow: () => mainWindow });
 
   // Tab list mirror (for the automation API) and the chrome UI's answers to askChrome().
@@ -453,6 +497,13 @@ app.whenReady().then(() => {
           approval = p;
           emit({ kind: "approval-changed", mode: p.mode, maxUsd: p.maxUsd });
         },
+        reader: async (p) => {
+          const r = await reader.open({ wcId: Number(p.wcId), interactive: false, withAi: p.ai !== false, acknowledge: p.acknowledge === true });
+          const ai = r.done && p.wait !== false ? await r.done : undefined;
+          return { ok: r.ok, reason: r.reason, message: r.message, tab: r.tab, state: r.ai, summary: ai };
+        },
+        aiStatus: () => describeAi(aiCfg),
+        setAiProvider: (p) => (p === "anthropic" || p === "openai" ? setAiProvider(p) : false),
         spent: () => formatUsd(engine.policy.spentUsdMicro()),
         receipts: () => JSON.parse(JSON.stringify(engine.ledger.all(), (_k, v) => (typeof v === "bigint" ? v.toString() : v))),
       },

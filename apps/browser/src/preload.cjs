@@ -39,6 +39,12 @@ contextBridge.exposeInMainWorld("x402", {
     ipcRenderer.on("x402:event", listener);
     return () => ipcRenderer.removeListener("x402:event", listener);
   },
+  /** AI Reader. Keys never cross this bridge: only provider/model names. */
+  reader: {
+    open: (args) => ipcRenderer.invoke("reader:open", args),
+    ai: () => ipcRenderer.invoke("reader:ai"),
+    setProvider: (p) => ipcRenderer.invoke("reader:provider", p),
+  },
   /** Tell the main process the loading-animation preference (always|system|never) so the menu can show it. */
   reportMotion(mode) {
     ipcRenderer.send("pref:motion", mode);

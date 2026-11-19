@@ -122,6 +122,7 @@
       <button class="btn" id="galleryBtn" title="Open the local x402 test gallery (http://127.0.0.1:8899/) — start it with: node apps/browser/demo/x402-demo-server.mjs">🧪 x402 tests</button>
       <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
       <div id="ctlChip" style="display:none"></div>
+      <button class="btn" id="readerBtn" title="AI Reader — a clean reading view with a TL;DR (⌘⇧R)">📖 Reader</button>
       <button class="btn" id="keyBtn" title="Passwords"><span>🔑</span><span id="keyDot"></span></button>
       <button class="btn" id="inspectBtn" title="x402 inspector">⚡ x402<span id="inspectCount">0</span></button>
       <div id="bal" class="chip" title="Your wallet USDC on Base Sepolia — click to copy address">◈ —</div>
@@ -160,7 +161,7 @@
       let rows = new Map(); // alias for the active tab's inspector rows
       const owners = new Map(); // resource URL -> tab that triggered it
 
-      const shown = (u) => (u && !u.startsWith("about:") ? u : "");
+      const shown = (u) => (u && !u.startsWith("about:") && !u.startsWith("data:") ? u : "");
 
       function newTab(url, activate = true) {
         const wv = document.createElement("webview");
@@ -169,7 +170,7 @@
         wv.setAttribute("allowpopups", ""); // main's windowOpenHandler turns these into tabs
         if (window.x402.webviewPreload) wv.setAttribute("preload", window.x402.webviewPreload);
         const tab = { id: nextTabId++, wv, wcId: null, url: "", title: "", rows: new Map(), userClosed: false, paid: false, ready: false, pending: null, loading: false, saveOffer: null, fillOffer: null, waiters: [], navSeen: false,
-          el: null, net: { reqs: new Map() }, redirect: null, settledUntil: 0, failed: null, netError: null, thState: null, thText: "" };
+          el: null, reader: null, aiBusy: null, net: { reqs: new Map() }, redirect: null, settledUntil: 0, failed: null, netError: null, thState: null, thText: "" };
 
         // Navigate only once the webview is really ready — setting src at creation
         // races its own init and can leave us stranded on about:blank.
@@ -197,7 +198,8 @@
         // fire during the load, so resetting on did-navigate (after) would wipe them.
         wv.addEventListener("did-start-navigation", (e) => {
           if (!e.isMainFrame || e.isInPlace) return;
-          if (shown(e.url)) { tab.url = e.url; tab.navSeen = true; }
+          if (e.url !== "about:blank") tab.navSeen = true;
+          if (shown(e.url)) tab.url = e.url;
           tab.rows.clear();
           tab.paid = false;
           tab.failed = null; tab.netError = null; tab.redirect = null; tab.settledUntil = 0;
@@ -237,7 +239,7 @@
         active = tab;
         for (const t of tabs) t.wv.classList.toggle("hidden", t !== tab);
         rows = tab.rows;
-        urlInput.value = tab.url;
+        setUrlBar(tab);
         renderTabs();
         refreshThrobber(tab);
         renderInspector();
@@ -261,7 +263,11 @@
         switchTo(tabs[(tabs.indexOf(active) + dir + tabs.length) % tabs.length]);
       }
 
+      // The address bar shows where a reader view came from, never the data: URL it is built on.
+      function setUrlBar(t) { urlInput.value = t.reader ? "📖 Reader · " + t.reader : t.url; }
+
       function tabLabel(t) {
+        if (t.reader) return "📖 " + (t.title || hostOf(t.reader));
         if (t.title) return t.title;
         try { return new URL(t.url).host; } catch { return t.url ? t.url : "New Tab"; }
       }
@@ -337,6 +343,7 @@
           if (/INTERNET_DISCONNECTED|NETWORK_CHANGED/.test(tab.failed.desc)) return { state: "offline", text: "You're offline" };
           return { state: "failed", text: "Couldn't load " + (host || "the page") + ": " + (tab.failed.desc || "error") };
         }
+        if (tab.aiBusy) return { state: "summarizing", text: "Summarizing with " + tab.aiBusy + "…" };
         const pend = rows.find((r) => r.decision === "prompt" && !r.outcome);
         if (pend) return { state: "pay-pending", text: price(pend) + " payment needed on " + hostOf(pend.resource) + " — waiting for your approval" };
         const paying = rows.find((r) => r.decision === "allow" && !r.outcome);
@@ -436,6 +443,7 @@
         switch (op) {
           case "tab.new": {
             const t = newTab(null, a.activate !== false);
+            if (a.reader) t.reader = String(a.reader);
             await tabReady(t);
             if (a.url) { const w = waitLoad(t); go(a.url, t); if (a.wait) return summary(t, await w); }
             return summary(t, {});
@@ -467,6 +475,15 @@
       }
       $("newTab").onclick = () => openNewTab();
 
+      // AI Reader: a clean reading view of the active page with a TL;DR on top. The text is read in the page
+      // and the view is built in the main process; this document never touches page content or API keys.
+      async function openReader() {
+        if (!active || active.wcId == null || !active.url) { toast("skipped", "Open a web page first"); return; }
+        const r = await window.x402.reader.open({ wcId: active.wcId });
+        if (!r.ok) toast("skipped", "📖 " + (r.message || "Couldn't open the reader"), 5000);
+      }
+      $("readerBtn").onclick = () => openReader();
+
       // Which tab does a payment event belong to? Events carry only a resource URL, so:
       // reuse the earlier mapping; else among loading tabs prefer the one on the same
       // origin, then the active one; else fall back to the active tab.
@@ -492,6 +509,7 @@
         else if (cmd === "prev") cycleTab(-1);
         else if (cmd === "reload") { try { active.wv.reload(); } catch {} }
         else if (cmd.startsWith("motion:")) setMotionMode(cmd.slice(7));
+        else if (cmd === "reader") openReader();
         else if (cmd === "open-external") {
           if (active && /^https?:\/\//i.test(active.url)) window.x402.openExternal(active.url);
           else toast("skipped", "Only web pages can be opened in the default browser");
@@ -524,8 +542,8 @@
       function go(raw, tab = active) {
         const u = toUrl(raw);
         if (!u) return;
-        tab.url = u;
-        if (tab === active) urlInput.value = u;
+        tab.url = u.startsWith("data:") ? "" : u;
+        if (tab === active) setUrlBar(tab);
         renderTabs();
         if (tab.ready) tab.wv.src = u;
         else tab.pending = u; // applied on dom-ready
@@ -949,6 +967,17 @@
         } else if (ev.kind === "auto-decision") {
           // Automation answered a payment prompt - never silent.
           toast(ev.approved ? "quoted" : "skipped", "🤖 " + (ev.approved ? "Auto-approved " : "Auto-declined ") + ev.price + " (" + ev.mode + ", cap $" + ev.cap + ") - " + shortPath(ev.resource), 5000);
+        } else if (ev.kind === "reader-busy") {
+          const t = tabs.find((x) => x.wcId === ev.wcId);
+          if (t) { t.aiBusy = ev.busy ? (ev.provider + (ev.model ? " · " + ev.model : "")) : null; refreshThrobber(t); }
+        } else if (ev.kind === "ai-summary") {
+          // Never silent: what left this computer, to whom, and what it cost.
+          const cost = ev.costUsd == null ? "" : " · ≈$" + (ev.costUsd < 0.01 ? ev.costUsd.toFixed(4) : ev.costUsd.toFixed(3));
+          toast("quoted", "📖 Sent " + ev.sentChars.toLocaleString() + " characters from " + ev.host + " to " + ev.provider + " (" + ev.model + ") · " + (ev.ms / 1000).toFixed(1) + "s" + cost, 7000);
+        } else if (ev.kind === "ai-error") {
+          toast("skipped", "📖 Summary failed (" + ev.provider + "): " + ev.message, 7000);
+        } else if (ev.kind === "ai-provider") {
+          toast("quoted", "📖 AI provider: " + ev.provider + " · " + ev.model, 3500);
         } else if (ev.kind === "approval-changed") {
           toast("quoted", "🤖 Payment approval set to " + ev.mode + (ev.mode === "auto" ? " up to $" + ev.maxUsd : ""), 5000);
         } else if (ev.kind === "skipped") {

@@ -53,6 +53,10 @@ export interface ControlDeps {
   getApproval(): ApprovalPolicy;
   setApproval(p: ApprovalPolicy): void;
   spent(): string;
+  /** AI Reader: open the reader view for a tab (and, only with `acknowledge`, summarize it). */
+  reader(p: Record<string, unknown>): Promise<unknown>;
+  aiStatus(): unknown;
+  setAiProvider(p: unknown): boolean;
   receipts(): unknown;
 }
 
@@ -221,6 +225,21 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       if (!r.ok) throw new RpcError(r.code, r.message);
       if (p.submit !== false && p.wait !== false) await d.askChrome("tab.waitLoad", { id: t.id, ms: 15_000 });
       return r.data; // username + origin only — never the password
+    }
+
+    // ---- AI Reader -----------------------------------------------------------
+    case "ai.status":
+      return d.aiStatus();
+    case "ai.provider": {
+      if (!d.setAiProvider(p.provider)) throw new RpcError("bad-params", 'provider must be "anthropic" or "openai" and have a key');
+      return d.aiStatus();
+    }
+    case "reader.open": {
+      // Opens the reader view. Page text is sent to an AI provider ONLY when `acknowledge: true` is passed
+      // (a human would have been asked); without it the reader opens with no summary.
+      const t = resolveTab(p);
+      if (t.wcId == null) throw new RpcError("tab-not-ready", `tab ${t.id} is not ready yet`);
+      return d.reader({ ...p, wcId: t.wcId });
     }
 
     // ---- x402 ----------------------------------------------------------------

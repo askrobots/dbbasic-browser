@@ -37,6 +37,7 @@
   <a href="#start">Getting started</a>
   <a href="#shortcuts">Keyboard shortcuts</a>
   <a href="#tabs">Tabs</a>
+  <a href="#reader">AI Reader</a>
   <a href="#loading">Loading indicators</a>
   <a href="#x402">x402 payments</a>
   <a href="#passwords">Password manager</a>
@@ -68,6 +69,20 @@
 
   <h2 id="tabs">Tabs</h2>
   <p>Each tab is its own page with its own payment inspector, so spend is attributed to the page that caused it. A <b>⚡</b> on a tab means something was paid for there. Links that open a new window (<code>target="_blank"</code>) open as tabs; clicking a transaction in the inspector opens it beside the paid page rather than replacing it. Tabs are not yet restored between launches.</p>
+
+  <h2 id="reader">AI Reader</h2>
+  <p>Click <b>📖 Reader</b> (or <kbd>⌘⇧R</kbd>) for a clean reading view of the current page with a <b>TL;DR</b> at the top. The article is extracted on your computer with Mozilla's Readability and shown in a plain, script-free page; pages that aren't articles fall back to their visible text. Only the TL;DR comes from an AI provider, so a summary can never rewrite what you read — the original text is right below it.</p>
+  <h3>Privacy</h3>
+  <ul>
+    <li>Nothing is sent unless you click Reader. The first summary per provider each session asks first, naming the provider, model, site and amount of text.</li>
+    <li>Pages with a visible password field are never read.</li>
+    <li>Every provider call raises a toast saying what was sent, to whom, and the cost when known. API keys never leave the main process and are never shown in the UI.</li>
+    <li>The page's text is treated as untrusted data by the summarizer, and the summary is written into the reader with <code>textContent</code> only.</li>
+  </ul>
+  <h3>Setting up keys (never in the repository)</h3>
+  <p>Put <code>ANTHROPIC_API_KEY</code> and/or <code>OPENAI_API_KEY</code> in your environment, in the file named by <code>DBB_ENV_FILE</code>, or in <code>~/.dbbasic/env</code> (plain <code>NAME=value</code> lines). Only those names are read from a file. <b>View ▸ AI Provider</b> switches provider; Anthropic is the default. <code>DBB_AI_MODEL_ANTHROPIC</code> / <code>DBB_AI_MODEL_OPENAI</code> choose models (a smaller one, such as <code>claude-haiku-5-5</code>, is much cheaper and faster for one-click summaries). See <code>.env.example</code>.</p>
+  <h3>Automation</h3>
+  <p><code>reader.open {tab?, ai?, acknowledge?, wait?}</code> opens the reader; the page text is sent to a provider <b>only</b> when <code>acknowledge: true</code> is passed. <code>ai.status</code> and <code>ai.provider {provider}</code> read and switch the provider. <code>DBB_AI_CONSENT=1</code> pre-answers the consent prompt for scripted runs.</p>
 
   <h2 id="loading">Loading indicators</h2>
   <p>Each tab shows what it is doing, and the status line at the bottom left says it in words: <b>waiting</b> (request sent, no answer yet), <b>receiving</b> (with the bytes so far), <b>redirecting</b>, a site's <b>bot check</b>, an <b>x402 payment</b> (needed, paying, paid), <b>slow</b> (still waiting after 6 s), <b>failed</b> or <b>offline</b>. These come from real signals — what our own network layer and the payment engine see — so DNS, TCP and TLS, which happen inside Chromium, appear as "waiting" rather than as invented phases.</p>
@@ -132,6 +147,7 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><td>login</td><td><code>{id?, submit?, wait?}</code> — fill (and submit) the saved login for the tab's exact origin</td></tr>
     <tr><td>x402.spent / receipts</td><td>session spend; full ledger</td></tr>
     <tr><td>x402.events</td><td><code>{since}</code> → <code>{events, next}</code> — every quote, decision, payment and refusal</td></tr>
+    <tr><td>reader.open / ai.status / ai.provider</td><td>the AI Reader — see <a href="#reader">above</a></td></tr>
     <tr><td>x402.approval</td><td><code>{mode: "ask"|"auto"|"deny", maxUsd}</code> — who answers payment prompts; call with no params to read</td></tr>
   </table>
   <div class="note"><b>Why use this instead of Playwright/CDP?</b> It controls the real, visible browser; input is genuinely trusted (sites that ignore synthetic clicks work); payments are inspectable and assertable (<code>x402.events</code>) rather than a dialog your test can't dismiss; and <code>login</code> signs you in without your script ever holding a password. Input methods bring the tab to the front, because real input needs a visible page.</div>

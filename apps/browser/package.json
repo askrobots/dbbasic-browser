@@ -12,7 +12,7 @@
   },
   "main": "src/main.ts",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:electron --external:viem --external:@anthropic-ai/sdk --external:openai --outfile=dist/main.js && node scripts/build-chrome.mjs && cp src/help.html src/preload.cjs src/webview-preload.cjs assets/icon.png dist/",
+    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:electron --external:viem --external:@anthropic-ai/sdk --external:openai --outfile=dist/main.js && node scripts/build-chrome.mjs && node scripts/copy-reader-assets.mjs && cp src/help.html src/preload.cjs src/webview-preload.cjs assets/icon.png dist/",
     "start": "npm run build && node scripts/launch.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
@@ -21,6 +21,7 @@
     "@anthropic-ai/sdk": "^1.10.0",
     "@dbbasic/vault": "*",
     "@dbbasic/x402-engine": "*",
+    "@mozilla/readability": "^0.6.0",
     "openai": "^7.60.0",
     "viem": "^2.21.0"
   },
