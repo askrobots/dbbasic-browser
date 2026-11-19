@@ -78,7 +78,9 @@ Requires Node 20+.
 
 ```bash
 npm install          # installs all workspaces
-npm test             # runs the engine, proxy, and browser test suites
+npm test           # unit tests: engine, proxy, vault and browser
+npm run e2e -w @dbbasic/browser   # end-to-end: drives the real browser through its automation API
+                                   # (macOS/desktop; E2E_LIVE_NET=1 / E2E_LIVE_AI=1 add checks against real sites / real AI keys)
 ```
 
 **See it pay, in a real browser window:**
