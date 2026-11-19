@@ -38,6 +38,7 @@
   <a href="#shortcuts">Keyboard shortcuts</a>
   <a href="#tabs">Tabs</a>
   <a href="#reader">AI Reader</a>
+  <a href="#downloads">Downloads</a>
   <a href="#loading">Loading indicators</a>
   <a href="#x402">x402 payments</a>
   <a href="#passwords">Password manager</a>
@@ -83,6 +84,9 @@
   <p>Put <code>ANTHROPIC_API_KEY</code> and/or <code>OPENAI_API_KEY</code> in your environment, in the file named by <code>DBB_ENV_FILE</code>, or in <code>~/.dbbasic/env</code> (plain <code>NAME=value</code> lines). Only those names are read from a file. <b>View ▸ AI Provider</b> switches provider; Anthropic is the default. <code>DBB_AI_MODEL_ANTHROPIC</code> / <code>DBB_AI_MODEL_OPENAI</code> choose models. The defaults are small and fast — <code>claude-haiku-5-5</code> and <code>gpt-5.4-mini</code> — because a TL;DR is a one-click job; set <code>DBB_AI_MODEL_ANTHROPIC=claude-opus-5-5</code> for richer summaries at roughly 40× the cost. See <code>.env.example</code>.</p>
   <h3>Automation</h3>
   <p><code>reader.open {tab?, ai?, acknowledge?, wait?}</code> opens the reader; the page text is sent to a provider <b>only</b> when <code>acknowledge: true</code> is passed. <code>ai.status</code> and <code>ai.provider {provider}</code> read and switch the provider. <code>DBB_AI_CONSENT=1</code> pre-answers the consent prompt for scripted runs.</p>
+
+  <h2 id="downloads">Downloads</h2>
+  <p>A download opens the standard macOS Save dialog with the file name the site suggested (made safe: path separators and control characters are replaced, so a hostile name can't reach outside the folder you pick). While it runs, the status line shows <b>⬇ Downloading name — 1.2 MB of 3.0 MB</b>; when it ends a toast says it was <b>saved</b> (with the x402 amount if the download was paid for) or <b>failed</b>. <b>File ▸ Show Last Download in Finder</b> and <b>Show Downloads Folder</b> take you to the file. Downloads are never opened automatically, and on macOS each file is marked as downloaded from the internet (the quarantine attribute), so Gatekeeper vets anything you later run. <code>downloads.list</code> in the automation API lists them; <code>DBB_DOWNLOAD_DIR=/some/folder</code> skips the dialog and saves there, for scripted runs.</p>
 
   <h2 id="loading">Loading indicators</h2>
   <p>Each tab shows what it is doing, and the status line at the bottom left says it in words: <b>waiting</b> (request sent, no answer yet), <b>receiving</b> (with the bytes so far), <b>redirecting</b>, a site's <b>bot check</b>, an <b>x402 payment</b> (needed, paying, paid), <b>slow</b> (still waiting after 6 s), <b>failed</b> or <b>offline</b>. These come from real signals — what our own network layer and the payment engine see — so DNS, TCP and TLS, which happen inside Chromium, appear as "waiting" rather than as invented phases.</p>
@@ -147,6 +151,7 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><td>login</td><td><code>{id?, submit?, wait?}</code> — fill (and submit) the saved login for the tab's exact origin</td></tr>
     <tr><td>x402.spent / receipts</td><td>session spend; full ledger</td></tr>
     <tr><td>x402.events</td><td><code>{since}</code> → <code>{events, next}</code> — every quote, decision, payment and refusal</td></tr>
+    <tr><td>downloads.list</td><td>every download this session: name, host, bytes, state, saved path, amount paid</td></tr>
     <tr><td>reader.open / ai.status / ai.provider</td><td>the AI Reader — see <a href="#reader">above</a></td></tr>
     <tr><td>x402.approval</td><td><code>{mode: "ask"|"auto"|"deny", maxUsd}</code> — who answers payment prompts; call with no params to read</td></tr>
   </table>

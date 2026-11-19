@@ -9,9 +9,11 @@
  *   - stream payment events to the chrome UI for the live spend meter.
  */
 
-import { readFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, session, shell, type MenuItemConstructorOptions } from "electron";
 import { createPublicClient, http as viemHttp } from "viem";
 import { baseSepolia } from "viem/chains";
@@ -180,6 +182,124 @@ function askChrome(op: string, args: Record<string, unknown>): Promise<unknown> 
 
 let control: ControlHandle | null = null;
 
+// ---- downloads -----------------------------------------------------------------------------------
+// Chromium already neutralizes hostile filenames and shows the native Save dialog; what was missing was
+// any sign of progress, completion or failure. This tracks each download, announces it to the UI and the
+// automation event log, and links paid downloads to the x402 payment that unlocked them.
+// DBB_DOWNLOAD_DIR skips the dialog and saves there (scripted runs and tests, so nothing blocks).
+interface DownloadRecord {
+  id: number;
+  name: string;
+  host: string;
+  total: number;
+  received: number;
+  state: "progressing" | "paused" | "completed" | "cancelled" | "interrupted";
+  path: string;
+  /** The x402 amount paid for this URL just before the download started, e.g. "$0.001". */
+  paid?: string;
+  /** macOS: whether the file was marked as downloaded from the internet (so Gatekeeper vets it). */
+  quarantined?: boolean;
+  startedAt: number;
+}
+const downloads = new Map<number, DownloadRecord>();
+let downloadSeq = 0;
+
+/** A file name that is safe to create: no directories, no control or reserved characters, no leading dots. */
+export function cleanFileName(name: string): string {
+  const n = basename(String(name).replace(/\\/g, "/"))
+    .replace(/[\u0000-\u001f<>:"|?*]/g, "_")
+    .replace(/^\.+/, "_")
+    .trim()
+    .slice(0, 180);
+  return n || "download";
+}
+
+function uniquePath(dir: string, name: string): string {
+  const ext = extname(name);
+  const stem = name.slice(0, name.length - ext.length);
+  let candidate = join(dir, name);
+  for (let i = 1; existsSync(candidate) && i < 1000; i++) candidate = join(dir, `${stem} (${i})${ext}`);
+  return candidate;
+}
+
+/**
+ * Mark a downloaded file as coming from the internet. Electron does not do this for us, and without
+ * `com.apple.quarantine` macOS Gatekeeper never vets a downloaded app, installer or script — every mainstream
+ * browser sets it. Format: flags;timestamp-hex;agent;event-uuid (0083 = a web download, like Chrome's).
+ */
+function quarantine(path: string): Promise<boolean> {
+  if (process.platform !== "darwin") return Promise.resolve(false);
+  const value = `0083;${Math.floor(Date.now() / 1000).toString(16)};dbbasic-browser;${randomUUID().toUpperCase()}`;
+  return new Promise((resolve) => execFile("/usr/bin/xattr", ["-w", "com.apple.quarantine", value, path], (err) => resolve(!err)));
+}
+
+function paidFor(url: string): string | undefined {
+  const bare = url.split("#")[0];
+  for (let i = eventLog.length - 1; i >= 0 && i > eventLog.length - 300; i--) {
+    const e = eventLog[i]!;
+    if (e.kind === "paid" && Date.now() - (e.at as number) < 120_000 && (e.resource === bare || e.requested === bare)) return String(e.amount);
+  }
+  return undefined;
+}
+
+function setupDownloads(): void {
+  session.defaultSession.on("will-download", (_event, item) => {
+    const id = ++downloadSeq;
+    let host = "";
+    try {
+      host = new URL(item.getURL()).host;
+    } catch {
+      /* data: or blob: URL */
+    }
+    const rec: DownloadRecord = { id, name: cleanFileName(item.getFilename()), host, total: item.getTotalBytes(), received: 0, state: "progressing", path: "", startedAt: Date.now() };
+    const paid = paidFor(item.getURL());
+    if (paid) rec.paid = paid;
+    const dir = process.env.DBB_DOWNLOAD_DIR;
+    if (dir) {
+      mkdirSync(dir, { recursive: true });
+      rec.path = uniquePath(dir, rec.name);
+      item.setSavePath(rec.path);
+    }
+    downloads.set(id, rec);
+    const announce = () => emit({ kind: "download", ...rec });
+    announce();
+    let last = 0;
+    item.on("updated", (_e, state) => {
+      rec.received = item.getReceivedBytes();
+      rec.total = item.getTotalBytes();
+      rec.state = state === "interrupted" ? "interrupted" : item.isPaused() ? "paused" : "progressing";
+      const now = Date.now();
+      if (now - last > 150 || state === "interrupted") {
+        last = now;
+        announce();
+      }
+    });
+    item.once("done", (_e, state) => {
+      rec.received = item.getReceivedBytes();
+      rec.total = item.getTotalBytes() || rec.received;
+      rec.path = item.getSavePath() || rec.path; // the path the user chose in the Save dialog
+      if (state === "completed" && rec.path) {
+        // The download only counts as completed once it is quarantined, and the state and the announcement change
+        // together — so nothing (UI, automation, a person) is told "done" before the file is marked.
+        void quarantine(rec.path).then((ok) => {
+          rec.quarantined = ok;
+          rec.state = "completed";
+          announce();
+        });
+      } else {
+        rec.state = state === "interrupted" ? "interrupted" : "cancelled";
+        announce();
+      }
+    });
+  });
+}
+
+function showLastDownload(): void {
+  const done = [...downloads.values()].filter((d) => d.state === "completed" && d.path).pop();
+  if (done) shell.showItemInFolder(done.path);
+  else void shell.openPath(app.getPath("downloads"));
+}
+
 function buildEngine(): X402Engine {
   const policy = new PolicyEngine();
   const ledger = new Ledger();
@@ -326,6 +446,9 @@ function buildMenu(): void {
         // Escape hatch for sites that refuse embedded-Chromium browsers (see Help ▸ How we identify ourselves).
         { label: "Open Page in Default Browser", accelerator: "CmdOrCtrl+Shift+O", click: tabCmd("open-external") },
         { type: "separator" },
+        { label: "Show Last Download in Finder", click: () => showLastDownload() },
+        { label: "Show Downloads Folder", click: () => void shell.openPath(app.getPath("downloads")) },
+        { type: "separator" },
         { label: "Next Tab", accelerator: "Ctrl+Tab", click: tabCmd("next") },
         { label: "Previous Tab", accelerator: "Ctrl+Shift+Tab", click: tabCmd("prev") },
         { label: "Next Tab (alt)", accelerator: "CmdOrCtrl+Alt+Right", click: tabCmd("next"), visible: false },
@@ -463,6 +586,7 @@ app.whenReady().then(() => {
     });
   });
   buildMenu();
+  setupDownloads();
   const reader = createReader({ getWindow: () => mainWindow, askChrome, emit, getAi: () => aiCfg });
   // From the chrome UI (a human clicked Reader): ask before anything is sent.
   ipcMain.handle("reader:open", async (_e, a: { wcId?: number }) => {
@@ -490,6 +614,14 @@ app.whenReady().then(() => {
     startControl(
       {
         askChrome,
+        focusWindow: () => {
+          const w = mainWindow;
+          if (!w) return;
+          if (w.isMinimized()) w.restore();
+          w.show();
+          w.focus();
+          if (process.platform === "darwin") app.focus({ steal: true });
+        },
         vault: vaultSvc,
         eventsSince: (n) => ({ events: eventLog.filter((e) => (e.seq as number) > n), next: eventSeq }),
         getApproval: () => approval,
@@ -502,6 +634,7 @@ app.whenReady().then(() => {
           const ai = r.done && p.wait !== false ? await r.done : undefined;
           return { ok: r.ok, reason: r.reason, message: r.message, tab: r.tab, state: r.ai, summary: ai };
         },
+        downloads: () => [...downloads.values()],
         aiStatus: () => describeAi(aiCfg),
         setAiProvider: (p) => (p === "anthropic" || p === "openai" ? setAiProvider(p) : false),
         spent: () => formatUsd(engine.policy.spentUsdMicro()),
@@ -549,11 +682,3 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
-        focusWindow: () => {
-          const w = mainWindow;
-          if (!w) return;
-          if (w.isMinimized()) w.restore();
-          w.show();
-          w.focus();
-          if (process.platform === "darwin") app.focus({ steal: true });
-        },

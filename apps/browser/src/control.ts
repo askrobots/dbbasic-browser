@@ -58,6 +58,7 @@ export interface ControlDeps {
   /** AI Reader: open the reader view for a tab (and, only with `acknowledge`, summarize it). */
   reader(p: Record<string, unknown>): Promise<unknown>;
   aiStatus(): unknown;
+  downloads(): unknown;
   setAiProvider(p: unknown): boolean;
   receipts(): unknown;
 }
@@ -107,8 +108,8 @@ async function front(d: ControlDeps, t: TabInfo): Promise<WebContents> {
     await d.askChrome("tab.activate", { id: t.id });
     await sleep(80);
   }
-  const wc = guest(t);
   d.focusWindow();
+  const wc = guest(t);
   wc.focus();
   return wc;
 }
@@ -232,6 +233,10 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       if (p.submit !== false && p.wait !== false) await d.askChrome("tab.waitLoad", { id: t.id, ms: 15_000 });
       return r.data; // username + origin only — never the password
     }
+
+    // ---- downloads -----------------------------------------------------------
+    case "downloads.list":
+      return d.downloads();
 
     // ---- AI Reader -----------------------------------------------------------
     case "ai.status":

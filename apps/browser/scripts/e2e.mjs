@@ -24,7 +24,7 @@ import { makeCtx } from "../test/e2e/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const SUITES = ["api", "ui", "transport", "states", "reader", "live-net"];
+const SUITES = ["api", "ui", "transport", "states", "reader", "downloads", "live-net"];
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const run = wanted.length ? wanted : SUITES;
 for (const s of run) if (!SUITES.includes(s)) { console.error(`unknown suite "${s}" (have: ${SUITES.join(", ")})`); process.exit(2); }
@@ -71,7 +71,7 @@ async function launchApp(suite) {
     env: {
       ...process.env,
       DBB_CONTROL: "1", DBB_CONTROL_PORT: String(controlPort), DBB_CONTROL_TOKEN: token, DBB_CONTROL_FILE: join(tmp, `control-${suite}.json`),
-      DBB_VAULT: vaultPath, HOMEPAGE: `${base}/free`,
+      DBB_VAULT: vaultPath, HOMEPAGE: `${base}/free`, DBB_DOWNLOAD_DIR: join(tmp, `downloads-${suite}`),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -83,7 +83,7 @@ async function launchApp(suite) {
     const r = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ method: "status" }) }).then((x) => x.json());
     return r.ok && r.result.tabs.some((t) => t.url.startsWith(base)); // up, and the first tab has loaded
   }, "the browser to start");
-  return { app, url, token, debugPort, controlPort, log, quit: () => { try { app.kill("SIGTERM"); } catch {} } };
+  return { app, url, token, debugPort, controlPort, log, downloadDir: join(tmp, `downloads-${suite}`), quit: () => { try { app.kill("SIGTERM"); } catch {} } };
 }
 
 const totals = { pass: 0, fail: 0, skipped: [] };

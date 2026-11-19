@@ -9,7 +9,7 @@
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function makeCtx({ url, token, debugPort, controlPort, base, tmp, vaultMaster, liveAi, log }) {
+export function makeCtx({ url, token, debugPort, controlPort, base, tmp, vaultMaster, liveAi, log, downloadDir }) {
   const counts = { pass: 0, fail: 0 };
   const sessions = [];
 
@@ -42,7 +42,7 @@ export function makeCtx({ url, token, debugPort, controlPort, base, tmp, vaultMa
   }
 
   return {
-    call, check, chrome, sleep, base, tmp, vaultMaster, liveAi, counts, controlUrl: url, controlToken: token, controlPort,
+    call, check, chrome, sleep, base, tmp, vaultMaster, liveAi, counts, downloadDir, controlUrl: url, controlToken: token, controlPort,
     appLog: () => (log || []).join(""),
     close: async () => { for (const s of sessions) { try { s.close(); } catch {} } },
   };

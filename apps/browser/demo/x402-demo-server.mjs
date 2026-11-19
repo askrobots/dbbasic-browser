@@ -156,6 +156,14 @@ const ROUTES = {
     }),
     paid: paidPage("The forgotten status code", "The full essay would render here. It cost you a tenth of a cent, paid transparently."),
   },
+  // A PAID download: the 402 card is shown, the browser pays, and the retried response is an attachment.
+  "/download/paid": {
+    challenge: () => challenge({ path: "/download/paid", error: "This dataset costs $0.001.", amount: "1000" }),
+    card: genericCard({ title: "Paid dataset download", priceLabel: "$0.001", blurb: "Pay a tenth of a cent and the file downloads.", tagText: "auto-pays", tagColor: "#1c7a3a" }),
+    paid: "id,value\n1,10\n2,20\n3,30\n",
+    paidType: "text/csv",
+    paidHeaders: { "content-disposition": 'attachment; filename="dataset.csv"' },
+  },
   "/premium": {
     challenge: () => challenge({ path: "/premium", error: "This report costs $0.50.", amount: "500000" }),
     card: genericCard({
@@ -224,14 +232,14 @@ const INDEX = shell(
 const RECEIPT = b64({ success: true, transaction: "0xDEMO0000000000000000000000000000000000000000000000000000000000", network: "eip155:84532" });
 
 /** Gate any resource: unpaid → 402 (header + card body), paid → the content. */
-function gate(req, res, { challenge, card, paid, paidType = "text/html" }) {
+function gate(req, res, { challenge, card, paid, paidType = "text/html", paidHeaders = {} }) {
   const sig = req.headers["payment-signature"] || req.headers["x-payment"];
   if (!sig) {
     res.writeHead(402, { "PAYMENT-REQUIRED": b64(challenge), "content-type": "text/html" });
     res.end(card);
     return;
   }
-  res.writeHead(200, { "PAYMENT-RESPONSE": RECEIPT, "content-type": paidType });
+  res.writeHead(200, { "PAYMENT-RESPONSE": RECEIPT, "content-type": paidType, ...paidHeaders });
   res.end(paid);
 }
 
@@ -499,7 +507,7 @@ ${para("fourth")}${para("fifth")}
     res.end(shell("Not found", `<div class="wrap"><div class="card"><h1>404</h1><p><a href="/">← gallery</a></p></div></div>`));
     return;
   }
-  gate(req, res, { challenge: route.challenge(), card: route.card, paid: route.paid });
+  gate(req, res, { challenge: route.challenge(), card: route.card, paid: route.paid, paidType: route.paidType, paidHeaders: route.paidHeaders });
 }).listen(PORT, HOST, () => {
   console.log(`x402 example gallery on http://127.0.0.1:${PORT}/ (bound ${HOST}) — mock settlement`);
 });

@@ -309,6 +309,16 @@
       // transport (request out, headers in, bytes, redirect, error), and the x402 engine's events.
       // DNS/TCP/TLS are invisible to us (they happen inside Chromium), so they show as "waiting".
       const THROBBERS = /*__THROBBERS__*/ {};
+      // Downloads are not tied to one tab: the status line shows the most recent active one, whichever tab is in front.
+      const downloads = new Map();
+      function downloadStatus() {
+        const active = [...downloads.values()].filter((d) => d.state === "progressing" || d.state === "paused");
+        if (!active.length) return null;
+        const d = active[active.length - 1];
+        const of = d.total > 0 ? " of " + fmtBytes(d.total) : "";
+        const more = active.length > 1 ? " (+" + (active.length - 1) + " more)" : "";
+        return { state: "receiving", text: "⬇ Downloading " + d.name + " — " + fmtBytes(d.received) + of + more };
+      }
       const SLOW_MS = 6000;
       // Default: follow the OS "Reduce motion" setting. View ▸ Loading Animations can override it
       // (Always / Never) for anyone who wants to.
@@ -391,8 +401,10 @@
         if (tab.el) paintThrobber(tab.el.querySelector(".th"), state, tab.paid);
         if (tab === active) {
           const st = $("status");
-          st.classList.toggle("show", !!state);
-          if (state) { paintThrobber(st.querySelector(".ic"), state, false); st.querySelector(".tx").textContent = text; }
+          const dl = state ? null : downloadStatus(); // the tab's own state wins; otherwise show a download in progress
+          const shownState = state || (dl && dl.state);
+          st.classList.toggle("show", !!shownState);
+          if (shownState) { paintThrobber(st.querySelector(".ic"), shownState, false); st.querySelector(".tx").textContent = state ? text : dl.text; }
         }
         if (changed) syncTabs();
       }
@@ -967,6 +979,16 @@
         } else if (ev.kind === "auto-decision") {
           // Automation answered a payment prompt - never silent.
           toast(ev.approved ? "quoted" : "skipped", "🤖 " + (ev.approved ? "Auto-approved " : "Auto-declined ") + ev.price + " (" + ev.mode + ", cap $" + ev.cap + ") - " + shortPath(ev.resource), 5000);
+        } else if (ev.kind === "download") {
+          const prev = downloads.get(ev.id);
+          downloads.set(ev.id, ev);
+          if (active) refreshThrobber(active);
+          const finished = !prev || prev.state === "progressing" || prev.state === "paused";
+          if (finished && ev.state === "completed") {
+            toast("paid", "⬇ Saved " + ev.name + " (" + fmtBytes(ev.total || ev.received) + ")" + (ev.paid ? " · paid " + ev.paid : "") + " — File ▸ Show Last Download in Finder", 7000);
+          } else if (finished && ev.state === "interrupted") {
+            toast("skipped", "⬇ Download failed: " + ev.name, 6000);
+          }
         } else if (ev.kind === "reader-busy") {
           const t = tabs.find((x) => x.wcId === ev.wcId);
           if (t) { t.aiBusy = ev.busy ? (ev.provider + (ev.model ? " · " + ev.model : "")) : null; refreshThrobber(t); }
