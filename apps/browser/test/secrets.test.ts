@@ -50,9 +50,7 @@ describe.skipIf(!inGit)("no credentials in the repository", () => {
         /* unreadable: skip */
       }
     }
-    // The tests that exercise redaction use obviously fake "sk-…FAKE…" strings; they are allowed to
-    // appear only in those two files.
-    const allowed = new Set(["apps/browser/test/ai-config.test.ts", "apps/browser/test/secrets.test.ts"]);
-    expect(hits.filter((h) => !allowed.has(h.split(":")[0] ?? ""))).toEqual([]);
+    // No exceptions: tests that need fake keys build them at runtime so none exists in any source file.
+    expect(hits).toEqual([]);
   });
 });

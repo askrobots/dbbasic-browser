@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MODELS, describeAi, loadAiEnv, parseEnvFile, redact, resolveAi } from "../src/ai-config.js";
 
-// Obviously fake: these are shapes, not secrets.
-const A = "sk-ant-api03-FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE";
-const O = "sk-proj-FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE";
+// Fake keys, built at runtime so that no key-shaped string exists in the source (test/secrets.test.ts
+// scans every committable file with no exceptions).
+const fakeKey = (...parts: string[]) => parts.join("-") + "-" + "FAKE".repeat(8);
+const A = fakeKey("sk", "ant", "api03");
+const O = fakeKey("sk", "proj");
 
 describe("parseEnvFile", () => {
   it("reads only the allow-listed names — unrelated secrets are never loaded", () => {
@@ -82,11 +84,11 @@ describe("describeAi / redact never expose key material", () => {
     expect(describeAi(null)).toEqual({ configured: false, available: [], keySources: {} });
   });
   it("redact strips held keys and unknown key-shaped strings from error text", () => {
-    const msg = `401 for key ${A} and also sk-proj-ZZZZZZZZZZZZZZZZZZZZZZZZZZ plus ${O}`;
+    const msg = `401 for key ${A} and also ${fakeKey("sk", "proj").replace(/FAKE/g, "ZZZZ")} plus ${O}`;
     const r = redact(msg, cfg);
     expect(r).not.toContain(A);
     expect(r).not.toContain(O);
-    expect(r).not.toContain("sk-proj-ZZZZ");
+    expect(r).not.toContain("ZZZZ");
     expect(redact("plain error", null)).toBe("plain error");
   });
 });
