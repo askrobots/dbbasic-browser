@@ -18,6 +18,16 @@ export default async function (ctx) {
   v = await settle(base + "/redir/chain");
   check(v.settled && v.status === 200 && v.final.url === base + "/free" && v.redirects.length === 2, "a redirect chain: the final URL, its status (200, not the first hop's 302) and each hop are reported", v.redirects.map((r) => `${r.status}→${r.to.replace(base, "")}`).join(", "));
 
+  // ---- console and cookie facts ----
+  v = await settle(base + "/console", quick);
+  check(v.console?.counts?.error === 25 && v.console.counts.warning === 1 && v.console.counts.info === 1, "console messages are counted by level", JSON.stringify(v.console?.counts));
+  check(v.console?.errors?.length === 20 && v.console.errors[0].text.startsWith("error 0 ") && v.console.errors.every((e) => e.text.length <= 200), "…the first 20 errors are kept, each cut to 200 characters", `${v.console?.errors?.length} kept, longest ${Math.max(...(v.console?.errors ?? []).map((e) => e.text.length))}`);
+  const named = (n) => v.cookies?.find((c) => c.name === n);
+  check(named("visitor")?.httpOnly === true && named("visitor")?.session === true && named("js")?.httpOnly === false, "cookies at the verdict are listed with name, domain, path and flags", JSON.stringify(v.cookies));
+  check(!JSON.stringify(v).includes("SECRET-VALUE-123"), "…and no cookie value appears anywhere in the verdict");
+  v = await settle(base + "/free", quick);
+  check(v.console.counts.error === 0 && v.console.errors.length === 0, "the next visit starts with an empty console record");
+
   // ---- the blank test ----
   v = await settle(base + "/tiny", quick);
   check(v.settled && v.outcome === "blank", "a tiny page (under 20 characters of text) is 'blank' by default", v.outcome);

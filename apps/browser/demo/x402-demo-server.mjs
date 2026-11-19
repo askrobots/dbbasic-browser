@@ -493,6 +493,17 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     return;
   }
 
+  // A page that writes to its console (25 errors, long ones, a warning, an info) and sets two cookies (one with a secret value).
+  if (path === "/console") {
+    res.writeHead(200, { "content-type": "text/html", "set-cookie": ["visitor=SECRET-VALUE-123; Path=/; HttpOnly"] });
+    res.end(`<!doctype html><title>console</title><body style="font:18px system-ui;padding:40px"><h1>Console test page</h1><script>
+      document.cookie = "js=1; Path=/";
+      console.info("hello"); console.warn("careful");
+      for (let i = 0; i < 25; i++) console.error("error " + i + " " + "x".repeat(400));
+    </script>`);
+    return;
+  }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });

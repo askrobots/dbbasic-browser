@@ -38,6 +38,8 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 - **Blank-page options** on the finished-loading verdict: `minText` (visible text below this many characters, default 20, makes a page
   "blank"; 0 turns the test off) and `blankWaitMs` (default 0: keep checking for that long, while the page would settle as blank, for text
   or media to appear). A page that stays blank is still reported blank, and the wait is in `waitedMs`.
+- **Console and cookie facts** in the finished-loading verdict: console messages counted by level plus the first 20 errors (200 characters
+  each, as the page's own text), and the cookies that apply to the final address by name, domain, path and flags, never their values.
 - **A network layer the caller supplies** (`net.provider`, `net.pending`, `net.answer`, `net.fail`, `page.load`). While on, the
   browser makes no request of its own: each one is handed to the caller, which answers it or refuses it with a reason. A 3xx
   goes back to the page, so every hop is the caller's decision. The caller's identity is required and the desktop browser's is
