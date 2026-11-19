@@ -1,0 +1,27 @@
+{
+  "name": "@dbbasic/vault",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A very small, dependency-free password vault: one encrypted file, exact-origin matching. Usable standalone (library + CLI) or embedded in dbbasic-browser.",
+  "license": "Apache-2.0",
+  "author": "AskRobots",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/askrobots/dbbasic-browser.git",
+    "directory": "packages/vault"
+  },
+  "main": "src/index.ts",
+  "bin": {
+    "dbbasic-vault": "src/cli.ts"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types src/cli.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
