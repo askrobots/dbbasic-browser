@@ -142,6 +142,30 @@ export default async function (ctx) {
   v = await settle(base + "/self-loop", { timeoutMs: 30000 });
   check(v.outcome === "failed" && v.failure?.kind === "redirect-loop" && v.failure?.source === "observed", "a page that keeps moving itself ends as a redirect loop, after a limited number of moves", `${v.outcome} ${v.failure?.kind} after ${v.moves?.length} moves`);
 
+  // ---- per-visit limits ----
+  check((await T("net.provider")).limits.requests === 0, "no limits by default");
+  check((await rejects(T("net.provider", { limits: { requests: -1 } })))?.code === "bad-params", "a bad limit is refused");
+  // a page that makes about ten requests of its own (the hostile test page; its targets are refused by the caller below)
+  rules.push([(p) => p === "/img" || p === "/fetch" || p === "/xhr" || p === "/beacon" || p === "/sse" || p === "/prefetch", (r) => T("net.fail", { id: r.id, kind: "blocked", detail: "test" })]);
+  await T("net.provider", { limits: { requests: 3 } });
+  seen.length = 0;
+  await settle(base + "/escape");
+  check(seen.length <= 3, "past the request limit the browser asks the caller for nothing more", `${seen.length} handed over`);
+  await T("net.provider", { limits: { requests: 0 } });
+  seen.length = 0;
+  await settle(base + "/escape");
+  check(seen.length >= 6, "with the limit off again a visit makes all its requests", `${seen.length} handed over`);
+
+  // ---- permissions, pop-ups and downloads are refused in this mode ----
+  const tabsBefore = (await T("tabs.list")).length;
+  await settle(base + "/asks");
+  await sleep(500);
+  const perm = (await T("tabs.list")).find((t) => t.active).title;
+  check(perm === "perm:denied", "a permission prompt is refused", perm);
+  check((await T("tabs.list")).length === tabsBefore, "a pop-up opens no tab");
+  v = await settle(base + "/download");
+  check(v.outcome === "not-a-page" && v.download === "hello-report.txt", "a download is still reported as one, and nothing is written", `${v.outcome} (${v.download})`);
+
   // ---- things the browser would do on its own are switched off, visibly ----
   check((await rejects(T("login", {})))?.code === "caller-network-on", "login is refused while the caller network is on");
   check((await rejects(T("reader.open", {})))?.code === "caller-network-on", "the reader (an AI call) is refused while it is on");

@@ -504,6 +504,16 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     return;
   }
 
+  // A page that asks for things it should not get in caller-network mode: a permission, a pop-up, a download.
+  if (path === "/asks") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>asks</title><body><h1>asks</h1><script>
+      Notification.requestPermission().then((r) => { document.title = "perm:" + r; });
+      const w = window.open("/free"); window.__popup = w ? "opened" : "refused";
+    </script>`);
+    return;
+  }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });

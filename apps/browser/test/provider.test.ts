@@ -134,6 +134,50 @@ describe("limits on what a page can make the caller hold", () => {
   });
 });
 
+describe("per-visit limits", () => {
+  const ask = async (net: CallerNetwork, url: string) => {
+    const p = net.fetch(req(url)).catch((e) => e);
+    await new Promise((r) => setTimeout(r, 5));
+    return p;
+  };
+  it("past the request limit the next request fails at once, with a reason, as observed", async () => {
+    const { net, events } = make();
+    net.limits = { requests: 2, bytes: 0 };
+    void net.fetch(req("https://a.test/1")).catch(() => {});
+    void net.fetch(req("https://a.test/2")).catch(() => {});
+    await new Promise((r) => setTimeout(r, 5));
+    const third = await ask(net, "https://a.test/3");
+    expect(String(third)).toMatch(/visit limit reached: 2 requests/);
+    expect(events.at(-1)).toMatchObject({ type: "error", failureKind: "other", failureSource: "observed" });
+    net.failAll("other", "cleanup");
+  });
+  it("past the byte limit the next request fails; the response under way is not cut off", async () => {
+    const { net } = make();
+    net.limits = { requests: 0, bytes: 40 };
+    const first = net.fetch(req("https://a.test/1"));
+    await net.pending(0, 0);
+    net.answer(1, { status: 200, bodyText: "x".repeat(100) }); // over the limit, but delivered whole
+    expect((await (await first).text()).length).toBe(100);
+    expect(String(await ask(net, "https://a.test/2"))).toMatch(/visit limit reached: 40 bytes/);
+  });
+  it("a new visit starts the counts over, and 0 means no limit", async () => {
+    const { net } = make();
+    net.limits = { requests: 1, bytes: 0 };
+    void net.fetch(req("https://a.test/1")).catch(() => {});
+    await new Promise((r) => setTimeout(r, 5));
+    expect(String(await ask(net, "https://a.test/2"))).toMatch(/visit limit/);
+    net.newVisit();
+    void net.fetch(req("https://a.test/3")).catch(() => {});
+    await new Promise((r) => setTimeout(r, 5));
+    expect(net.parkedCount()).toBe(2);
+    net.limits = { requests: 0, bytes: 0 };
+    void net.fetch(req("https://a.test/4")).catch(() => {});
+    await new Promise((r) => setTimeout(r, 5));
+    expect(net.parkedCount()).toBe(3);
+    net.failAll("other", "cleanup");
+  });
+});
+
 describe("a refusal carries the caller's reason", () => {
   it("rejects the request, and announces the kind with source 'caller'", async () => {
     const { net, events } = make();

@@ -232,7 +232,18 @@ const visitJar: CookieJar = {
     }
   },
 };
-function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerTimeoutMs?: unknown; cookies?: unknown }): void {
+function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerTimeoutMs?: unknown; cookies?: unknown; limits?: unknown }): void {
+  if (p.limits !== undefined) {
+    const l = p.limits as { requests?: unknown; bytes?: unknown } | null;
+    const whole = (v: unknown, max: number, what: string) => {
+      if (v === undefined) return 0;
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 0 || n > max) throw new ProviderError("bad-params", `limits.${what} must be a whole number from 0 (no limit) to ${max}`);
+      return n;
+    };
+    if (!l || typeof l !== "object") throw new ProviderError("bad-params", "limits must be an object: {requests?, bytes?}");
+    callerNet.limits = { requests: whole(l.requests, 100_000, "requests"), bytes: whole(l.bytes, 2 ** 31, "bytes") };
+  }
   if (p.cookies !== undefined) {
     if (p.cookies !== "off" && p.cookies !== "visit") throw new ProviderError("bad-params", 'cookies must be "off" (the default: none stored, none sent) or "visit" (kept for one visit only)');
     cookiesPerVisit = p.cookies === "visit";
@@ -259,6 +270,7 @@ function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerT
   } else if (p.enabled === false && callerNet.enabled) {
     callerNet.enabled = false;
     callerNet.failAll("other", "the caller network was turned off");
+    callerNet.limits = { requests: 0, bytes: 0 };
     cookiesPerVisit = false;
     callerNet.jar = null;
     void session.defaultSession.clearStorageData(); // leave nothing a caller-supplied page stored (the profile is a dedicated one)
@@ -271,6 +283,12 @@ function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerT
 }
 
 function setupNetPolicy(): void {
+  // Permission prompts (camera, location, notifications, …): refused while the caller network is on; otherwise unchanged (granted, as before).
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    if (callerNet.enabled) emit({ kind: "permission-refused", permission });
+    callback(!callerNet.enabled);
+  });
+  session.defaultSession.setPermissionCheckHandler(() => !callerNet.enabled);
   session.defaultSession.webRequest.onBeforeRequest({ urls: ["ws://*/*", "wss://*/*"] }, (details, callback) => {
     // Always refused while the caller network is on: a WebSocket is a connection the caller never sees.
     const refuse = netPolicy.blockWebSockets || callerNet.enabled;
@@ -342,6 +360,12 @@ function paidFor(url: string): string | undefined {
 function setupDownloads(): void {
   session.defaultSession.on("will-download", (_event, item, sourceContents) => {
     if (sourceContents) noteDownload(sourceContents.id, item.getFilename());
+    // In caller-network mode nothing is written to disk: a download is refused, and the verdict still says the address was a download.
+    if (callerNet.enabled) {
+      item.cancel();
+      emit({ kind: "download-refused", name: cleanFileName(item.getFilename()) });
+      return;
+    }
     const id = ++downloadSeq;
     let host = "";
     try {
@@ -701,6 +725,10 @@ app.whenReady().then(async () => {
     trackLifecycle(wc);
     if (callerNet.enabled) wc.setWebRTCIPHandlingPolicy("disable_non_proxied_udp"); // no UDP for ICE/STUN: it would bypass the caller
     wc.setWindowOpenHandler(({ url }) => {
+      if (callerNet.enabled) {
+        emit({ kind: "popup-refused", url }); // no new window or tab in this mode
+        return { action: "deny" };
+      }
       if (/^https?:\/\//i.test(url)) mainWindow?.webContents.send("tab:open", url);
       return { action: "deny" };
     });
@@ -797,7 +825,7 @@ app.whenReady().then(async () => {
         assertNotCallerNet: refuseWhileCallerNet,
         settle: (ctx, opts) => runSettle({ ...ctx, isWithCaller: (u) => callerNet.isParked(u) }, opts),
         callerNet: {
-          state: () => ({ cookies: cookiesPerVisit ? "visit" : "off", enabled: callerNet.enabled, userAgent: callerNet.userAgent, answerTimeoutMs: callerNet.answerTimeoutMs, waiting: callerNet.parkedCount() }),
+          state: () => ({ limits: { ...callerNet.limits }, cookies: cookiesPerVisit ? "visit" : "off", enabled: callerNet.enabled, userAgent: callerNet.userAgent, answerTimeoutMs: callerNet.answerTimeoutMs, waiting: callerNet.parkedCount() }),
           configure: configureCallerNet,
           pending: (afterId, waitMs) => callerNet.pending(afterId, waitMs),
           answer: (id, a) => callerNet.answer(id, a as unknown as Answer),

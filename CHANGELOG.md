@@ -55,6 +55,9 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   64 requests waiting at once (50 per `net.pending`), and time on the caller is forgiven only up to twice the settle deadline.
   **Known gap:** WebTransport (QUIC) opens connections Electron 45 cannot switch off; a test records it. Deny UDP egress at the
   firewall if that matters.
+  `net.provider {limits: {requests, bytes}}` (default none) stops a visit that asks for too much: past a limit the next request fails at once
+  with a reason (kind `other`, source `observed`); a response under way is never cut off. While the mode is on, permission prompts,
+  downloads and pop-ups are refused (a download is still reported as one, and nothing is written).
   `net.provider {cookies: "visit"}` (default `"off"`: none stored, none sent) keeps cookies for ONE visit: a Set-Cookie in an answer is
   stored in the browser's own cookie store (Chromium applies its rules for Domain, Path, Secure, SameSite and prefixes) before the page
   sees the response, so a site that sets a cookie and redirects back no longer loops; the browser's Cookie header is the only one, third-

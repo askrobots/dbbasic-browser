@@ -273,7 +273,11 @@ export class CallerNetwork {
   private documents = new Map<string, { doc: Document; expires: number }>();
   /** Set by the browser when the per-visit cookie jar is wanted; null = cookies are neither stored nor sent (the default). */
   jar: CookieJar | null = null;
+  /** Per-visit limits; 0 = no limit. Past one, a request fails at once with a reason (kind "other", source "observed"). */
+  limits = { requests: 0, bytes: 0 };
   private visitCookies = 0;
+  private visitRequests = 0;
+  private visitBytes = 0;
   private emit: (e: NetEvent) => void;
   private nextId: () => number;
 
@@ -285,6 +289,8 @@ export class CallerNetwork {
   /** A new visit begins: the cookie allowance starts over (the cookies themselves are cleared by the browser). */
   newVisit(): void {
     this.visitCookies = 0;
+    this.visitRequests = 0;
+    this.visitBytes = 0;
   }
 
   /** Is a document the caller already has waiting for this address? */
@@ -310,6 +316,10 @@ export class CallerNetwork {
     const doc = this.takeDocument(input.url, input.method);
     if (doc) return this.serveDocument(input.url, doc);
 
+    // Per-visit totals. A response already under way is never cut off; the limit stops the NEXT request.
+    if (this.limits.requests > 0 && this.visitRequests >= this.limits.requests) throw this.refuse(input.url, "other", `visit limit reached: ${this.limits.requests} requests`, "observed");
+    if (this.limits.bytes > 0 && this.visitBytes >= this.limits.bytes) throw this.refuse(input.url, "other", `visit limit reached: ${this.limits.bytes} bytes`, "observed");
+    this.visitRequests++;
     // A page can ask for far more than a caller will ever answer. Past the limits the request fails at once, with a reason.
     if (this.parked.size >= MAX_PARKED) throw this.refuse(input.url, "other", `too many requests are waiting on the caller (limit ${MAX_PARKED})`, "observed");
     const hasBody = !!input.body && input.method !== "GET" && input.method !== "HEAD";
@@ -384,6 +394,7 @@ export class CallerNetwork {
     clearTimeout(e.timer);
     this.parked.delete(id);
     this.emitAnswer(id, e.req.url, response, bytes);
+    this.visitBytes += bytes;
     // The cookies are stored BEFORE the page sees the response, so the request that follows it (a redirect back) carries them.
     const jar = this.jar;
     if (jar?.on() && setCookies.length && firstParty(e.req.url, e.req.follows, e.req.navigate)) {
