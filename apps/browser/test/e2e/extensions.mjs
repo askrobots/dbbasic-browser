@@ -17,4 +17,18 @@ export default async function (ctx) {
   check((await rejects(T("ext.boom")))?.code === "extension-error", "an extension that throws is an API error, not a crash");
   check((await rejects(T("ext.nothing")))?.code === "no-method", "an unknown extension method is 'no-method'");
   check((await rejects(T("echo")))?.code === "no-method", "an extension method is only reachable as ext.<name>");
+
+  // What extensions are allowed to rely on, pinned here so a change to the browser cannot break them silently.
+  const host = await T("ext.host");
+  check(host.found && host.type === "webview" && host.contentSize[0] > 0 && host.contentSize[1] > 0, "the page's host window is reachable from its web contents, and the page is a webview", JSON.stringify(host));
+  const paint = await T("ext.paintable");
+  check(!paint.empty && paint.width > 100 && paint.height > 100, "the active page can be painted to an image", `${paint.width}x${paint.height}`);
+
+  // Asking for a page never raises, focuses, moves or resizes the window, including when the tab has to be made the visible one.
+  const w0 = await T("ext.window");
+  await T("ext.echo", {});
+  const other = (await T("tabs.list")).find((t) => !t.active);
+  if (other) await T("ext.echo", { tab: other.id });
+  const w1 = await T("ext.window");
+  check(JSON.stringify(w1) === JSON.stringify(w0), "asking for a page (even another tab) does not raise, focus, move or resize the window", JSON.stringify({ before: w0, after: w1 }));
 }

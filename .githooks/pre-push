@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Pre-push checks. Enable once per clone:  git config core.hooksPath .githooks   (bypass in an emergency: git push --no-verify)
+#
+#   1. no key-shaped secrets in the lines being pushed
+#   2. type check, then the unit tests (which include the "no key is ever committed" test)
+#   3. an optional extra check kept outside the repository, if this clone has one: .git/hooks/pre-push.local
+#
+# PREPUSH_ONLY=secrets runs only step 1 (used by the hook's own test).
+set -euo pipefail
+zero=0000000000000000000000000000000000000000
+root="$(git rev-parse --show-toplevel)"
+gitdir="$(git rev-parse --git-dir)"
+input="$(cat)"   # lines: <local ref> <local sha> <remote ref> <remote sha>
+
+# High-confidence shapes only, so a failure means something. (Provider keys, cloud keys, tokens, private key blocks.)
+pattern='sk-ant-[A-Za-z0-9_-]{20,}|sk-(proj-)?[A-Za-z0-9_-]{32,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY'
+
+added_lines() {   # added lines of every commit being pushed
+  while read -r _lref lsha _rref rsha; do
+    [ -z "${lsha:-}" ] && continue
+    [ "$lsha" = "$zero" ] && continue                      # deleting a ref
+    if [ "$rsha" = "$zero" ]; then range="$lsha --not --remotes"; else range="$rsha..$lsha"; fi
+    # shellcheck disable=SC2086
+    git -C "$root" log $range -p --no-color --format= | grep -E '^\+' | grep -vE '^\+\+\+' || true
+  done <<<"$input"
+}
+
+hits="$(added_lines | grep -E "$pattern" || true)"
+if [ -n "$hits" ]; then
+  echo "pre-push: refusing to push. These added lines look like secrets:" >&2
+  echo "$hits" | sed -E 's/(.{6}).{0,}/\1…(hidden)/' | head -5 >&2
+  exit 1
+fi
+echo "pre-push: no key-shaped secrets in the pushed lines"
+[ "${PREPUSH_ONLY:-}" = "secrets" ] && exit 0
+
+( cd "$root" && npm run --silent typecheck && npm test --silent ) || { echo "pre-push: type check or unit tests failed" >&2; exit 1; }
+echo "pre-push: type check and unit tests pass"
+
+local_extra="$gitdir/hooks/pre-push.local"
+if [ -x "$local_extra" ]; then
+  echo "pre-push: running this clone's extra check"
+  printf '%s\n' "$input" | "$local_extra"
+fi

@@ -142,6 +142,12 @@ npm start -w @dbbasic/x402-proxy      # listens on 127.0.0.1:8402
 curl -x http://127.0.0.1:8402 http://127.0.0.1:8899/
 ```
 
+## Contributing
+
+Enable the pre-push checks once per clone: `git config core.hooksPath .githooks`. They refuse a push whose new lines contain a
+key-shaped secret, then run the type check and the unit tests. (`git push --no-verify` skips them.) A clone can add its own extra
+check as `.git/hooks/pre-push.local`; the hook runs it if it exists.
+
 ## Status
 
 Works and is tested: the engine, the proxy (HTTP + HTTPS via a local MITM CA), and the

@@ -67,6 +67,10 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   that environment variable (never from a page, the network or the API), only from absolute local files owned by you and not writable by
   others, and an extension that fails to load stops the browser from starting. `status` shows file names only. Built-in method names
   cannot be replaced, but an extension can use Electron directly, so load only code you trust.
+- **Pre-push checks** (`git config core.hooksPath .githooks`): refuse a push whose new lines contain a key-shaped secret, then run the type
+  check and unit tests; a clone may add its own extra check. The extension surface (a page's host window, painting a page to an image, and
+  never raising or focusing the window) is pinned by end-to-end tests with a neutral fixture, so a change to the browser cannot break
+  local extensions silently.
 - **`net.policy {blockWebSockets}`** in the automation API (also `DBB_BLOCK_WEBSOCKETS=1`): refuses WebSockets before any
   connection is opened, since Chromium opens them outside our network layer. Every refusal is announced as an event.
 - **End-to-end test suites** (`npm run e2e -w @dbbasic/browser`, 88 checks) that drive the real browser through its own
