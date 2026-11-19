@@ -25,6 +25,8 @@ import { netEvents, netRequestFetch, setClientHints, type NetEvent } from "./tra
 import { safeExternalUrl } from "./urls.js";
 import { describeAi, loadAiEnv, resolveAi, type AiConfig, type Provider } from "./ai-config.js";
 import { createReader } from "./reader-service.js";
+import { EXPIRED_HTML, READER_SCHEME, ReaderPages, readerIdFromUrl } from "./reader-pages.js";
+import { READER_CSP } from "./reader.js";
 import { registerVault } from "./vault-service.js";
 import { setTabs, startControl, type ApprovalPolicy, type ControlHandle, type TabInfo } from "./control.js";
 
@@ -36,6 +38,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // NOTE: the app name also decides the userData folder (cookies, the default vault.json).
 app.setName("dbbasic-browser");
 const ICON_PATH = join(__dirname, "icon.png");
+
+// Reader views are served from dbb-reader://<id>/ (see reader-pages.ts). The scheme must be registered before ready.
+protocol.registerSchemesAsPrivileged([{ scheme: READER_SCHEME, privileges: { standard: true, secure: true } }]);
+const readerPages = new ReaderPages();
 
 // Who we say we are to web servers: a Chromium-compatible UA with our own product token and a
 // link back to dbbasic.com (see compat.ts for why, and why not "Firefox"). DBB_USER_AGENT
@@ -584,10 +590,31 @@ app.whenReady().then(() => {
       if (/^https?:\/\//i.test(url)) mainWindow?.webContents.send("tab:open", url);
       return { action: "deny" };
     });
+    // A tab is created blank and then navigated, which leaves a hidden about:blank "back" entry: Back walked into
+    // an empty page. Drop it as soon as the tab's first real page commits, so a new tab has nothing to go back to.
+    let pruned = false;
+    wc.on("did-navigate", () => {
+      if (pruned || wc.isDestroyed()) return;
+      const h = wc.navigationHistory;
+      if (h.length() === 2 && h.getEntryAtIndex(0).url === "about:blank") {
+        h.removeEntryAtIndex(0);
+        pruned = true;
+      } else if (wc.getURL() !== "about:blank") pruned = true;
+    });
   });
   buildMenu();
   setupDownloads();
-  const reader = createReader({ getWindow: () => mainWindow, askChrome, emit, getAi: () => aiCfg });
+  // Serve reader views from the store. When the summary arrives the stored page is updated, so Back/Forward/reload
+  // show the finished view instead of the pending snapshot. An evicted page gets a polite "expired" notice.
+  protocol.handle(READER_SCHEME, (request) => {
+    const id = readerIdFromUrl(request.url);
+    const html = id ? readerPages.get(id) : undefined;
+    return new Response(html ?? EXPIRED_HTML, {
+      status: html ? 200 : 410,
+      headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": READER_CSP, "referrer-policy": "no-referrer", "cache-control": "no-store" },
+    });
+  });
+  const reader = createReader({ getWindow: () => mainWindow, askChrome, emit, getAi: () => aiCfg, pages: readerPages });
   // From the chrome UI (a human clicked Reader): ask before anything is sent.
   ipcMain.handle("reader:open", async (_e, a: { wcId?: number }) => {
     const r = await reader.open({ wcId: Number(a?.wcId), interactive: true });

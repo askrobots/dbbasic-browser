@@ -19,7 +19,8 @@ import { fileURLToPath } from "node:url";
 import { dialog, webContents, type BrowserWindow, type WebContents } from "electron";
 import { AiError, summarize, type SummaryResult } from "./ai.js";
 import { redact, type AiConfig, type Provider } from "./ai-config.js";
-import { blocksToText, buildReaderHtml, footFor, readerDataUrl, tldrUpdateScript, validateExtraction, type Extracted } from "./reader.js";
+import { blocksToText, buildReaderHtml, footFor, tldrUpdateScript, validateExtraction, type Extracted } from "./reader.js";
+import { readerUrl, type ReaderPages } from "./reader-pages.js";
 import { safeExternalUrl } from "./urls.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -39,6 +40,8 @@ export interface ReaderDeps {
   askChrome(op: string, args: Record<string, unknown>): Promise<unknown>;
   emit(payload: Record<string, unknown>): void;
   getAi(): AiConfig | null;
+  /** Where reader views are served from (and updated when a summary arrives). */
+  pages: ReaderPages;
 }
 
 export interface OpenOptions {
@@ -142,9 +145,10 @@ export function createReader(deps: ReaderDeps) {
     const html = buildReaderHtml(ex, {
       ai: state === "pending" && cfg ? { state: "pending", provider: LABEL[cfg.provider], model: cfg.model } : { state: state === "pending" ? "none" : state },
     });
+    const pageId = deps.pages.put(html);
     let tab: { id: number; wcId: number };
     try {
-      tab = (await deps.askChrome("tab.new", { url: readerDataUrl(html), activate: true, wait: true, reader: ex.url })) as { id: number; wcId: number };
+      tab = (await deps.askChrome("tab.new", { url: readerUrl(pageId), activate: true, wait: true, reader: ex.url })) as { id: number; wcId: number };
     } catch (e) {
       return { ok: false, reason: "error", message: `Couldn't open the reader tab: ${(e as Error).message}` };
     }
@@ -162,8 +166,12 @@ export function createReader(deps: ReaderDeps) {
       deps.emit({ kind: "reader-busy", wcId: tab.wcId, busy: true, provider: LABEL[cfg.provider], model: cfg.model });
       try {
         const r: SummaryResult = await summarize(cfg, { title: ex.title, url: ex.url, text, lang: ex.lang });
+        // Update the stored page FIRST so that any load from now on (Back, Forward, reload) shows the finished view…
+        const foot = footFor(r);
+        deps.pages.update(pageId, buildReaderHtml(ex, { ai: { state: "done", tldr: r.tldr, points: r.points, foot } }));
+        // …then fill in the page that is open right now.
         const t = target();
-        if (t) await t.executeJavaScript(tldrUpdateScript({ state: "done", tldr: r.tldr, points: r.points, foot: footFor(r) }));
+        if (t) await t.executeJavaScript(tldrUpdateScript({ state: "done", tldr: r.tldr, points: r.points, foot }));
         // Never silent: every provider call is an event, with what was sent and what it cost.
         deps.emit({
           kind: "ai-summary",
@@ -181,6 +189,7 @@ export function createReader(deps: ReaderDeps) {
       } catch (e) {
         const err = e instanceof AiError ? e : new AiError("provider", String((e as Error)?.message ?? e));
         const message = redact(err.message, cfg);
+        deps.pages.update(pageId, buildReaderHtml(ex, { ai: { state: "error", message } }));
         const t = target();
         if (t) await t.executeJavaScript(tldrUpdateScript({ state: "error", tldr: `The summary could not be written: ${message}`, points: [], foot: "" })).catch(() => {});
         deps.emit({ kind: "ai-error", provider: cfg.provider, model: cfg.model, code: err.code, message });

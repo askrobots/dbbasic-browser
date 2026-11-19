@@ -125,6 +125,26 @@ describe("buildReaderHtml — the page is written from scratch and is script-fre
   });
 });
 
+describe("buildReaderHtml — the finished state (what Back/Forward must show)", () => {
+  const ex = validateExtraction(base([P("Body text")]))!;
+  const html = buildReaderHtml(ex, { ai: { state: "done", tldr: "The <b>summary</b>.", points: ["one & two", "<img src=x onerror=alert(1)>"], foot: "Summarized by m" } });
+  it("renders the TL;DR, bullet points and footer in the page itself", () => {
+    expect(html).toContain('class="tldr done"');
+    expect(html).toContain('<div id="tldr-body">The &lt;b&gt;summary&lt;/b&gt;.</div>');
+    expect(html).toContain("<li>one &amp; two</li>");
+    expect(html).toContain('<div id="tldr-foot" class="foot">Summarized by m</div>');
+  });
+  it("shows no skeleton and escapes everything the model wrote", () => {
+    expect(html).not.toContain('class="sk"');
+    expect(html).not.toMatch(/<[a-z][^>]*\son[a-z]+\s*=/i);
+    expect(html).not.toMatch(/<script/i);
+  });
+  it("matches what the live update script writes (same structure, so a reload looks identical)", () => {
+    expect(html).toMatch(/id="tldr-points"><li>/);
+    expect(html).toContain('id="tldr"');
+  });
+});
+
 describe("readerDataUrl / tldrUpdateScript", () => {
   it("round-trips the HTML through a base64 data URL", () => {
     const html = "<p>héllo ✓</p>";

@@ -192,10 +192,13 @@ function blockHtml(b: Block): string {
 
 export type AiState = "pending" | "none" | "declined" | "error";
 export interface ReaderView {
-  ai: { state: AiState; provider?: string; model?: string; message?: string };
+  ai:
+    | { state: AiState; provider?: string; model?: string; message?: string }
+    /** The finished summary — what a Back/Forward/reload of the reader page must show. */
+    | { state: "done"; tldr: string; points: string[]; foot: string };
 }
 
-const CSP = "default-src 'none'; img-src http: https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
+export const READER_CSP = "default-src 'none'; img-src http: https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
 
 const STYLE = `
 :root { color-scheme: light dark; --bg:#faf8f4; --fg:#1d1d1f; --muted:#6b6b72; --rule:#e4e0d8; --card:#fff; --accent:#2f5fd0; --tldr:#eef3ff; --tldr-rule:#c9d8ff; --sk:#dfe6f7; }
@@ -255,16 +258,24 @@ export function buildReaderHtml(ex: Extracted, view: ReaderView): string {
   const pending = ai.state === "pending";
   const body = pending
     ? `<div class="sk"></div><div class="sk"></div><div class="sk"></div><div id="tldr-body"></div>`
-    : `<div id="tldr-body">${escapeHtml(ai.state === "error" && ai.message ? `${AI_NOTE.error} ${ai.message}` : AI_NOTE[ai.state as Exclude<AiState, "pending">])}</div>`;
-  const foot = pending && ai.provider ? `Summarizing with ${escapeHtml(ai.provider)}${ai.model ? ` · ${escapeHtml(ai.model)}` : ""}…` : "";
+    : ai.state === "done"
+      ? `<div id="tldr-body">${escapeHtml(ai.tldr)}</div>`
+      : `<div id="tldr-body">${escapeHtml(ai.state === "error" && ai.message ? `${AI_NOTE.error} ${ai.message}` : AI_NOTE[ai.state as Exclude<AiState, "pending">])}</div>`;
+  const points = ai.state === "done" ? ai.points.map((p) => `<li>${escapeHtml(p)}</li>`).join("") : "";
+  const foot =
+    ai.state === "done"
+      ? escapeHtml(ai.foot)
+      : pending && ai.provider
+        ? `Summarizing with ${escapeHtml(ai.provider)}${ai.model ? ` · ${escapeHtml(ai.model)}` : ""}…`
+        : "";
   const note = ex.mode === "text" ? `<p class="meta">This page isn't an article, so this is its visible text, not a cleaned-up article.</p>` : "";
   return `<!doctype html>
 <html lang="${escapeHtml(ex.lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="${CSP}"><meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="${READER_CSP}"><meta name="referrer" content="no-referrer">
 <title>${escapeHtml(ex.title)}</title><style>${STYLE}</style></head>
 <body><main>
 <header><div class="badge">AI Reader</div><h1>${escapeHtml(ex.title)}</h1><p class="meta">${meta} · <a href="${escapeHtml(ex.url)}" rel="noopener noreferrer">original</a></p></header>
-<section id="tldr" class="tldr ${ai.state}"><div class="lbl">TL;DR</div>${body}<ul id="tldr-points"></ul><div id="tldr-foot" class="foot">${foot}</div></section>
+<section id="tldr" class="tldr ${ai.state}"><div class="lbl">TL;DR</div>${body}<ul id="tldr-points">${points}</ul><div id="tldr-foot" class="foot">${foot}</div></section>
 ${note}<article>${ex.blocks.map(blockHtml).join("\n")}</article>
 <footer>Read on the original page: <a href="${escapeHtml(ex.url)}" rel="noopener noreferrer">${escapeHtml(host)}</a></footer>
 </main></body></html>`;

@@ -161,7 +161,7 @@
       let rows = new Map(); // alias for the active tab's inspector rows
       const owners = new Map(); // resource URL -> tab that triggered it
 
-      const shown = (u) => (u && !u.startsWith("about:") && !u.startsWith("data:") ? u : "");
+      const shown = (u) => (u && !u.startsWith("about:") && !u.startsWith("data:") && !u.startsWith("dbb-reader:") ? u : "");
 
       function newTab(url, activate = true) {
         const wv = document.createElement("webview");
@@ -554,7 +554,7 @@
       function go(raw, tab = active) {
         const u = toUrl(raw);
         if (!u) return;
-        tab.url = u.startsWith("data:") ? "" : u;
+        tab.url = u.startsWith("data:") || u.startsWith("dbb-reader:") ? "" : u;
         if (tab === active) setUrlBar(tab);
         renderTabs();
         if (tab.ready) tab.wv.src = u;

@@ -27,7 +27,15 @@ export default async function (ctx) {
   check(dom.scripts === 0 && dom.handlers === 0 && dom.jsLinks === 0, "the reader page has no <script>, no on* attributes, no javascript: links", JSON.stringify({ s: dom.scripts, h: dom.handlers, j: dom.jsLinks }));
   check(/Keeper/.test(dom.title) && !/HACKED/.test(dom.title), "the page's planted onerror payload never ran in the reader (title intact)", dom.title);
   check(/default-src 'none'/.test(dom.csp), "a strict CSP is in force in the reader");
-  check((await T("tabs.list")).find((x) => x.id === rtab).url === "", "the reader tab's URL is not the giant data: URL");
+  check((await T("tabs.list")).find((x) => x.id === rtab).url === "", "the reader tab's URL is not a giant data: URL");
+  const c = await ctx.chrome();
+  check((await T("page.eval", { tab: rtab, js: "location.href" })).value.startsWith("dbb-reader://"), "the reader is served from a short dbb-reader:// address");
+  check((await c.ev(`tabs.find((t) => t.wcId === ${r.tab.wcId}).wv.canGoBack()`)) === false, "a new reader tab has nothing to go Back to (no blank about:blank entry)");
+  await T("page.reload", { tab: rtab });
+  check(/The Keeper of the Light/.test(await textOf(rtab)) && !/expired/i.test(await textOf(rtab)), "reloading the reader tab shows the page again, straight from the store");
+  const plain = await T("tabs.new", { url: base + "/free", wait: true });
+  check((await c.ev(`tabs.find((t) => t.id === ${plain.id}).wv.canGoBack()`)) === false, "ANY new tab starts with nothing to go Back to (not just readers)");
+  await T("tabs.close", { tab: plain.id });
   await T("tabs.close", { tab: rtab });
   await T("tabs.activate", { tab: await firstTab() });
 
@@ -54,6 +62,20 @@ export default async function (ctx) {
     const ai = evs.find((e) => e.kind === "ai-summary");
     check(!!ai && ai.host === new URL(base).host && ai.sentChars > 500, "an ai-summary event records the host, characters sent and cost", `sent=${ai?.sentChars}`);
     check(evs.some((e) => e.kind === "reader-busy" && e.busy) && evs.some((e) => e.kind === "reader-busy" && !e.busy), "the tab showed the 'summarizing' state while working");
+
+    // Back / Forward must show the FINISHED view from the store, not the pending snapshot, and cost nothing.
+    const tldrStart = (r.summary?.tldr || "x").slice(0, 40);
+    const calls = () => T("x402.events", { since: 0 }).then((x) => x.events.filter((e) => e.kind === "ai-summary").length);
+    const callsBefore = await calls();
+    await T("page.click", { tab: r.tab.id, selector: "header .meta a" }); // "original": leaves the reader for the source page
+    await T("page.waitFor", { tab: r.tab.id, url: "/readable", timeoutMs: 8000 });
+    await T("page.back", { tab: r.tab.id });
+    const afterBack = await textOf(r.tab.id);
+    check(afterBack.includes(tldrStart) && !/Summarizing with/.test(afterBack), "Back from the original returns to the reader WITH the summary (not the 'Summarizing…' skeleton)");
+    await T("page.forward", { tab: r.tab.id });
+    await T("page.back", { tab: r.tab.id });
+    check((await textOf(r.tab.id)).includes(tldrStart), "…and again after Forward then Back");
+    check((await calls()) === callsBefore, "going Back and Forward made no new AI call (it came from the stored page)");
     await T("tabs.close", { tab: r.tab.id });
     await T("tabs.activate", { tab: await firstTab() });
     if (st.available.includes("openai") && st.available.includes("anthropic")) {
