@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34343f"/>
+      <stop offset="1" stop-color="#141418"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a8f5b0"/>
+      <stop offset="1" stop-color="#4fd16a"/>
+    </linearGradient>
+  </defs>
+  <!-- macOS-style rounded square with the standard ~10% margin -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="none" stroke="#ffffff" stroke-opacity=".08" stroke-width="4"/>
+  <!-- globe -->
+  <g fill="none" stroke="#5b8cff" stroke-linecap="round">
+    <circle cx="512" cy="512" r="262" stroke-width="44"/>
+    <ellipse cx="512" cy="512" rx="118" ry="262" stroke-width="26" stroke-opacity=".55"/>
+    <line x1="250" y1="512" x2="774" y2="512" stroke-width="26" stroke-opacity=".55"/>
+  </g>
+  <!-- x402 bolt -->
+  <polygon points="578,268 388,556 496,556 440,764 664,450 548,450" fill="url(#bolt)" stroke="#141418" stroke-width="28" stroke-linejoin="round" paint-order="stroke"/>
+</svg>
