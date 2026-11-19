@@ -45,6 +45,8 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   `DBB_CALLER_NETWORK_USER_AGENT=<identity>` starts the browser with this mode already on, before any page exists, and the
   wallet balance poll (a request of the browser's own) is skipped while it is on. A one-file example caller, which answers
   requests with a plain HTTP client and prints the verdict, is in `apps/browser/examples/`.
+- **`npm run build:standalone`** bundles everything except Electron into one folder (`apps/browser/standalone/`), so the app runs
+  with just an Electron binary: no `npm install`, no Node version requirement on the machine that runs it.
 - **`net.policy {blockWebSockets}`** in the automation API (also `DBB_BLOCK_WEBSOCKETS=1`): refuses WebSockets before any
   connection is opened, since Chromium opens them outside our network layer. Every refusal is announced as an event.
 - **End-to-end test suites** (`npm run e2e -w @dbbasic/browser`, 88 checks) that drive the real browser through its own

@@ -10,3 +10,4 @@ dist/
 
 # Branded dev copy of Electron.app (scripts/launch.mjs)
 .bundle/
+apps/browser/standalone/
