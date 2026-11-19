@@ -341,6 +341,25 @@ ${para("fourth")}${para("fifth")}
   if (path === "/hang") { setTimeout(() => { res.writeHead(200); res.end("finally"); }, 25000); return; }
   if (path === "/fail") { req.socket.destroy(); return; }
 
+  // Download rigs: a small attachment, a bigger one that trickles, and a hostile filename.
+  if (path === "/download") {
+    res.writeHead(200, { "content-type": "text/plain", "content-disposition": 'attachment; filename="hello-report.txt"' });
+    res.end("hello from the demo server\n".repeat(200));
+    return;
+  }
+  if (path === "/download/big") {
+    const total = 3 * 1024 * 1024;
+    res.writeHead(200, { "content-type": "application/octet-stream", "content-length": String(total), "content-disposition": 'attachment; filename="big.bin"' });
+    let sent = 0;
+    const t = setInterval(() => { const n = Math.min(256 * 1024, total - sent); res.write(Buffer.alloc(n, 97)); sent += n; if (sent >= total) { clearInterval(t); res.end(); } }, 150);
+    return;
+  }
+  if (path === "/download/evil") {
+    res.writeHead(200, { "content-type": "text/plain", "content-disposition": 'attachment; filename="../../../../tmp/dbb-pwned.txt"' });
+    res.end("path traversal attempt\n");
+    return;
+  }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });
