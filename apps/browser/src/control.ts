@@ -22,7 +22,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { webContents, type WebContents } from "electron";
 import { safeEqual } from "@dbbasic/vault";
@@ -311,9 +311,10 @@ export async function startControl(d: ControlDeps, opts: { port: number; token?:
     server.listen(opts.port, "127.0.0.1", resolve);
   });
 
+  // DBB_CONTROL_FILE lets a test harness keep its own token file instead of clobbering the real one.
   const dir = join(homedir(), ".dbbasic");
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const file = join(dir, "control.json");
+  const file = process.env.DBB_CONTROL_FILE || join(dir, "control.json");
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   writeFileSync(file, JSON.stringify({ url: `http://127.0.0.1:${opts.port}/rpc`, token, pid: process.pid }), { mode: 0o600 });
   chmodSync(file, 0o600);
   return { port: opts.port, token, file, close: () => server.close() };

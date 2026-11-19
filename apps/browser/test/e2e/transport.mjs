@@ -1,0 +1,54 @@
+// The network layer: redirects reach the page, cookies round-trip, x402 behind a redirect, gzip, headers.
+export default async function (ctx) {
+  const { call: T, check, base } = ctx;
+  const port = new URL(base).port;
+  const loc = async () => (await T("page.eval", { js: "location.href" })).value;
+  const tab0 = async () => (await T("tabs.list")).find((t) => t.active);
+
+  // redirect chain (301 → 302 → 200): the page and the tab agree on the FINAL url
+  await T("page.goto", { url: base + "/redir/chain" });
+  check((await loc()) === base + "/free" && (await tab0()).url === base + "/free", "redirect chain: location.href AND the tab URL are the final URL", await loc());
+  check(/free/i.test((await T("page.text")).text), "…and the page shows the destination's content");
+
+  // cross-origin redirect: the page's origin must become the DESTINATION's (the security-critical one)
+  await T("page.goto", { url: base + "/redir/cross" });
+  const origin = (await T("page.eval", { js: "location.origin" })).value;
+  check(origin === `http://localhost:${port}`, "cross-origin redirect: the page's origin is the destination's", origin);
+
+  // POST → 302 with Set-Cookie → the cookie round-trips through our transport
+  await T("page.goto", { url: base + "/login" });
+  await T("page.type", { selector: "input[name=username]", text: "demo" });
+  await T("page.type", { selector: "input[name=password]", text: "demo-pass" });
+  await T("page.click", { selector: "button[type=submit]" });
+  await T("page.waitFor", { text: "Welcome, demo", timeoutMs: 8000 });
+  check(new URL(await loc()).pathname === "/account", "POST /login → 302: the address is /account (it used to stay on /login)", await loc());
+  check(/cookie: yes/.test((await T("page.text")).text), "Set-Cookie on the 302 was stored and sent on the next request");
+
+  // a redirect INTO a 402: paid once, at the destination
+  const e0 = (await T("x402.events", { since: 0 })).next;
+  await T("page.goto", { url: base + "/redir/paid" });
+  const paid = (await T("x402.events", { since: e0 })).events.filter((e) => e.kind === "paid");
+  check(paid.length === 1 && paid[0].resource.endsWith("/room"), "redirect into a 402: exactly one payment, for the destination", paid.map((p) => p.resource + " " + p.amount).join(","));
+  check(new URL(await loc()).pathname === "/room", "…and the address is /room");
+
+  // gzip: decoded exactly once
+  await T("page.goto", { url: base + "/gz" });
+  check(/gzip body decoded ok/.test((await T("page.text")).text), "a gzip Content-Encoding body renders (decoded once, not twice)");
+
+  // back() after redirects
+  await T("page.goto", { url: base + "/free" });
+  await T("page.back");
+  check(new URL(await loc()).pathname !== "/free", "back() works after redirects", await loc());
+
+  // identity: the UA, client hints and fetch metadata a real Chromium navigation sends
+  await T("page.goto", { url: base + "/headers" });
+  const h = JSON.parse((await T("page.text")).text);
+  check(/dbbasic-browser\/\S+ \(\+https:\/\/dbbasic\.com\)$/.test(h["user-agent"]) && !/Electron/.test(h["user-agent"]), "User-Agent: no Electron token, ends with our product token and dbbasic.com", h["user-agent"].slice(-60));
+  check(h["sec-fetch-mode"] === "navigate" && h["sec-fetch-dest"] === "document" && h["sec-fetch-user"] === "?1", "navigation carries navigate / document / ?1");
+  check(!!h["sec-ch-ua"] && !!h["sec-ch-ua-platform"] && h["sec-ch-ua-mobile"] === "?0", "client hints are present");
+  const jsBrands = (await T("page.eval", { js: "navigator.userAgentData.brands.map(b => b.brand).sort().join('|')" })).value;
+  check(jsBrands === [...h["sec-ch-ua"].matchAll(/"([^"]+)";v=/g)].map((m) => m[1]).sort().join("|"), "HTTP client hints match navigator.userAgentData (no contradiction for servers to detect)", jsBrands);
+  check(!h["x-raw-sec-lines"].some((l, i, a) => a.findIndex((m) => m.split(":")[0].toLowerCase() === l.split(":")[0].toLowerCase()) !== i), "no duplicated sec-* header lines");
+  const sub = (await T("page.eval", { js: "fetch('/headers?x=1').then(r => r.json()).then(d => d['referer'])" })).value;
+  check(typeof sub === "string" && sub.startsWith(base + "/headers"), "a same-origin subrequest carries the Referer (it was missing before)", sub);
+}
