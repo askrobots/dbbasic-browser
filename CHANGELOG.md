@@ -35,6 +35,13 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   Long-lived streams are ignored, late images and fonts are waited for, and at the deadline it names what was still unmet.
   Also returns facts about the load: final URL, redirect chain, status, requests, bytes and hosts. A page that navigates itself
   after loading (script, meta refresh, link) restarts the wait and is reported in `moves`, separately from server redirects.
+- **A network layer the caller supplies** (`net.provider`, `net.pending`, `net.answer`, `net.fail`, `page.load`). While on, the
+  browser makes no request of its own: each one is handed to the caller, which answers it or refuses it with a reason. A 3xx
+  goes back to the page, so every hop is the caller's decision. The caller's identity is required and the desktop browser's is
+  never lent to it. Waiting on the caller is its own state with one caller-set bound; past it the load fails as `caller-silent`
+  (not "timed out"), and that wait does not count toward the settle deadline. A failure now says who decided it (`source`:
+  `observed` or `caller`). `page.load` takes a main document the caller already fetched, with its final address, status,
+  headers and the redirects that led to it. Nothing is retried, remembered, or stored (cookies are the caller's).
 - **`net.policy {blockWebSockets}`** in the automation API (also `DBB_BLOCK_WEBSOCKETS=1`): refuses WebSockets before any
   connection is opened, since Chromium opens them outside our network layer. Every refusal is announced as an event.
 - **End-to-end test suites** (`npm run e2e -w @dbbasic/browser`, 88 checks) that drive the real browser through its own

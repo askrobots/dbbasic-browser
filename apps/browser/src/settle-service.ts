@@ -13,7 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { webContents, type WebContents } from "electron";
-import { newMemo, resolveConfig, step, type SettleConfig, type Snapshot, type Verdict } from "./settle.js";
+import { newMemo, resolveConfig, step, type FailureKind, type FailureSource, type SettleConfig, type Snapshot, type Verdict } from "./settle.js";
 import { netEvents, type NetEvent } from "./transport.js";
 
 export interface Lifecycle {
@@ -23,7 +23,9 @@ export interface Lifecycle {
   moves: Array<{ to: string; afterMs: number }>;
   visitStart: number;
   crashed: boolean;
-  failed: { description: string; code?: number } | null;
+  failed: { description: string; code?: number; kind?: FailureKind; source?: FailureSource } | null;
+  /** A document the caller handed over already fetched: the redirects that led to it, for the facts. */
+  known: { url: string; redirects: Array<{ status?: number; to: string }> } | null;
   download: string | null;
   status: number | null;
 }
@@ -35,7 +37,7 @@ const lifecycles = new Map<number, Lifecycle>();
  * layer itself knows the real one (ERR_NAME_NOT_RESOLVED, ERR_CONNECTION_RESET…). Remember it by URL, so that
  * when did-fail-load names the failing URL we can say why — with no dependence on which event arrives first.
  */
-const recentErrors = new Map<string, string>();
+const recentErrors = new Map<string, { description: string; kind?: FailureKind; source?: FailureSource }>();
 const normUrl = (u: string) => {
   try {
     return new URL(u).href;
@@ -45,14 +47,14 @@ const normUrl = (u: string) => {
 };
 netEvents.on("event", (e: NetEvent) => {
   if (e.type !== "error" || !e.error) return;
-  recentErrors.set(normUrl(e.url), e.error.replace(/^net::/, ""));
+  recentErrors.set(normUrl(e.url), { description: e.error.replace(/^net::/, ""), ...(e.failureKind ? { kind: e.failureKind as FailureKind } : {}), ...(e.failureSource ? { source: e.failureSource } : {}) });
   while (recentErrors.size > 200) recentErrors.delete(recentErrors.keys().next().value as string);
 });
 
 export function lifecycleOf(wcId: number): Lifecycle {
   let l = lifecycles.get(wcId);
   if (!l) {
-    l = { navigations: 0, moves: [], visitStart: Date.now(), crashed: false, failed: null, download: null, status: null };
+    l = { navigations: 0, moves: [], visitStart: Date.now(), crashed: false, failed: null, known: null, download: null, status: null };
     lifecycles.set(wcId, l);
   }
   return l;
@@ -70,6 +72,7 @@ export function trackLifecycle(wc: WebContents): void {
       // A navigation has an initiator frame when the PAGE started it, and none when the browser did. Server
       // redirects are not navigations here at all (they continue the same one), so they never count as moves.
       if (!details.initiator) {
+        if (l.known && normUrl(l.known.url) !== normUrl(details.url)) l.known = null; // a different address: not that document
         l.navigations = 0;
         l.moves = [];
         l.visitStart = now; // the browser (or a caller) began a new visit
@@ -89,12 +92,18 @@ export function trackLifecycle(wc: WebContents): void {
   });
   wc.on("did-fail-load", (_e, code, description, url, isMainFrame) => {
     if (!isMainFrame || code === -3) return; // -3 = aborted by a newer navigation
-    l.failed = { description: recentErrors.get(normUrl(url)) ?? String(description).replace(/^net::/, ""), code };
+    const seen = recentErrors.get(normUrl(url));
+    l.failed = { description: seen?.description ?? String(description).replace(/^net::/, ""), code, ...(seen?.kind ? { kind: seen.kind } : {}), ...(seen?.source ? { source: seen.source } : {}) };
   });
   wc.on("render-process-gone", () => {
     l.crashed = true;
   });
   wc.once("destroyed", () => lifecycles.delete(wc.id));
+}
+
+/** A document the caller handed over already fetched: remember the redirects that led to it, for the facts. */
+export function noteKnownDocument(wcId: number, url: string, redirects: Array<{ status?: number; to: string }>): void {
+  lifecycleOf(wcId).known = { url, redirects };
 }
 
 /** A download started in this page instead of a navigation completing. */
@@ -180,6 +189,8 @@ export interface SettleContext {
   tabId: number;
   wcId: number;
   askChrome(op: string, args: Record<string, unknown>): Promise<unknown>;
+  /** Is a request for this address waiting on a caller-supplied network layer? */
+  isWithCaller?(url: string): boolean;
 }
 
 export interface SettleResult extends Verdict {
@@ -190,6 +201,8 @@ export interface SettleResult extends Verdict {
   redirects: Array<{ status?: number; to: string }>;
   /** Times the PAGE moved itself after loading (script, meta refresh, link), apart from the server redirects above. */
   moves: Array<{ to: string; afterMs: number }>;
+  /** Time spent waiting on a caller-supplied network layer (not counted toward the deadline). */
+  waitedOnCallerMs: number;
 }
 
 export async function runSettle(ctx: SettleContext, input: unknown): Promise<SettleResult> {
@@ -197,14 +210,19 @@ export async function runSettle(ctx: SettleContext, input: unknown): Promise<Set
   const t0 = Date.now();
   const memo = newMemo();
   let last: NetState | null = null;
+  let callerWaitMs = 0;
+  let lastTick = t0;
+  let prevWithCaller = false;
 
+  const known = lifecycleOf(ctx.wcId).known;
   const finish = (v: Verdict): SettleResult => ({
     ...v,
     final: { url: last?.url ?? "", title: last?.title ?? "" },
     requests: last?.stats.requests ?? 0,
     bytes: last?.stats.bytes ?? 0,
     hosts: last?.stats.hosts ?? [],
-    redirects: last?.stats.redirects ?? [],
+    redirects: [...(known && last && normUrl(last.url) === normUrl(known.url) ? known.redirects : []), ...(last?.stats.redirects ?? [])],
+    waitedOnCallerMs: Math.round(callerWaitMs),
     moves: [...lifecycleOf(ctx.wcId).moves],
   });
 
@@ -220,17 +238,27 @@ export async function runSettle(ctx: SettleContext, input: unknown): Promise<Set
         return finish({ settled: false, outcome: "deadline", rule: "deadline", waitedMs: Date.now() - t0, blockedBy: [{ rule: "page-unreachable", detail: "the tab is gone" }] });
       }
       last = net;
+      // A request the caller has not answered yet is its own state, apart from "the server is slow".
+      const inFlight = net.inFlight.map((r) => (ctx.isWithCaller?.(r.url) ? { ...r, phase: "caller" as const } : r));
       const page = await probePage(wc);
+      // (after the probe: a slow probe is time the caller was holding the request, and the deadline check below must see it)
+      const nowTick = Date.now();
+      const withCallerNow = inFlight.some((r) => r.phase === "caller");
+      // The interval counts if the caller had a request at either end of it (a slow probe in between must not hide the wait).
+      if (withCallerNow || prevWithCaller) callerWaitMs += nowTick - lastTick;
+      prevWithCaller = withCallerNow;
+      lastTick = nowTick;
       const snap: Snapshot = {
         nowMs: Date.now() - t0,
         lifecycle: { ...l },
-        net: { inFlight: net.inFlight, sinceActivityMs: net.sinceActivityMs, state: net.state, pay: net.pay },
+        net: { inFlight, sinceActivityMs: net.sinceActivityMs, state: net.state, pay: net.pay },
         page,
+        callerWaitMs,
       };
       let r = step(snap, cfg, memo);
       if (!r.done && r.action === "check-frames") {
         const matched = await framesMatch(wc, cfg.frameGapMs);
-        r = step({ ...snap, nowMs: Date.now() - t0, frames: { matched } }, cfg, memo);
+        r = step({ ...snap, nowMs: Date.now() - t0, frames: { matched }, callerWaitMs }, cfg, memo);
       }
       // If the page moved itself while we were deciding, the verdict is about a page we have already left.
       if (r.done && r.verdict.settled && ["quiet", "frames-match", "animating"].includes(r.verdict.rule) && lifecycleOf(ctx.wcId).navigations !== snap.lifecycle.navigations) {
@@ -244,6 +272,9 @@ export async function runSettle(ctx: SettleContext, input: unknown): Promise<Set
   };
 
   // A probe can hang on a broken page; whatever happens, the call returns shortly after the deadline.
-  const guard = sleep(cfg.timeoutMs + 5000).then((): SettleResult => finish({ settled: false, outcome: "deadline", rule: "deadline", waitedMs: Date.now() - t0, blockedBy: [{ rule: "page-unreachable", detail: "the page stopped answering" }] }));
-  return Promise.race([loop(), guard]);
+  // The hard guard does not count time spent waiting on the caller either; that wait has its own bound.
+  const guardWait = async () => { while (!over && Date.now() - t0 - callerWaitMs < cfg.timeoutMs + 5000) await sleep(250); };
+  let over = false;
+  const guard = guardWait().then((): SettleResult => finish({ settled: false, outcome: "deadline", rule: "deadline", waitedMs: Date.now() - t0, blockedBy: [{ rule: "page-unreachable", detail: "the page stopped answering" }] }));
+  return Promise.race([loop(), guard]).finally(() => { over = true; });
 }

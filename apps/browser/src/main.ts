@@ -14,18 +14,19 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { basename, dirname, extname, join } from "node:path";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, session, shell, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, session, shell, webContents, type MenuItemConstructorOptions } from "electron";
 import { createPublicClient, http as viemHttp } from "viem";
 import { baseSepolia } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { PolicyEngine, Ledger, X402Engine, formatUsd, signExactEvm } from "@dbbasic/x402-engine";
-import { createPaymentHandler } from "./intercept.js";
+import { createPaymentHandler, type RawFetch } from "./intercept.js";
 import { brandedUserAgent } from "./compat.js";
-import { netEvents, netRequestFetch, setClientHints, type NetEvent } from "./transport.js";
+import { emitNet, netEvents, netRequestFetch, nextNetId, setClientHints, type NetEvent } from "./transport.js";
+import { CallerNetwork, ProviderError, clampAnswerTimeout, type Answer, type Document } from "./provider.js";
 import { safeExternalUrl } from "./urls.js";
 import { describeAi, loadAiEnv, resolveAi, type AiConfig, type Provider } from "./ai-config.js";
 import { createReader } from "./reader-service.js";
-import { noteDownload, runSettle, trackLifecycle } from "./settle-service.js";
+import { noteDownload, runSettle, trackLifecycle, noteKnownDocument } from "./settle-service.js";
 import { EXPIRED_HTML, READER_SCHEME, ReaderPages, readerIdFromUrl } from "./reader-pages.js";
 import { READER_CSP } from "./reader.js";
 import { registerVault } from "./vault-service.js";
@@ -195,6 +196,33 @@ let control: ControlHandle | null = null;
  * before any connection is made. Off by default; DBB_BLOCK_WEBSOCKETS=1 or the automation API turns it on.
  */
 const netPolicy = { blockWebSockets: process.env.DBB_BLOCK_WEBSOCKETS === "1" };
+/** A network layer the caller supplies (see provider.ts). Off until an automation caller turns it on. */
+const callerNet = new CallerNetwork(emitNet, nextNetId);
+let desktopUserAgent = "";
+function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerTimeoutMs?: unknown }): void {
+  if (p.answerTimeoutMs !== undefined) callerNet.answerTimeoutMs = clampAnswerTimeout(p.answerTimeoutMs);
+  if (p.enabled === true) {
+    // The caller's identity, always spelled out by the caller. The desktop browser's own identity is never lent to it.
+    const ua = String(p.userAgent ?? callerNet.userAgent).trim();
+    if (!ua) throw new ProviderError("bad-params", "userAgent is required: this mode takes its identity from the caller");
+    if (ua.length > 300 || !/^[ -~]+$/.test(ua)) throw new ProviderError("bad-params", "userAgent must be printable ASCII, at most 300 characters");
+    if (/dbbasic-browser/i.test(ua)) throw new ProviderError("bad-params", "userAgent must be the caller's own, not the desktop browser's");
+    if (!callerNet.enabled) desktopUserAgent = session.defaultSession.getUserAgent();
+    callerNet.userAgent = ua;
+    callerNet.enabled = true;
+    session.defaultSession.setUserAgent(ua);
+    for (const wc of webContents.getAllWebContents()) if (wc.getType() === "webview") wc.setUserAgent(ua); // pages that already exist keep the old one otherwise
+  } else if (p.enabled === false && callerNet.enabled) {
+    callerNet.enabled = false;
+    callerNet.failAll("other", "the caller network was turned off");
+    if (desktopUserAgent) {
+      session.defaultSession.setUserAgent(desktopUserAgent);
+      for (const wc of webContents.getAllWebContents()) if (wc.getType() === "webview") wc.setUserAgent(desktopUserAgent);
+    }
+  } else if (p.enabled !== undefined && typeof p.enabled !== "boolean") throw new ProviderError("bad-params", "enabled must be true or false");
+  emit({ kind: "net-provider-changed", enabled: callerNet.enabled, answerTimeoutMs: callerNet.answerTimeoutMs });
+}
+
 function setupNetPolicy(): void {
   session.defaultSession.webRequest.onBeforeRequest({ urls: ["ws://*/*", "wss://*/*"] }, (details, callback) => {
     if (netPolicy.blockWebSockets) emit({ kind: "websocket-refused", url: details.url });
@@ -328,7 +356,9 @@ function buildEngine(): X402Engine {
   // The engine's network calls go through netRequestFetch (see transport.ts): it never follows
   // redirects itself — it returns 3xx to the renderer so URL/origin stay truthful — and, being
   // net.request, it is not routed back into our own protocol.handle handler.
-  const rawFetch = netRequestFetch();
+  const nativeFetch = netRequestFetch();
+  // In "caller network" mode (provider.ts) the browser makes no request of its own: the caller answers each one.
+  const rawFetch: RawFetch = (req) => (callerNet.enabled || callerNet.hasDocumentFor(req.url) ? callerNet.fetch(req) : nativeFetch(req));
 
   return new X402Engine({
     account,
@@ -684,7 +714,16 @@ app.whenReady().then(() => {
           if (typeof p.websockets === "boolean") netPolicy.blockWebSockets = p.websockets;
           emit({ kind: "net-policy-changed", blockWebSockets: netPolicy.blockWebSockets });
         },
-        settle: (ctx, opts) => runSettle(ctx, opts),
+        settle: (ctx, opts) => runSettle({ ...ctx, isWithCaller: (u) => callerNet.isParked(u) }, opts),
+        callerNet: {
+          state: () => ({ enabled: callerNet.enabled, userAgent: callerNet.userAgent, answerTimeoutMs: callerNet.answerTimeoutMs, waiting: callerNet.parkedCount() }),
+          configure: configureCallerNet,
+          pending: (afterId, waitMs) => callerNet.pending(afterId, waitMs),
+          answer: (id, a) => callerNet.answer(id, a as unknown as Answer),
+          fail: (id, kind, detail) => callerNet.fail(id, kind, detail),
+          registerDocument: (doc) => callerNet.registerDocument(doc as unknown as Document),
+          noteKnownDocument,
+        },
         aiStatus: () => describeAi(aiCfg),
         setAiProvider: (p) => (p === "anthropic" || p === "openai" ? setAiProvider(p) : false),
         spent: () => formatUsd(engine.policy.spentUsdMicro()),

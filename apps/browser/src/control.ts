@@ -61,11 +61,31 @@ export interface ControlDeps {
   aiStatus(): unknown;
   downloads(): unknown;
   getNetPolicy(): { blockWebSockets: boolean };
+  callerNet: {
+    state(): unknown;
+    configure(p: { enabled?: unknown; userAgent?: unknown; answerTimeoutMs?: unknown }): void;
+    pending(afterId: number, waitMs: number): Promise<unknown>;
+    answer(id: number, a: Record<string, unknown>): void;
+    fail(id: number, kind: unknown, detail?: unknown): void;
+    registerDocument(doc: Record<string, unknown>): void;
+    noteKnownDocument(wcId: number, url: string, redirects: Array<{ status?: number; to: string }>): void;
+  };
   setNetPolicy(p: { websockets?: boolean }): void;
   /** Wait until a page has finished loading and say why (see settle.ts). */
   settle(ctx: SettleContext, opts: unknown): Promise<unknown>;
   setAiProvider(p: unknown): boolean;
   receipts(): unknown;
+}
+
+/** Run a caller-network operation, turning its validation errors into API errors. */
+function provider<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (e) {
+    const code = (e as { code?: unknown }).code;
+    if (e instanceof Error && typeof code === "string") throw new RpcError(code, e.message);
+    throw e;
+  }
 }
 
 class RpcError extends Error {
@@ -285,6 +305,40 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       if (!r.ok) throw new RpcError(r.code, r.message);
       if (p.submit !== false && p.wait !== false) await d.askChrome("tab.waitLoad", { id: t.id, ms: 15_000 });
       return r.data; // username + origin only — never the password
+    }
+
+    // ---- a network layer the caller supplies ---------------------------------
+    case "net.provider": {
+      // {enabled?, userAgent?, answerTimeoutMs?}: while on, the browser makes NO request of its own; each one is handed to the
+      // caller (net.pending) to answer (net.answer) or refuse (net.fail). userAgent is required when turning it on.
+      if (p.enabled !== undefined || p.answerTimeoutMs !== undefined || p.userAgent !== undefined) provider(() => d.callerNet.configure(p));
+      return d.callerNet.state();
+    }
+    case "net.pending": {
+      const after = p.afterId === undefined ? 0 : Number(p.afterId);
+      const wait = p.waitMs === undefined ? 0 : Number(p.waitMs);
+      if (!Number.isFinite(after) || !Number.isFinite(wait)) throw new RpcError("bad-params", "afterId and waitMs must be numbers");
+      return { requests: await d.callerNet.pending(after, wait) };
+    }
+    case "net.answer": {
+      const { id, ...answer } = p;
+      provider(() => d.callerNet.answer(Number(id), answer));
+      return { answered: Number(id) };
+    }
+    case "net.fail":
+      provider(() => d.callerNet.fail(Number(p.id), p.kind, p.detail));
+      return { failed: Number(p.id) };
+    case "page.load": {
+      // Load a main document the caller ALREADY fetched, as it is: {url (its final address), status, headers, bodyBase64|bodyText,
+      // redirects?: [{status,to}], settle?}. Relative links resolve against url; the facts list the redirects.
+      const t = resolveTab(p);
+      const url = str(p.url, "url");
+      const { settle: settleOpt, ...doc } = p;
+      const redirects = Array.isArray(p.redirects) ? (p.redirects as Array<{ status?: number; to: string }>) : [];
+      provider(() => d.callerNet.registerDocument({ ...doc, url }));
+      d.callerNet.noteKnownDocument(await addressable(t), url, redirects);
+      const loaded = (await d.askChrome("tab.goto", { id: t.id, url, wait: settleOpt ? "start" : true })) as Record<string, unknown>;
+      return settleOpt ? { ...loaded, settle: await settleTab(d, t, settleOpt === true ? {} : settleOpt) } : loaded;
     }
 
     // ---- network policy ------------------------------------------------------

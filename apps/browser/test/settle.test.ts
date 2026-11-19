@@ -75,6 +75,39 @@ describe("a page that moves itself restarts the wait", () => {
   });
 });
 
+describe("waiting on a caller-supplied network layer", () => {
+  const withCaller = { url: "https://a.test/page", phase: "caller" as const, ageMs: 5000, longLived: false };
+  it("is its own state: named 'caller', not counted as a slow network request", () => {
+    const b = blockers(snap({ net: { inFlight: [withCaller], sinceActivityMs: 5000, state: null, pay: null } }), CFG);
+    expect(b.map((x) => x.rule)).toEqual(["caller"]);
+    expect(b[0]!.detail).toContain("https://a.test/page");
+  });
+  it("time spent on the caller does not count toward the deadline", () => {
+    const s = (callerWaitMs: number) => snap({ nowMs: 12_000, callerWaitMs, net: { inFlight: [withCaller], sinceActivityMs: 5000, state: null, pay: null } });
+    expect(run(s(0))).toMatchObject({ done: true, verdict: { rule: "deadline" } }); // 12 s waited, none of it on the caller
+    expect(run(s(1_500))).toMatchObject({ done: true, verdict: { rule: "deadline" } }); // 10.5 s of its own time: over 10 s
+    expect(run(s(2_500))).toEqual({ done: false }); // 9.5 s of its own time: still going
+    expect(run(s(11_000))).toEqual({ done: false }); // nearly all of it on the caller
+  });
+  it("a slow SERVER is still caught by the deadline even when the caller answered", () => {
+    const slow = { url: "https://a.test/slow", phase: "waiting" as const, ageMs: 12_000, longLived: false };
+    expect(run(snap({ nowMs: 12_000, callerWaitMs: 500, net: { inFlight: [slow], sinceActivityMs: 12_000, state: null, pay: null } }))).toMatchObject({ done: true, verdict: { rule: "deadline", blockedBy: [{ rule: "network" }] } });
+  });
+});
+
+describe("a failure says who decided it", () => {
+  const failed = (f: object) => run(snap({ lifecycle: { crashed: false, failed: { description: "x", ...f }, download: null, status: null } }));
+  it("one the browser saw is 'observed'", () => {
+    expect(failed({ description: "ERR_CONNECTION_RESET" })).toMatchObject({ verdict: { failure: { kind: "could-not-connect", source: "observed" } } });
+  });
+  it("one the caller gave keeps the caller's kind and source", () => {
+    expect(failed({ description: "the caller's own rules say no", kind: "blocked", source: "caller" })).toMatchObject({ verdict: { failure: { kind: "blocked", description: "the caller's own rules say no", source: "caller" } } });
+  });
+  it("'caller-silent' is its own kind, apart from 'timed-out'", () => {
+    expect(failed({ description: "the caller did not answer within 20000 ms", kind: "caller-silent", source: "observed" })).toMatchObject({ verdict: { failure: { kind: "caller-silent" } } });
+  });
+});
+
 describe("a stuck navigation: the page can't be asked, but the request that never answered is named", () => {
   it("reports the network blocker first and page-unreachable after it", () => {
     const hang = { url: "https://a.test/hang", phase: "waiting" as const, ageMs: 5000, longLived: false };

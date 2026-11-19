@@ -84,7 +84,11 @@ export type Outcome =
   | "not-a-page" // the address was a download, not a page
   | "deadline"; // gave up; `blockedBy` says what was still unmet
 
-export type FailureKind = "could-not-find-site" | "could-not-connect" | "certificate" | "redirect-loop" | "offline" | "timed-out" | "blocked" | "other";
+export const FAILURE_KINDS = ["could-not-find-site", "could-not-connect", "certificate", "redirect-loop", "offline", "timed-out", "blocked", "other", "caller-silent"] as const;
+/** Why a load failed. "caller-silent" = a caller-supplied network layer did not answer within its own bound (not "server too slow"). */
+export type FailureKind = (typeof FAILURE_KINDS)[number];
+/** Who decided it: the browser saw it happen, or the caller said so. */
+export type FailureSource = "observed" | "caller";
 
 /** Map Chromium's error description (e.g. "ERR_CERT_DATE_INVALID") to a reason a person can act on. */
 export function classifyFailure(description: string): FailureKind {
@@ -101,7 +105,8 @@ export function classifyFailure(description: string): FailureKind {
 
 export interface InFlight {
   url: string;
-  phase: "waiting" | "receiving";
+  /** "caller": a caller-supplied network layer has the request and has not answered yet. */
+  phase: "waiting" | "receiving" | "caller";
   ageMs: number;
   /** Headers arrived but the body is open-ended (event stream, or no Content-Length for a long time). */
   longLived: boolean;
@@ -112,7 +117,7 @@ export interface Snapshot {
   nowMs: number;
   lifecycle: {
     crashed: boolean;
-    failed: { description: string; code?: number } | null;
+    failed: { description: string; code?: number; kind?: FailureKind; source?: FailureSource } | null;
     /** File name of a download that started instead of a page. */
     download: string | null;
     /** HTTP status of the main document, once known. */
@@ -133,10 +138,12 @@ export interface Snapshot {
   page: { readyState: string; fonts: string; imagesPending: number; textLength: number; hasMedia: boolean } | null;
   /** Result of the latest two-frame comparison, if one has been made. */
   frames?: { matched: boolean };
+  /** Time spent waiting on a caller-supplied network layer. It does not count toward the deadline: the caller's own bound ends that wait. */
+  callerWaitMs?: number;
 }
 
 export interface Blocker {
-  rule: "load-event" | "network" | "network-quiet" | "fonts" | "images" | "page-unreachable";
+  rule: "load-event" | "caller" | "network" | "network-quiet" | "fonts" | "images" | "page-unreachable";
   detail?: string;
 }
 
@@ -148,7 +155,7 @@ export interface Verdict {
   status?: number;
   /** For outcome "error-status": the server asked us to slow down (HTTP 429). */
   slowDown?: boolean;
-  failure?: { kind: FailureKind; description: string };
+  failure?: { kind: FailureKind; description: string; source: FailureSource };
   download?: string;
   /** For the deadline: what was still unmet. */
   blockedBy?: Blocker[];
@@ -172,7 +179,9 @@ export const newMemo = (): Memo => ({ okSince: null, navs: null });
 /** The unmet rules in a snapshot (empty = everything holds, apart from the frame comparison). */
 export function blockers(s: Snapshot, cfg: SettleConfig): Blocker[] {
   const out: Blocker[] = [];
-  const pending = s.net.inFlight.filter((r) => !r.longLived);
+  const withCaller = s.net.inFlight.filter((r) => r.phase === "caller");
+  const pending = s.net.inFlight.filter((r) => !r.longLived && r.phase !== "caller");
+  if (withCaller.length) out.push({ rule: "caller", detail: `${withCaller.length} request(s) waiting on the caller, e.g. ${withCaller[0]!.url}` });
   if (pending.length) {
     const oldest = pending.reduce((a, b) => (b.ageMs > a.ageMs ? b : a));
     out.push({ rule: "network", detail: `${pending.length} request(s) in flight, e.g. ${oldest.url} (${oldest.phase}, ${Math.round(oldest.ageMs)} ms)` });
@@ -209,7 +218,7 @@ export function step(s: Snapshot, cfg: SettleConfig, memo: Memo): Step {
   if (s.lifecycle.download) return { done: true, verdict: { settled: true, outcome: "not-a-page", rule: "download", download: s.lifecycle.download, ...base } };
   if (s.lifecycle.failed) {
     const f = s.lifecycle.failed;
-    return { done: true, verdict: { settled: false, outcome: "failed", rule: "navigation-failed", failure: { kind: classifyFailure(f.description), description: f.description }, ...base } };
+    return { done: true, verdict: { settled: false, outcome: "failed", rule: "navigation-failed", failure: { kind: f.kind ?? classifyFailure(f.description), description: f.description, source: f.source ?? "observed" }, ...base } };
   }
   if (s.net.pay) return { done: true, verdict: { settled: false, outcome: "payment-required", rule: "payment", ...base } };
 
@@ -228,7 +237,7 @@ export function step(s: Snapshot, cfg: SettleConfig, memo: Memo): Step {
   }
   memo.okSince = null; // something moved again: the "everything holds" clock restarts
 
-  if (s.nowMs >= cfg.timeoutMs) {
+  if (s.nowMs - (s.callerWaitMs ?? 0) >= cfg.timeoutMs) {
     const botCheck = s.net.state === "challenge";
     return { done: true, verdict: { settled: false, outcome: botCheck ? "bot-check" : "deadline", rule: "deadline", blockedBy: unmet, ...streamField, ...base } };
   }

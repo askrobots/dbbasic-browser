@@ -73,10 +73,14 @@ export interface NetEvent {
   bytes?: number;
   location?: string;
   error?: string;
+  /** For a failure the CALLER decided (or that waiting on the caller caused): the reason, and who said so. */
+  failureKind?: string;
+  failureSource?: "observed" | "caller";
 }
 export const netEvents = new EventEmitter();
 let netSeq = 0;
-const emitNet = (e: NetEvent) => netEvents.emit("event", e);
+export const nextNetId = (): number => ++netSeq;
+export const emitNet = (e: NetEvent): void => { netEvents.emit("event", e); };
 
 /** Headers the network stack owns (or that would leak/duplicate state) — never copy these onto the request. */
 const REQUEST_HEADERS_WE_DONT_SET = new Set([

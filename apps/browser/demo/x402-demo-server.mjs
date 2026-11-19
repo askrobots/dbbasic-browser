@@ -246,8 +246,11 @@ function gate(req, res, { challenge, card, paid, paidType = "text/html", paidHea
   res.end(paid);
 }
 
+let hits = 0; // requests served (except the counter itself), so a test can prove a refused load never reached the server
 const server = createServer(async (req, res) => {
   const path = (req.url || "/").split("?")[0];
+  if (path === "/hits") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ hits })); return; }
+  hits++;
 
   // LIVE route: real settlement. Unpaid → 402; paid → POST the signed payload to the
   // facilitator's /settle, which moves real testnet USDC (buyer → our merchant wallet)
