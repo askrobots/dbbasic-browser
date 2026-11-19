@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only: CI never needs to write to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Actions are pinned to full commit SHAs (the version is in the comment), not floating tags: this project
+      # handles keys and wallets, so a moved tag must not be able to change what runs here. Dependabot bumps them.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      # --ignore-scripts: no install script runs in CI, and none is needed. The Electron *binary* is only for
+      # running the app; typechecking, the unit tests and the bundle build need only its type definitions.
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build -w @dbbasic/browser
+
+      # Includes test/secrets.test.ts (above), which fails if an API key or private-key shape is committed.
+      # This checks the production dependency tree for known high-severity advisories.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+# Not run here: the end-to-end suite (`npm run e2e -w @dbbasic/browser`). It launches real browser windows and needs a
+# macOS/desktop session, so it is run locally before releases.

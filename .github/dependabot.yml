@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Electron is the browser engine: stale means unpatched Chromium. Weekly checks keep us from drifting again.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-tooling:
+        patterns: ["vitest", "esbuild", "typescript", "@types/*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

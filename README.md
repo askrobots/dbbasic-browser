@@ -74,7 +74,7 @@ or a curl-through-the-proxy takes — and all of it is testable headlessly.
 
 ## Quickstart
 
-Requires Node 20+.
+Requires Node 22.12+ (Electron 45's requirement).
 
 ```bash
 npm install          # installs all workspaces
