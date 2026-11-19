@@ -24,7 +24,8 @@
  * for its first page.
  *
  * What it does not do: check what a site allows, or keep cookies. Those are the caller's decisions; the browser stores no state for
- * you, and Set-Cookie in an answer is dropped. The private-address check is advisory: the name is resolved once to check it and again
+ * you. A Set-Cookie in an answer is dropped unless the browser was told `net.provider {cookies: "visit"}`, in which case it keeps them
+ * for that one visit only. The private-address check is advisory: the name is resolved once to check it and again
  * to connect, so a hostile name server could differ between the two; a firewall rule is the real guarantee.
  */
 import { lookup } from "node:dns/promises";

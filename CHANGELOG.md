@@ -61,6 +61,12 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   local addresses, caps response size and spaces page loads per host.
 - **`npm run build:standalone`** bundles everything except Electron into one folder (`apps/browser/standalone/`), so the app runs
   with just an Electron binary: no `npm install`, no Node version requirement on the machine that runs it.
+- **Local extensions** (`DBB_EXTENSIONS=/abs/one.mjs:/abs/two.mjs`): ES modules on this machine that add automation methods, reached as
+  `ext.<name>`. Each exports `register(api)` and adds methods with `api.method(name, handler)`; a handler gets the request's parameters and
+  `tools.webContents(params)`, the page of a tab without raising the window. They run with the browser's own privileges, load only from
+  that environment variable (never from a page, the network or the API), only from absolute local files owned by you and not writable by
+  others, and an extension that fails to load stops the browser from starting. `status` shows file names only. Built-in method names
+  cannot be replaced, but an extension can use Electron directly, so load only code you trust.
 - **`net.policy {blockWebSockets}`** in the automation API (also `DBB_BLOCK_WEBSOCKETS=1`): refuses WebSockets before any
   connection is opened, since Chromium opens them outside our network layer. Every refusal is announced as an event.
 - **End-to-end test suites** (`npm run e2e -w @dbbasic/browser`, 88 checks) that drive the real browser through its own
@@ -82,6 +88,8 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   target.
 - Requests now carry what a real Chromium sends: a `Referer` (it was missing), client hints that match the page's own
   JavaScript, and correct `Sec-Fetch-*` metadata.
+- A `.env` file in whatever folder the browser was started from could set any unset upper-case variable, including the ones that turn on
+  the automation API and name its token. It now sets only `X402_*` (the wallet's own settings).
 - Going to the address a tab was already on made **two** requests to the site (setting a webview's `src` to its current value
   loads it twice), which also doubled any per-site spacing a caller applies. Explicit navigations now make one.
 - After a redirect chain the "finished loading" verdict reported the first hop's status (302) instead of the page's own (200).

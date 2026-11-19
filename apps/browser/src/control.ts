@@ -28,6 +28,7 @@ import { webContents, type WebContents } from "electron";
 import { safeEqual } from "@dbbasic/vault";
 import type { VaultService } from "./vault-service.js";
 import type { SettleContext } from "./settle-service.js";
+import type { ExtensionRegistry } from "./extensions.js";
 
 export interface TabInfo {
   id: number;
@@ -61,6 +62,8 @@ export interface ControlDeps {
   aiStatus(): unknown;
   downloads(): unknown;
   getNetPolicy(): { blockWebSockets: boolean };
+  /** Methods added by local extensions (see extensions.ts), reached as ext.<name>. */
+  extensions: ExtensionRegistry<WebContents>;
   /** Throws "caller-network-on" while the caller network is on. */
   assertNotCallerNet(what: string): void;
   callerNet: {
@@ -178,7 +181,7 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
   switch (method) {
     // ---- meta / tabs --------------------------------------------------------
     case "status":
-      return { version: 1, tabs, approval: d.getApproval(), spent: d.spent(), vault: await d.vault.state() };
+      return { version: 1, extensions: d.extensions.loadedNames(), tabs, approval: d.getApproval(), spent: d.spent(), vault: await d.vault.state() };
     case "tabs.list":
       return tabs;
     case "tabs.new":
@@ -399,6 +402,25 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       return d.getApproval();
     }
     default:
+      if (d.extensions.has(method)) {
+        try {
+          return await d.extensions.call(method, p, {
+            // The page of the tab the request names. The tab is made the visible one, but the window is NOT raised or focused.
+            webContents: async (params) => {
+              const t = resolveTab(params);
+              if (!t.active) {
+                await d.askChrome("tab.activate", { id: t.id });
+                await sleep(80);
+              }
+              await addressable(t);
+              return guest(t);
+            },
+          });
+        } catch (e) {
+          if (e instanceof RpcError) throw e;
+          throw new RpcError("extension-error", e instanceof Error ? e.message : String(e));
+        }
+      }
       throw new RpcError("no-method", `unknown method "${method}"`);
   }
 }

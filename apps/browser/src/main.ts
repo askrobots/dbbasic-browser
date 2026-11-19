@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { basename, dirname, extname, join } from "node:path";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, session, shell, webContents, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, session, shell, webContents, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { createPublicClient, http as viemHttp } from "viem";
 import { baseSepolia } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
@@ -22,6 +22,7 @@ import { PolicyEngine, Ledger, X402Engine, formatUsd, signExactEvm } from "@dbba
 import { createPaymentHandler, type RawFetch } from "./intercept.js";
 import { brandedUserAgent } from "./compat.js";
 import { emitNet, netEvents, netRequestFetch, nextNetId, setClientHints, type NetEvent } from "./transport.js";
+import { ExtensionRegistry, loadExtensions, parseExtensionPaths } from "./extensions.js";
 import { CallerNetwork, ProviderError, clampAnswerTimeout, type Answer, type CookieJar, type Document } from "./provider.js";
 import { safeExternalUrl } from "./urls.js";
 import { describeAi, loadAiEnv, resolveAi, type AiConfig, type Provider } from "./ai-config.js";
@@ -66,7 +67,9 @@ for (const p of [join(__dirname, "..", "..", "..", ".env"), join(process.cwd(), 
   try {
     for (const line of readFileSync(p, "utf8").split("\n")) {
       const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
-      if (m && m[1] && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
+      // Only the wallet's own settings. A .env in whatever folder the browser was started from must never be able to switch on
+      // the automation API, name an extension to load, or set anything else that changes what the browser does.
+      if (m && m[1] && /^X402_/.test(m[1]) && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
     }
     break;
   } catch {
@@ -640,7 +643,7 @@ function createWindow(): void {
   mainWindow.on("closed", () => (mainWindow = null));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Chrome's Accept-Language shape ("en-US,en;q=0.9"), not the bare locale the session defaults to.
   const locale = app.getLocale() || "en-US";
   // DBB_CALLER_NETWORK_USER_AGENT=<identity> starts with the caller-supplied network layer already ON, before any page is
@@ -748,6 +751,16 @@ app.whenReady().then(() => {
     else p.resolve(r.result);
   });
 
+  // Local extensions (extra automation methods from code on this machine): only from DBB_EXTENSIONS, announced, and all-or-nothing.
+  const extensions = new ExtensionRegistry<WebContents>();
+  try {
+    await loadExtensions(parseExtensionPaths(process.env.DBB_EXTENSIONS), extensions, (file) => console.error(`[extensions] loaded ${basename(file)}`));
+  } catch (e) {
+    console.error(`[extensions] refused to start: ${(e as Error).message}`);
+    app.exit(3);
+    return;
+  }
+
   createWindow();
   // Automation API: off unless asked for (see control.ts for the security model).
   if (process.env.DBB_CONTROL === "1" || process.argv.includes("--control")) {
@@ -780,6 +793,7 @@ app.whenReady().then(() => {
           if (typeof p.websockets === "boolean") netPolicy.blockWebSockets = p.websockets;
           emit({ kind: "net-policy-changed", blockWebSockets: netPolicy.blockWebSockets });
         },
+        extensions,
         assertNotCallerNet: refuseWhileCallerNet,
         settle: (ctx, opts) => runSettle({ ...ctx, isWithCaller: (u) => callerNet.isParked(u) }, opts),
         callerNet: {
