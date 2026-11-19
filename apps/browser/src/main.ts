@@ -646,10 +646,18 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+/**
+ * DBB_BACKGROUND=1: automation that never takes the screen. The window is created off-screen and shown WITHOUT taking focus
+ * (an off-screen window is still drawn, unlike a hidden or minimized one, so pages, captures and input keep working), the app
+ * stays out of the Dock, and nothing raises or focuses it afterwards. Meant for scripted runs on a machine someone is using.
+ */
+const background = process.env.DBB_BACKGROUND === "1";
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
+    ...(background ? { show: false } : {}),
     title: "dbbasic-browser",
     icon: ICON_PATH,
     webPreferences: {
@@ -664,6 +672,18 @@ function createWindow(): void {
     },
   });
   mainWindow.loadFile(join(__dirname, "chrome.html"));
+  if (background) {
+    if (process.platform === "darwin") app.dock?.hide();
+    // Shown first and moved afterwards: macOS clamps a window back onto the screen when it is created or first shown there,
+    // but lets a window that is already shown be moved off it. (An off-screen window is still drawn; a hidden one is not.)
+    mainWindow.once("ready-to-show", () => {
+      mainWindow?.showInactive();
+      mainWindow?.setPosition(-20000, -20000);
+      // macOS keeps a sliver of the window on screen. Make that invisible and untouchable too; the page is still drawn.
+      mainWindow?.setOpacity(0);
+      mainWindow?.setIgnoreMouseEvents(true);
+    });
+  }
   mainWindow.on("closed", () => (mainWindow = null));
 }
 
@@ -795,9 +815,10 @@ app.whenReady().then(async () => {
     startControl(
       {
         askChrome,
+        background,
         focusWindow: () => {
           const w = mainWindow;
-          if (!w) return;
+          if (!w || background) return; // background mode never raises or focuses the window
           if (w.isMinimized()) w.restore();
           w.show();
           w.focus();

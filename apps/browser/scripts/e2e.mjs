@@ -40,6 +40,31 @@ async function waitFor(fn, what, ms = 40000) {
   }
 }
 
+// E2E_PARALLEL=n runs up to n suites at once. Each suite is its own process with its own demo server, ports, profile and vault,
+// so nothing is shared; output is printed per suite when it finishes. (Costs memory: one browser per running suite.)
+const parallel = Number(process.env.E2E_PARALLEL || 1);
+if (parallel > 1 && run.length > 1 && process.env.E2E_CHILD !== "1") {
+  const { spawn: sp } = await import("node:child_process");
+  const queue = [...run];
+  const results = [];
+  const runOne = (name) => new Promise((resolve) => {
+    if (name === "live-net" && process.env.E2E_LIVE_NET !== "1") return resolve({ name, out: `\n━━ ${name} ━━ (skipped: set E2E_LIVE_NET=1)\n`, pass: 0, fail: 0 });
+    const child = sp(process.execPath, [fileURLToPath(import.meta.url), name], { env: { ...process.env, E2E_CHILD: "1" }, stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (out += d));
+    child.on("close", () => {
+      const m = /(\d+) passed, (\d+) failed/.exec(out);
+      resolve({ name, out, pass: m ? Number(m[1]) : 0, fail: m ? Number(m[2]) : 1 });
+    });
+  });
+  const worker = async () => { for (let n = queue.shift(); n; n = queue.shift()) { const r = await runOne(n); results.push(r); console.log(r.out.replace(/\n[✓✗] \d+ passed.*\n?$/, "\n")); } };
+  await Promise.all(Array.from({ length: Math.min(parallel, run.length) }, worker));
+  const pass = results.reduce((a, r) => a + r.pass, 0), fail = results.reduce((a, r) => a + r.fail, 0);
+  console.log(`\n${fail ? "✗" : "✓"} ${pass} passed, ${fail} failed (${run.length} suites, ${parallel} at a time)`);
+  process.exit(fail ? 1 : 0);
+}
+
 const tmp = mkdtempSync(join(tmpdir(), "dbb-e2e-"));
 const procs = [];
 const cleanup = () => { for (const p of procs) { try { p.kill("SIGTERM"); } catch {} } try { rmSync(tmp, { recursive: true, force: true }); } catch {} };
@@ -72,6 +97,7 @@ async function launchApp(suite) {
       ...process.env,
       DBB_CONTROL: "1", DBB_CONTROL_PORT: String(controlPort), DBB_CONTROL_TOKEN: token, DBB_CONTROL_FILE: join(tmp, `control-${suite}.json`),
       ...(suite === "extensions" ? { DBB_EXTENSIONS: join(here, "..", "test", "fixtures", "ext-echo.mjs") } : {}),
+      ...(process.env.E2E_BACKGROUND === "1" ? { DBB_BACKGROUND: "1" } : {}),
       DBB_VAULT: vaultPath, HOMEPAGE: `${base}/free`, DBB_DOWNLOAD_DIR: join(tmp, `downloads-${suite}`),
     },
     stdio: ["ignore", "pipe", "pipe"],

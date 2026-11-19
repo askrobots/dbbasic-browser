@@ -31,4 +31,11 @@ export default async function (ctx) {
   if (other) await T("ext.echo", { tab: other.id });
   const w1 = await T("ext.window");
   check(JSON.stringify(w1) === JSON.stringify(w0), "asking for a page (even another tab) does not raise, focus, move or resize the window", JSON.stringify({ before: w0, after: w1 }));
+
+  // In background mode (E2E_BACKGROUND=1) the window is off-screen and never takes focus, however much automation runs.
+  if (process.env.E2E_BACKGROUND === "1") {
+    await T("page.click", { selector: "h1" }); // real input, which used to need the window raised
+    const w = await T("ext.window");
+    check(w.focused === false && w.position[0] < -1000, "background mode: the window is off-screen and not focused after real input", JSON.stringify({ focused: w.focused, position: w.position }));
+  }
 }

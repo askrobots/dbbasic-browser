@@ -75,6 +75,10 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   that environment variable (never from a page, the network or the API), only from absolute local files owned by you and not writable by
   others, and an extension that fails to load stops the browser from starting. `status` shows file names only. Built-in method names
   cannot be replaced, but an extension can use Electron directly, so load only code you trust.
+- **Background mode** (`DBB_BACKGROUND=1`): automation that never takes the screen. The window is shown without focus, moved off-screen,
+  transparent and click-through (still drawn, unlike a hidden or minimized window), the app stays out of the Dock, and nothing raises or
+  focuses it, including real input. The end-to-end suites use it with `E2E_BACKGROUND=1`, and `E2E_PARALLEL=n` runs n suites at once (each its
+  own process with its own demo server, ports, profile and vault): the full run of 216 checks takes about 100 seconds at 2 at a time.
 - **Pre-push checks** (`git config core.hooksPath .githooks`): refuse a push whose new lines contain a key-shaped secret, then run the type
   check and unit tests; a clone may add its own extra check. The extension surface (a page's host window, painting a page to an image, and
   never raising or focusing the window) is pinned by end-to-end tests with a neutral fixture, so a change to the browser cannot break

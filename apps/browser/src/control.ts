@@ -50,6 +50,8 @@ export interface ApprovalPolicy {
 export interface ControlDeps {
   /** Ask the chrome UI to do a tab operation and wait for its answer. */
   askChrome(op: string, args: Record<string, unknown>): Promise<unknown>;
+  /** True in background mode (DBB_BACKGROUND=1): the window is never raised or focused. */
+  background: boolean;
   /** Bring the browser window to the front and give it keyboard focus (real input needs it). */
   focusWindow(): void;
   vault: VaultService;
@@ -171,7 +173,8 @@ async function front(d: ControlDeps, t: TabInfo): Promise<WebContents> {
   }
   d.focusWindow();
   const wc = guest(t);
-  wc.focus();
+  // Focusing a page focuses (and, on macOS, raises) its window, so background mode never does it.
+  if (!d.background) wc.focus();
   return wc;
 }
 
