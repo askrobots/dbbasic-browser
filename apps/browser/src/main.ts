@@ -549,3 +549,11 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+        focusWindow: () => {
+          const w = mainWindow;
+          if (!w) return;
+          if (w.isMinimized()) w.restore();
+          w.show();
+          w.focus();
+          if (process.platform === "darwin") app.focus({ steal: true });
+        },

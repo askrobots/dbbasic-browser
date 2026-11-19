@@ -48,6 +48,8 @@ export interface ApprovalPolicy {
 export interface ControlDeps {
   /** Ask the chrome UI to do a tab operation and wait for its answer. */
   askChrome(op: string, args: Record<string, unknown>): Promise<unknown>;
+  /** Bring the browser window to the front and give it keyboard focus (real input needs it). */
+  focusWindow(): void;
   vault: VaultService;
   eventsSince(n: number): { events: unknown[]; next: number };
   getApproval(): ApprovalPolicy;
@@ -96,13 +98,17 @@ async function evalIn(wc: WebContents, js: string): Promise<unknown> {
   }
 }
 
-/** Real input needs a visible, focused page — bring the tab to front first. */
+/**
+ * Real input needs a visible, focused page — bring the tab AND the window to the front first. Without the window
+ * part, anything else that grabbed focus (a person clicking elsewhere, another app) makes key events land nowhere.
+ */
 async function front(d: ControlDeps, t: TabInfo): Promise<WebContents> {
   if (!t.active) {
     await d.askChrome("tab.activate", { id: t.id });
     await sleep(80);
   }
   const wc = guest(t);
+  d.focusWindow();
   wc.focus();
   return wc;
 }

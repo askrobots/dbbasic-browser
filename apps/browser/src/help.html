@@ -150,7 +150,7 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><td>reader.open / ai.status / ai.provider</td><td>the AI Reader — see <a href="#reader">above</a></td></tr>
     <tr><td>x402.approval</td><td><code>{mode: "ask"|"auto"|"deny", maxUsd}</code> — who answers payment prompts; call with no params to read</td></tr>
   </table>
-  <div class="note"><b>Why use this instead of Playwright/CDP?</b> It controls the real, visible browser; input is genuinely trusted (sites that ignore synthetic clicks work); payments are inspectable and assertable (<code>x402.events</code>) rather than a dialog your test can't dismiss; and <code>login</code> signs you in without your script ever holding a password. Input methods bring the tab to the front, because real input needs a visible page.</div>
+  <div class="note"><b>Why use this instead of Playwright/CDP?</b> It controls the real, visible browser; input is genuinely trusted (sites that ignore synthetic clicks work); payments are inspectable and assertable (<code>x402.events</code>) rather than a dialog your test can't dismiss; and <code>login</code> signs you in without your script ever holding a password. Input methods bring the tab and the window to the front (taking keyboard focus), because real input needs a visible, focused page.</div>
 
   <h2 id="identity">How we identify ourselves</h2>
   <p>Every request carries a Chromium-compatible User-Agent that says who we are and links to <a href="https://dbbasic.com">dbbasic.com</a>:</p>
