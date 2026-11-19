@@ -209,6 +209,21 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
       return { clicked: { x, y } };
     }
+    case "page.hover": {
+      // Move the real pointer over an element (or to x,y) without clicking: shows hover states and link addresses.
+      const t = resolveTab(p);
+      const wc = await front(d, t);
+      let x = Number(p.x), y = Number(p.y);
+      if (p.selector != null) {
+        const sel = str(p.selector, "selector");
+        const pt = (await evalIn(wc, `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; e.scrollIntoView({block:"center", inline:"center"}); const r = e.getBoundingClientRect(); return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) }; })()`)) as { x: number; y: number } | null;
+        if (!pt) throw new RpcError("no-element", `nothing matches ${sel}`);
+        ({ x, y } = pt);
+        await sleep(50);
+      } else if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RpcError("bad-params", 'pass "selector" or both "x" and "y"');
+      wc.sendInputEvent({ type: "mouseMove", x, y });
+      return { hovered: { x, y } };
+    }
     case "page.type": {
       const t = resolveTab(p);
       const wc = await front(d, t);

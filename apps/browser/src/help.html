@@ -152,6 +152,7 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><td>login</td><td><code>{id?, submit?, wait?}</code> — fill (and submit) the saved login for the tab's exact origin</td></tr>
     <tr><td>x402.spent / receipts</td><td>session spend; full ledger</td></tr>
     <tr><td>x402.events</td><td><code>{since}</code> → <code>{events, next}</code> — every quote, decision, payment and refusal</td></tr>
+    <tr><td>page.hover</td><td><code>{selector | x,y}</code> — move the real pointer without clicking (hover states, link addresses)</td></tr>
     <tr><td>net.policy</td><td><code>{blockWebSockets?}</code> — refuse WebSockets before any connection is opened (they bypass the network layer); no params reads the policy</td></tr>
     <tr><td>downloads.list</td><td>every download this session: name, host, bytes, state, saved path, amount paid</td></tr>
     <tr><td>reader.open / ai.status / ai.provider</td><td>the AI Reader — see <a href="#reader">above</a></td></tr>

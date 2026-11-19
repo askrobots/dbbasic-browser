@@ -25,6 +25,8 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   File ▸ Show Last Download in Finder, and `downloads.list` in the automation API.
 - **Home and search.** New tabs open askrobots.com, and anything typed that isn't an address is searched there. The local
   x402 demo gallery has its own toolbar button.
+- **Link addresses on hover.** Pointing at (or tabbing to) a link shows its full address in the status area: green and marked
+  "this site" when it stays on the same site, amber and marked "other site" when it leaves. `page.hover` in the automation API.
 - **Help menu** and a built-in help page; **File ▸ Open Page in Default Browser** (⌘⇧O); an app icon and a branded dev
   launcher (correct Dock name and icon on macOS).
 - **"Has the page finished loading?" signal** in the automation API (`page.settle`, or `settle` on `page.goto`). Instead of a

@@ -438,6 +438,13 @@ ${para("fourth")}${para("fifth")}
     return;
   }
 
+  // Links to the same site and to another site, for the status-bar link display.
+  if (path === "/links") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Links</title><body style="font:18px system-ui;padding:40px"><p><a id="same" href="/free?from=links">same-site link</a></p><p><a id="other" href="http://localhost:${PORT}/free">other-site link</a></p><p><a id="sub" href="https://docs.${"example.org"}/x">another site again</a></p><p id="plain">not a link</p>`);
+    return;
+  }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });

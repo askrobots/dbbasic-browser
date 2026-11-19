@@ -27,6 +27,22 @@ function setValue(el, v) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+// ---- 0. which link is under the pointer / keyboard focus (shown in the browser's status bar) ----
+// Sends only the link's absolute address to the browser UI; nothing else about the page.
+let lastLink = null;
+function reportLink(a) {
+  const href = a && a.href ? String(a.href) : null;
+  if (href === lastLink) return;
+  lastLink = href;
+  ipcRenderer.sendToHost("link-hover", href);
+}
+const linkOf = (t) => (t && t.closest ? t.closest("a[href], area[href]") : null);
+document.addEventListener("mouseover", (e) => reportLink(linkOf(e.target)), true);
+document.addEventListener("mouseout", (e) => { if (!e.relatedTarget || !linkOf(e.relatedTarget)) reportLink(null); }, true);
+document.addEventListener("focusin", (e) => reportLink(linkOf(e.target)), true);
+document.addEventListener("focusout", () => reportLink(null), true);
+window.addEventListener("pagehide", () => reportLink(null));
+
 // ---- 1a. "there's a login form here" -------------------------------------
 let formTimer = null, lastFormKey = "";
 function announceForm() {

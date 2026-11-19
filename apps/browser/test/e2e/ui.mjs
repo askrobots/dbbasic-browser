@@ -57,4 +57,26 @@ export default async function (ctx) {
   const title = (await T("page.eval", { tab: nt.id, js: "document.title + ' | ' + location.hash + ' | h2s=' + document.querySelectorAll('h2').length" })).value;
   check(/dbbasic-browser Help/.test(title) && /#automation/.test(title), "the Help page renders in a tab, at its anchor", title);
   await T("tabs.close", { tab: nt.id });
+
+  // Hovering a link shows its address in the status area: green for this site, amber for another, and not by colour alone.
+  const linkBar = () => c.ev(`(() => { const e = document.getElementById('link'); return e.classList.contains('show') ? { text: e.innerText.replace(/\\s+/g, ' ').trim(), cls: e.className } : null })()`);
+  await T("page.goto", { url: base + "/links" });
+  await sleep(500);
+  check((await linkBar()) === null, "no link under the pointer: the link bar is hidden");
+  await T("page.hover", { selector: "#same" });
+  await sleep(300);
+  let lb = await linkBar();
+  check(lb && /same/.test(lb.cls) && lb.text.includes(base + "/free?from=links") && /this site/.test(lb.text), "hovering a link on this site shows its full address, marked 'this site' (green)", lb && lb.text);
+  await T("page.hover", { selector: "#other" });
+  await sleep(300);
+  lb = await linkBar();
+  check(lb && /other/.test(lb.cls) && /localhost/.test(lb.text) && /other site/.test(lb.text), "a link to another site is marked 'other site' (amber)", lb && lb.text);
+  await T("page.hover", { selector: "#plain" });
+  await sleep(300);
+  check((await linkBar()) === null, "moving off the link hides the bar again");
+  await T("page.hover", { selector: "#same" });
+  await sleep(300);
+  await T("page.goto", { url: base + "/free" });
+  await sleep(400);
+  check((await linkBar()) === null, "navigating away clears a stale link address");
 }

@@ -42,6 +42,12 @@
       .tab:not(.on) .th svg { opacity: .8; }
       #status { position: fixed; left: 0; bottom: 0; z-index: 5; display: none; align-items: center; gap: 7px; max-width: 70%; padding: 4px 12px 4px 8px; background: #26262b; color: #c8c8ce; border: 1px solid #000; border-left: 0; border-bottom: 0; border-radius: 0 7px 0 0; font-size: 12px; pointer-events: none; }
       #status.show { display: flex; }
+      #link { position: fixed; left: 0; bottom: 0; z-index: 6; display: none; max-width: 70%; padding: 4px 12px 4px 8px; background: #26262b; color: #c8c8ce; border: 1px solid #000; border-left: 0; border-bottom: 0; border-radius: 0 7px 0 0; font-size: 12px; pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #link.show { display: block; }
+      #link.stacked { bottom: 27px; border-radius: 0 7px 7px 0; border-bottom: 1px solid #000; }
+      #link .k { font-weight: 600; margin-right: 6px; }
+      #link.same { color: #8fd19e; }  /* same site: green */
+      #link.other { color: #f0c674; } /* another site: amber */
       #status .ic { flex: none; width: 16px; height: 16px; }
       #status .ic svg { width: 16px; height: 16px; display: block; }
       #status .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -146,6 +152,7 @@
       </div>
     </div>
     <div id="status"><span class="ic"></span><span class="tx"></span></div>
+    <div id="link"></div>
     <div id="toast"></div>
 
     <script>
@@ -180,6 +187,7 @@
           syncTabs(); // the automation API addresses pages by this id: publish it the moment it exists
           if (tab.pending) { const p = tab.pending; tab.pending = null; wv.src = p; }
         });
+        wv.addEventListener("ipc-message", (e) => { if (e.channel === "link-hover") { tab.hoverLink = typeof e.args[0] === "string" ? e.args[0] : null; if (tab === active) paintLink(); } });
         wv.addEventListener("did-start-loading", () => { tab.loading = true; refreshThrobber(tab); syncTabs(); });
         wv.addEventListener("did-fail-load", (e) => {
           if (!e.isMainFrame || e.errorCode === -3) return; // -3 = aborted (a newer navigation replaced it)
@@ -198,6 +206,7 @@
         // Reset this tab's inspector when navigation STARTS — the page's payment events
         // fire during the load, so resetting on did-navigate (after) would wipe them.
         wv.addEventListener("did-start-navigation", (e) => {
+          if (e.isMainFrame) { tab.hoverLink = null; if (tab === active) paintLink(); } // the page we were pointing into is going away
           if (!e.isMainFrame || e.isInPlace) return;
           if (e.url.startsWith("chrome-error:")) return; // Chromium's own error page: keep the failure that caused it
           if (e.url !== "about:blank") tab.navSeen = true;
@@ -396,6 +405,23 @@
         } else if (paid) slot.textContent = "⚡";
       }
 
+      // The address of the link under the pointer, in the status area, coloured by whether it stays on this site.
+      // (Approximation: same host, or same last two labels — three for names like example.co.uk.)
+      const siteOf = (host) => { const p = host.split("."); const n = p.length >= 3 && p[p.length - 1].length === 2 && p[p.length - 2].length <= 3 ? 3 : 2; return p.slice(-n).join("."); };
+      function sameSite(a, b) {
+        try { const x = new URL(a), y = new URL(b); return x.hostname === y.hostname || (/^https?:$/.test(x.protocol) && /^https?:$/.test(y.protocol) && siteOf(x.hostname) === siteOf(y.hostname)); } catch { return false; }
+      }
+      function paintLink() {
+        const el = $("link"), href = active && active.hoverLink;
+        if (!href) { el.className = ""; el.textContent = ""; return; }
+        let cur = ""; try { cur = active.wv.getURL(); } catch {}
+        const same = sameSite(href, cur);
+        el.className = "show " + (same ? "same" : "other") + ($("status").classList.contains("show") ? " stacked" : "");
+        const k = document.createElement("span"); k.className = "k"; k.textContent = same ? "● this site" : "↗ other site"; // not colour alone
+        el.replaceChildren(k, document.createTextNode(href));
+        el.title = href;
+      }
+
       function refreshThrobber(tab) {
         const { state, text } = computeState(tab);
         const changed = tab.thState !== state;
@@ -409,6 +435,7 @@
           st.classList.toggle("show", !!shownState);
           if (shownState) { paintThrobber(st.querySelector(".ic"), shownState, false); st.querySelector(".tx").textContent = state ? text : dl.text; }
         }
+        if (tab === active) paintLink(); // keep the link bar clear of the status line
         if (changed) syncTabs();
       }
       setInterval(() => { for (const t of tabs) { for (const [id, r] of t.net.reqs) if (Date.now() - r.last > 20000) t.net.reqs.delete(id); refreshThrobber(t); } }, 250);
