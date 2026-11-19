@@ -60,6 +60,8 @@ export interface ControlDeps {
   reader(p: Record<string, unknown>): Promise<unknown>;
   aiStatus(): unknown;
   downloads(): unknown;
+  getNetPolicy(): { blockWebSockets: boolean };
+  setNetPolicy(p: { websockets?: boolean }): void;
   /** Wait until a page has finished loading and say why (see settle.ts). */
   settle(ctx: SettleContext, opts: unknown): Promise<unknown>;
   setAiProvider(p: unknown): boolean;
@@ -268,6 +270,16 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       if (!r.ok) throw new RpcError(r.code, r.message);
       if (p.submit !== false && p.wait !== false) await d.askChrome("tab.waitLoad", { id: t.id, ms: 15_000 });
       return r.data; // username + origin only — never the password
+    }
+
+    // ---- network policy ------------------------------------------------------
+    case "net.policy": {
+      // {blockWebSockets?: boolean}: refuse WebSockets before any connection is opened (they bypass the network layer).
+      if (p.blockWebSockets !== undefined) {
+        if (typeof p.blockWebSockets !== "boolean") throw new RpcError("bad-params", "blockWebSockets must be true or false");
+        d.setNetPolicy({ websockets: p.blockWebSockets });
+      }
+      return d.getNetPolicy();
     }
 
     // ---- downloads -----------------------------------------------------------

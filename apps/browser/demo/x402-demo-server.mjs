@@ -19,6 +19,7 @@
  */
 
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -245,7 +246,7 @@ function gate(req, res, { challenge, card, paid, paidType = "text/html", paidHea
   res.end(paid);
 }
 
-createServer(async (req, res) => {
+const server = createServer(async (req, res) => {
   const path = (req.url || "/").split("?")[0];
 
   // LIVE route: real settlement. Unpaid → 402; paid → POST the signed payload to the
@@ -412,6 +413,19 @@ ${para("fourth")}${para("fifth")}
   }
   if (path === "/redir/loop") { res.writeHead(302, { location: "/redir/loop" }); res.end(); return; }
 
+  // WebSocket rigs: a page that opens a socket and reports whether it opened, and a count of handshakes that
+  // actually reached the server (so a test can prove a refused socket never connected).
+  if (path === "/ws-page") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>ws:pending</title><body style="font:18px system-ui;padding:40px"><h1>WebSocket test</h1><script>
+      const s = new WebSocket("ws://" + location.host + "/ws");
+      s.onopen = () => { document.title = "ws:open"; };
+      s.onerror = () => { document.title = "ws:error"; };
+    </script>`);
+    return;
+  }
+  if (path === "/ws-count") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ upgrades })); return; }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });
@@ -552,6 +566,16 @@ ${para("fourth")}${para("fifth")}
     return;
   }
   gate(req, res, { challenge: route.challenge(), card: route.card, paid: route.paid, paidType: route.paidType, paidHeaders: route.paidHeaders });
-}).listen(PORT, HOST, () => {
+});
+
+// Minimal WebSocket handshake, so a socket can really open (and be counted).
+let upgrades = 0;
+server.on("upgrade", (req, socket) => {
+  upgrades++;
+  const accept = createHash("sha1").update(req.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
+  socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+});
+
+server.listen(PORT, HOST, () => {
   console.log(`x402 example gallery on http://127.0.0.1:${PORT}/ (bound ${HOST}) — mock settlement`);
 });

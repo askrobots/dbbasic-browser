@@ -32,6 +32,8 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   *what happened* (ok, error status with the number, blank, failed and why, bot check, payment required, a download).
   Long-lived streams are ignored, late images and fonts are waited for, and at the deadline it names what was still unmet.
   Also returns facts about the load: final URL, redirect chain, status, requests, bytes and hosts.
+- **`net.policy {blockWebSockets}`** in the automation API (also `DBB_BLOCK_WEBSOCKETS=1`): refuses WebSockets before any
+  connection is opened, since Chromium opens them outside our network layer. Every refusal is announced as an event.
 - **End-to-end test suites** (`npm run e2e -w @dbbasic/browser`, 88 checks) that drive the real browser through its own
   automation API, plus 94 unit tests and a test that fails if an API key is ever committed.
 

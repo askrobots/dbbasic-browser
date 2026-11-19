@@ -189,6 +189,19 @@ function askChrome(op: string, args: Record<string, unknown>): Promise<unknown> 
 
 let control: ControlHandle | null = null;
 
+/**
+ * Network policy that is not about a single request. WebSockets bypass our network layer (Chromium opens them
+ * itself), so the only way to keep a session to "no connection but the ones we decided on" is to refuse them
+ * before any connection is made. Off by default; DBB_BLOCK_WEBSOCKETS=1 or the automation API turns it on.
+ */
+const netPolicy = { blockWebSockets: process.env.DBB_BLOCK_WEBSOCKETS === "1" };
+function setupNetPolicy(): void {
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ["ws://*/*", "wss://*/*"] }, (details, callback) => {
+    if (netPolicy.blockWebSockets) emit({ kind: "websocket-refused", url: details.url });
+    callback({ cancel: netPolicy.blockWebSockets }); // cancelled before any connection is opened
+  });
+}
+
 // ---- downloads -----------------------------------------------------------------------------------
 // Chromium already neutralizes hostile filenames and shows the native Save dialog; what was missing was
 // any sign of progress, completion or failure. This tracks each download, announces it to the UI and the
@@ -607,6 +620,7 @@ app.whenReady().then(() => {
   });
   buildMenu();
   setupDownloads();
+  setupNetPolicy();
   // Serve reader views from the store. When the summary arrives the stored page is updated, so Back/Forward/reload
   // show the finished view instead of the pending snapshot. An evicted page gets a polite "expired" notice.
   protocol.handle(READER_SCHEME, (request) => {
@@ -665,6 +679,11 @@ app.whenReady().then(() => {
           return { ok: r.ok, reason: r.reason, message: r.message, tab: r.tab, state: r.ai, summary: ai };
         },
         downloads: () => [...downloads.values()],
+        getNetPolicy: () => ({ ...netPolicy }),
+        setNetPolicy: (p) => {
+          if (typeof p.websockets === "boolean") netPolicy.blockWebSockets = p.websockets;
+          emit({ kind: "net-policy-changed", blockWebSockets: netPolicy.blockWebSockets });
+        },
         settle: (ctx, opts) => runSettle(ctx, opts),
         aiStatus: () => describeAi(aiCfg),
         setAiProvider: (p) => (p === "anthropic" || p === "openai" ? setAiProvider(p) : false),

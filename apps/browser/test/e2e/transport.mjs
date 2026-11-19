@@ -51,4 +51,24 @@ export default async function (ctx) {
   check(!h["x-raw-sec-lines"].some((l, i, a) => a.findIndex((m) => m.split(":")[0].toLowerCase() === l.split(":")[0].toLowerCase()) !== i), "no duplicated sec-* header lines");
   const sub = (await T("page.eval", { js: "fetch('/headers?x=1').then(r => r.json()).then(d => d['referer'])" })).value;
   check(typeof sub === "string" && sub.startsWith(base + "/headers"), "a same-origin subrequest carries the Referer (it was missing before)", sub);
+
+  // WebSockets bypass our network layer (Chromium opens them itself); a policy can refuse them BEFORE any connection.
+  const upgrades = async () => (await (await fetch(base + "/ws-count")).json()).upgrades;
+  const wsTitle = async () => { await T("page.waitFor", { text: "WebSocket test", timeoutMs: 5000 }); await new Promise((r) => setTimeout(r, 800)); return (await T("tabs.list")).find((t) => t.active).title; };
+  check((await T("net.policy")).blockWebSockets === false, "WebSockets are allowed by default");
+  const before = await upgrades();
+  await T("page.goto", { url: base + "/ws-page" });
+  check((await wsTitle()) === "ws:open" && (await upgrades()) === before + 1, "by default a page's WebSocket opens (the handshake reaches the server)");
+  await T("net.policy", { blockWebSockets: true });
+  const wsEvents0 = (await T("x402.events", { since: 0 })).next;
+  const mid = await upgrades();
+  await T("page.goto", { url: base + "/ws-page" });
+  check((await wsTitle()) === "ws:error", "with the policy on, the page's WebSocket fails");
+  check((await upgrades()) === mid, "…and NO handshake ever reached the server (refused before any connection was opened)");
+  check((await T("x402.events", { since: wsEvents0 })).events.some((e) => e.kind === "websocket-refused"), "…and the refusal is announced as an event (never silent)");
+  check((await T("page.eval", { js: "fetch('/free').then(r => r.status)" })).value === 200, "ordinary requests are unaffected by the policy");
+  await T("net.policy", { blockWebSockets: false });
+  await T("page.goto", { url: base + "/ws-page" });
+  check((await wsTitle()) === "ws:open", "turning the policy off allows WebSockets again");
+  await T("net.policy", { blockWebSockets: "yes" }).then(() => check(false, "a non-boolean policy value was accepted"), (e) => check(e.code === "bad-params", "a non-boolean policy value is rejected"));
 }
