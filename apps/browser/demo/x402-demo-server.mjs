@@ -84,6 +84,8 @@ const NAV = `<nav class="nav">
   <a href="/unknown">unknown · ✕</a>
   <a href="/free">free</a>
   <a href="/login">login</a>
+  <a href="/download/big">download · 3 MB</a>
+  <a href="/download/paid">download · $0.001</a>
 </nav>`;
 
 const shell = (title, body, bg = "#eceae4") => `<!doctype html><html lang="en"><head>
