@@ -33,7 +33,25 @@
 
 import { Readable } from "node:stream";
 import { net, session, type Session } from "electron";
+import { chromiumRequestHeaders, type Hints } from "./compat.js";
 import type { RawFetch } from "./intercept.js";
+
+/**
+ * The engine's own client-hint values (from `navigator.userAgentData`), reported once by the
+ * main process after the chrome window loads. Requests wait briefly for it so the very first
+ * page load already carries hints that match what the page's JS will report; if it never
+ * arrives we proceed without hints rather than block browsing.
+ */
+let hintsValue: Hints | null = null;
+let resolveHints: (h: Hints | null) => void = () => {};
+const hintsReady = new Promise<Hints | null>((resolve) => {
+  resolveHints = resolve;
+  setTimeout(() => resolve(null), 3000).unref?.();
+});
+export function setClientHints(h: Hints | null): void {
+  hintsValue = h;
+  resolveHints(h);
+}
 
 /** Headers the network stack owns (or that would leak/duplicate state) — never copy these onto the request. */
 const REQUEST_HEADERS_WE_DONT_SET = new Set([
@@ -85,6 +103,11 @@ export function netRequestFetch(ses: Session = session.defaultSession): RawFetch
   return async (input: Request): Promise<Response> => {
     // Buffer the request body: simplest correct thing for ClientRequest, and bodies here are form posts/API calls.
     const body = input.body ? Buffer.from(await input.arrayBuffer()) : null;
+    // What a real Chromium would send (client hints + fetch metadata) — net.request doesn't add them.
+    const headers = chromiumRequestHeaders(new URL(input.url), input.headers, hintsValue ?? (await hintsReady), {
+      referrer: input.referrer,
+      referrerPolicy: input.referrerPolicy,
+    });
 
     return new Promise<Response>((resolve, reject) => {
       let settled = false;
@@ -105,7 +128,7 @@ export function netRequestFetch(ses: Session = session.defaultSession): RawFetch
 
       bypassProtocolHandlers(req);
 
-      input.headers.forEach((value, name) => {
+      headers.forEach((value, name) => {
         if (REQUEST_HEADERS_WE_DONT_SET.has(name.toLowerCase())) return;
         try {
           req.setHeader(name, value);

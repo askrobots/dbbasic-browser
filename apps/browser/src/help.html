@@ -40,6 +40,7 @@
   <a href="#x402">x402 payments</a>
   <a href="#passwords">Password manager</a>
   <a href="#automation">Automation API</a>
+  <a href="#identity">How we identify ourselves</a>
   <a href="#security">Security model</a>
 </nav>
 <main>
@@ -128,6 +129,14 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><td>x402.approval</td><td><code>{mode: "ask"|"auto"|"deny", maxUsd}</code> — who answers payment prompts; call with no params to read</td></tr>
   </table>
   <div class="note"><b>Why use this instead of Playwright/CDP?</b> It controls the real, visible browser; input is genuinely trusted (sites that ignore synthetic clicks work); payments are inspectable and assertable (<code>x402.events</code>) rather than a dialog your test can't dismiss; and <code>login</code> signs you in without your script ever holding a password. Input methods bring the tab to the front, because real input needs a visible page.</div>
+
+  <h2 id="identity">How we identify ourselves</h2>
+  <p>Every request carries a Chromium-compatible User-Agent that says who we are and links to <a href="https://dbbasic.com">dbbasic.com</a>:</p>
+<pre>Mozilla/5.0 (…) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130… Safari/537.36 dbbasic-browser/0.1.0 (+https://dbbasic.com)</pre>
+  <p>This is the same convention Edge and Opera use: the engine really is Chromium, so the usual tokens stay, and our own token goes on the end. We do not pose as Firefox or Chrome — it would be untrue, and it would contradict the client hints, JavaScript APIs and TLS handshake a site can also see.</p>
+  <p>We do send what a real Chromium navigation sends: <code>Sec-CH-UA</code> client hints (taken from the engine itself, so they always match <code>navigator.userAgentData</code>), correct <code>Sec-Fetch-*</code> metadata, and a <code>Referer</code> that follows the page's referrer policy.</p>
+  <div class="note warn"><b>Some sites will still refuse us.</b> A few large sites (eBay, for one) run bot management that rejects embedded-Chromium browsers at the edge — we measured the same HTTP 403 with our own network layer switched off, with a bare Chrome User-Agent, and with a Firefox one, while Firefox on the same machine was served. That is the site's decision; we don't try to evade it. Use <b>File ▸ Open Page in Default Browser</b> for those pages.</div>
+  <p>Debugging: <code>DBB_USER_AGENT="…"</code> replaces the User-Agent entirely, and <code>DBB_NATIVE_NETWORK=1</code> turns off request interception (and x402 payments) so Chromium's own loader makes every request.</p>
 
   <h2 id="security">Security model</h2>
   <ul>

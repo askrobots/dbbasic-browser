@@ -294,6 +294,13 @@ createServer(async (req, res) => {
     return;
   }
 
+  // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
+  if (path === "/headers") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ...req.headers, "x-raw-sec-lines": req.rawHeaders.reduce((a, v, i, r) => (i % 2 === 0 && /^sec-/i.test(v) ? [...a, `${v}: ${r[i + 1]}`] : a), []) }, null, 2));
+    return;
+  }
+
   // Redirect rigs (transport tests): chain, cross-origin, redirect-into-a-402, gzip body.
   if (path === "/redir/chain") { res.writeHead(302, { location: "/redir/hop2" }); res.end(); return; }
   if (path === "/redir/hop2") { res.writeHead(301, { location: "/free" }); res.end(); return; }

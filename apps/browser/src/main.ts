@@ -12,13 +12,14 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, shell, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, session, shell, type MenuItemConstructorOptions } from "electron";
 import { createPublicClient, http as viemHttp } from "viem";
 import { baseSepolia } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { PolicyEngine, Ledger, X402Engine, formatUsd, signExactEvm } from "@dbbasic/x402-engine";
 import { createPaymentHandler } from "./intercept.js";
-import { netRequestFetch } from "./transport.js";
+import { brandedUserAgent } from "./compat.js";
+import { netRequestFetch, setClientHints } from "./transport.js";
 import { registerVault } from "./vault-service.js";
 import { setTabs, startControl, type ApprovalPolicy, type ControlHandle, type TabInfo } from "./control.js";
 
@@ -30,6 +31,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // NOTE: the app name also decides the userData folder (cookies, the default vault.json).
 app.setName("dbbasic-browser");
 const ICON_PATH = join(__dirname, "icon.png");
+
+// Who we say we are to web servers: a Chromium-compatible UA with our own product token and a
+// link back to dbbasic.com (see compat.ts for why, and why not "Firefox"). DBB_USER_AGENT
+// overrides it entirely — handy for debugging a site that misbehaves.
+const PRODUCT_VERSION = (() => {
+  try {
+    return (JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string }).version;
+  } catch {
+    return "0.0.0";
+  }
+})();
+const USER_AGENT =
+  process.env.DBB_USER_AGENT || brandedUserAgent(app.userAgentFallback, { name: "dbbasic-browser", version: PRODUCT_VERSION, url: "https://dbbasic.com" });
+app.userAgentFallback = USER_AGENT; // must be set before the app is ready
 
 // Load .env (the local hot-wallet key) so the browser signs with — and shows the
 // balance of — the funded wallet, not the placeholder. Never overrides an existing env.
@@ -351,6 +366,9 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Chrome's Accept-Language shape ("en-US,en;q=0.9"), not the bare locale the session defaults to.
+  const locale = app.getLocale() || "en-US";
+  session.defaultSession.setUserAgent(USER_AGENT, locale.includes("-") ? `${locale},${locale.split("-")[0]}` : locale); // Chromium adds the q-values itself
   if (process.platform === "darwin") {
     const img = nativeImage.createFromPath(ICON_PATH);
     if (!img.isEmpty()) app.dock?.setIcon(img);
@@ -361,8 +379,14 @@ app.whenReady().then(() => {
   // paid-aware. x402 works over plain http too (the spec is transport-agnostic), and
   // it's what lets a local http demo exercise the same path as a real https site.
   const payHandler = createPaymentHandler(engine);
-  protocol.handle("https", payHandler);
-  protocol.handle("http", payHandler);
+  // DBB_NATIVE_NETWORK=1 turns interception OFF so Chromium's own loader makes every request —
+  // no x402 payments, but handy for telling "our transport" apart from "the site" when debugging.
+  if (process.env.DBB_NATIVE_NETWORK === "1") {
+    console.error("[net] DBB_NATIVE_NETWORK=1 — request interception (and x402 payments) disabled");
+  } else {
+    protocol.handle("https", payHandler);
+    protocol.handle("http", payHandler);
+  }
 
   ipcMain.handle("x402:receipts", () => engine.ledger.all());
   ipcMain.handle("x402:spent", () => formatUsd(engine.policy.spentUsdMicro()));
@@ -424,6 +448,15 @@ app.whenReady().then(() => {
       })
       .catch((e) => console.error("[control] failed to start:", e));
   }
+  // Report the engine's real client-hint brands (navigator.userAgentData) to the transport, so the
+  // HTTP hints can never disagree with what pages see in JS.
+  mainWindow?.webContents.once("dom-ready", () => {
+    mainWindow?.webContents
+      .executeJavaScript(
+        "(() => { const u = navigator.userAgentData; return u ? { brands: u.brands.map((b) => ({ brand: b.brand, version: b.version })), platform: u.platform, mobile: u.mobile } : null; })()",
+      )
+      .then(setClientHints, () => setClientHints(null));
+  });
   mainWindow?.webContents.on("did-finish-load", () => {
     if (control) mainWindow?.webContents.send("ctl:status", { port: control.port });
   });
