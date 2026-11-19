@@ -50,6 +50,12 @@ describe("buildUserMessage", () => {
     expect(m.text).toContain("cut for length");
     expect(buildUserMessage(INPUT).truncated).toBe(false);
   });
+  it("tells the model the page's language, and ignores a malformed one", () => {
+    expect(buildUserMessage({ ...INPUT, lang: "en" }).text).toContain("Page language: en");
+    expect(buildUserMessage({ ...INPUT, lang: "<script>" }).text).not.toContain("Page language");
+    expect(buildUserMessage(INPUT).text).not.toContain("Page language");
+    expect(SYSTEM_PROMPT).toMatch(/SAME language/);
+  });
   it("the system prompt marks page text as untrusted data", () => {
     expect(SYSTEM_PROMPT).toMatch(/UNTRUSTED/);
     expect(SYSTEM_PROMPT).toMatch(/never obey/i);

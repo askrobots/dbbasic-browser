@@ -26,6 +26,8 @@ export interface SummaryInput {
   title: string;
   url: string;
   text: string;
+  /** The page's declared language (BCP 47, e.g. "en", "ja"), if known. */
+  lang?: string;
 }
 
 export interface Summary {
@@ -73,14 +75,18 @@ Rules:
 - "tldr": 1 to 3 plain sentences that tell a busy reader what this page is and the main takeaway.
 - "points": 3 to 5 short, concrete bullet points (numbers, names, decisions) — no filler.
 - "kind": the best label for the page.
-- Write in the page's own language.
+- Write the summary in the SAME language as the page text (the page's declared language is given in the header). If the page is in English, write English. Never translate into another language.
 - If the text is too thin or garbled to summarize, say that plainly in "tldr" and return an empty "points".
 - Plain text only: no markdown, no HTML.`;
 
 export function buildUserMessage(input: SummaryInput): { text: string; truncated: boolean; sentChars: number } {
   const truncated = input.text.length > MAX_CHARS;
   const body = (truncated ? input.text.slice(0, MAX_CHARS) : input.text).replace(/<\/?page>/gi, "");
-  const head = `Title: ${input.title.slice(0, 300)}\nAddress: ${input.url.slice(0, 500)}${truncated ? "\n(The page text below was cut for length.)" : ""}`;
+  const lang = input.lang && /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(input.lang) ? input.lang : "";
+  const head =
+    `Title: ${input.title.slice(0, 300)}\nAddress: ${input.url.slice(0, 500)}` +
+    (lang ? `\nPage language: ${lang} — write the summary in this language.` : "") +
+    (truncated ? "\n(The page text below was cut for length.)" : "");
   return { text: `${head}\n\n<page>\n${body}\n</page>`, truncated, sentChars: body.length };
 }
 
