@@ -87,6 +87,10 @@ contextBridge.exposeInMainWorld("x402", {
   wallet() {
     return ipcRenderer.invoke("x402:wallet");
   },
+  /** Open an http(s) URL in the operating system's default browser. */
+  openExternal(url) {
+    return ipcRenderer.invoke("x402:open-external", url);
+  },
   /** Copy text to the clipboard. */
   copy(text) {
     return ipcRenderer.invoke("x402:copy", text);

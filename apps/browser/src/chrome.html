@@ -347,6 +347,10 @@
         else if (cmd === "next") cycleTab(1);
         else if (cmd === "prev") cycleTab(-1);
         else if (cmd === "reload") { try { active.wv.reload(); } catch {} }
+        else if (cmd === "open-external") {
+          if (active && /^https?:\/\//i.test(active.url)) window.x402.openExternal(active.url);
+          else toast("skipped", "Only web pages can be opened in the default browser");
+        }
       });
       // target=_blank / window.open from a page → a new tab beside it.
       window.x402.onOpenTab((url) => newTab(url));

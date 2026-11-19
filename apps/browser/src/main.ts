@@ -20,6 +20,7 @@ import { PolicyEngine, Ledger, X402Engine, formatUsd, signExactEvm } from "@dbba
 import { createPaymentHandler } from "./intercept.js";
 import { brandedUserAgent } from "./compat.js";
 import { netRequestFetch, setClientHints } from "./transport.js";
+import { safeExternalUrl } from "./urls.js";
 import { registerVault } from "./vault-service.js";
 import { setTabs, startControl, type ApprovalPolicy, type ControlHandle, type TabInfo } from "./control.js";
 
@@ -303,6 +304,8 @@ function buildMenu(): void {
         { label: "New Tab", accelerator: "CmdOrCtrl+T", click: tabCmd("new") },
         { label: "Close Tab", accelerator: "CmdOrCtrl+W", click: tabCmd("close") },
         { label: "Open Location", accelerator: "CmdOrCtrl+L", click: tabCmd("focus-url") },
+        // Escape hatch for sites that refuse embedded-Chromium browsers (see Help ▸ How we identify ourselves).
+        { label: "Open Page in Default Browser", accelerator: "CmdOrCtrl+Shift+O", click: tabCmd("open-external") },
         { type: "separator" },
         { label: "Next Tab", accelerator: "Ctrl+Tab", click: tabCmd("next") },
         { label: "Previous Tab", accelerator: "Ctrl+Shift+Tab", click: tabCmd("prev") },
@@ -398,6 +401,10 @@ app.whenReady().then(() => {
     return shell.openExternal("https://faucet.circle.com");
   });
   ipcMain.handle("x402:refund", () => refundMerchant());
+  ipcMain.handle("x402:open-external", (_e, url: unknown) => {
+    const safe = safeExternalUrl(url);
+    return safe ? shell.openExternal(safe).then(() => true) : false;
+  });
 
   // Pages that ask for a new window (target=_blank, window.open) get a tab instead of a
   // stray native window. Only web URLs — never let a page spawn file:/custom schemes.
