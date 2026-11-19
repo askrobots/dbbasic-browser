@@ -19,6 +19,7 @@
  */
 
 import { createServer } from "node:http";
+import { gzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -82,6 +83,7 @@ const NAV = `<nav class="nav">
   <a href="/premium">premium · $0.50</a>
   <a href="/unknown">unknown · ✕</a>
   <a href="/free">free</a>
+  <a href="/login">login</a>
 </nav>`;
 
 const shell = (title, body, bg = "#eceae4") => `<!doctype html><html lang="en"><head>
@@ -289,6 +291,50 @@ createServer(async (req, res) => {
   if (path === "/") {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(INDEX);
+    return;
+  }
+
+  // Redirect rigs (transport tests): chain, cross-origin, redirect-into-a-402, gzip body.
+  if (path === "/redir/chain") { res.writeHead(302, { location: "/redir/hop2" }); res.end(); return; }
+  if (path === "/redir/hop2") { res.writeHead(301, { location: "/free" }); res.end(); return; }
+  if (path === "/redir/cross") { res.writeHead(302, { location: `http://localhost:${PORT}/free` }); res.end(); return; }
+  if (path === "/redir/paid") { res.writeHead(302, { location: "/room" }); res.end(); return; }
+  if (path === "/gz") {
+    res.writeHead(200, { "content-type": "text/html", "content-encoding": "gzip" });
+    res.end(gzipSync(shell("Gzip", `<div class="wrap"><div class="card"><h1 id="gz">gzip body decoded ok</h1></div></div>`)));
+    return;
+  }
+
+  // Password-manager rig: a plain login form → redirect → account page. Credentials are
+  // demo / demo-pass. It also exercises the "save after redirect" path and target=_blank.
+  if (path === "/login" && req.method === "POST") {
+    let body = "";
+    for await (const c of req) body += c;
+    const f = new URLSearchParams(body);
+    if (f.get("username") === "demo" && f.get("password") === "demo-pass") {
+      res.writeHead(302, { location: "/account?u=demo", "set-cookie": "demo_session=1; Path=/; HttpOnly" });
+      res.end();
+    } else {
+      res.writeHead(401, { "content-type": "text/html" });
+      res.end(shell("Login failed", `<div class="wrap"><div class="card"><h1>Wrong username or password</h1><p><a href="/login">try again</a></p></div></div>`));
+    }
+    return;
+  }
+  if (path === "/login") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(shell("Login", `<div class="wrap"><div class="card"><h1>Sign in</h1>
+      <p>Demo credentials: <code>demo</code> / <code>demo-pass</code></p>
+      <form method="post" action="/login" id="login">
+        <p><input name="username" autocomplete="username" placeholder="username" style="padding:8px;width:240px"></p>
+        <p><input name="password" type="password" autocomplete="current-password" placeholder="password" style="padding:8px;width:240px"></p>
+        <p><button type="submit" style="padding:8px 16px">Sign in</button></p>
+      </form>
+      <p><a href="/free" target="_blank">open /free in a new tab (target=_blank)</a></p></div></div>`));
+    return;
+  }
+  if (path === "/account") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(shell("Account", `<div class="wrap"><div class="card"><h1>Signed in</h1><p id="cookie">cookie: ${(req.headers.cookie || "").includes("demo_session=1") ? "yes" : "no"}</p><p id="who">Welcome, ${/^[\w-]{1,20}$/.test(new URL(req.url, "http://x").searchParams.get("u") || "") ? new URL(req.url, "http://x").searchParams.get("u") : "?"}.</p><p><a href="/">← gallery</a></p></div></div>`));
     return;
   }
 
