@@ -63,6 +63,8 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   target.
 - Requests now carry what a real Chromium sends: a `Referer` (it was missing), client hints that match the page's own
   JavaScript, and correct `Sec-Fetch-*` metadata.
+- After a redirect chain the "finished loading" verdict reported the first hop's status (302) instead of the page's own (200).
+  The status now comes from the network layer, which saw every real response.
 - Real keyboard input in the automation API now brings the window to the front, so a typed Enter can't be lost because
   something else had focus.
 

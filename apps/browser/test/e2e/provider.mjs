@@ -56,7 +56,7 @@ export default async function (ctx) {
   seen.length = 0;
   v = await settle(base + "/redir/chain");
   const hops = seen.filter((r) => r.navigate).map((r) => new URL(r.url).pathname);
-  check(v.settled && v.final.url === base + "/free" && v.redirects.length === 2, "a redirect chain: final address and both hops reported", v.redirects.map((r) => r.status).join(","));
+  check(v.settled && v.status === 200 && v.final.url === base + "/free" && v.redirects.length === 2, "a redirect chain: final address, its status (200) and both hops reported", v.redirects.map((r) => r.status).join(","));
   check(hops.length === 3 && hops[0] === "/redir/chain" && hops[2] === "/free", "…and each hop was a separate request to the caller", hops.join(" → "));
 
   // ---- a request that follows a page says which page ----

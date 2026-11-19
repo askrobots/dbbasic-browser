@@ -16,7 +16,7 @@ export default async function (ctx) {
 
   // ---- redirects are part of the facts ----
   v = await settle(base + "/redir/chain");
-  check(v.settled && v.final.url === base + "/free" && v.redirects.length === 2, "a redirect chain: the final URL and each hop are reported", v.redirects.map((r) => `${r.status}→${r.to.replace(base, "")}`).join(", "));
+  check(v.settled && v.status === 200 && v.final.url === base + "/free" && v.redirects.length === 2, "a redirect chain: the final URL, its status (200, not the first hop's 302) and each hop are reported", v.redirects.map((r) => `${r.status}→${r.to.replace(base, "")}`).join(", "));
 
   // ---- a page that moves itself after loading ----
   v = await settle(base + "/free");

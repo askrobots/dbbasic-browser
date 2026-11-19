@@ -45,7 +45,14 @@ const normUrl = (u: string) => {
     return u;
   }
 };
+/** The status of the latest real (non-redirect) response for each address, as seen by the network layer. */
+const statusSeen = new Map<string, number>();
 netEvents.on("event", (e: NetEvent) => {
+  if (e.type === "start") statusSeen.delete(normUrl(e.url)); // a new request for this address: whatever we knew is stale
+  else if (e.type === "headers" && e.status !== undefined) {
+    statusSeen.set(normUrl(e.url), e.status);
+    while (statusSeen.size > 200) statusSeen.delete(statusSeen.keys().next().value as string);
+  }
   if (e.type !== "error" || !e.error) return;
   recentErrors.set(normUrl(e.url), { description: e.error.replace(/^net::/, ""), ...(e.failureKind ? { kind: e.failureKind as FailureKind } : {}), ...(e.failureSource ? { source: e.failureSource } : {}) });
   while (recentErrors.size > 200) recentErrors.delete(recentErrors.keys().next().value as string);
@@ -250,7 +257,9 @@ export async function runSettle(ctx: SettleContext, input: unknown): Promise<Set
       lastTick = nowTick;
       const snap: Snapshot = {
         nowMs: Date.now() - t0,
-        lifecycle: { ...l },
+        // The status of the page we ended on. Neither the navigation event nor the page's own timing entry can be used:
+        // after a redirect chain both still say 302. The network layer saw every real response, so ask it.
+        lifecycle: { ...l, status: statusSeen.get(normUrl(net.url)) ?? l.status },
         net: { inFlight, sinceActivityMs: net.sinceActivityMs, state: net.state, pay: net.pay },
         page,
         callerWaitMs,
