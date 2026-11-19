@@ -45,9 +45,15 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   Each new visit (`page.goto`, `page.load`) starts with a clean slate: cookies, localStorage, IndexedDB, caches and service workers
   left by an earlier page are cleared, while a page that moves itself keeps what it set. Tabs share one session, so use one visit
   at a time per browser.
+  It refuses to run on the normal profile (it needs `--user-data-dir`, because it clears stored data at every visit), refuses WebSockets
+  and WebRTC while on, and switches off `login`, the reader, payments and refunds, with a visible "Caller network ON" badge. Limits:
+  64 requests waiting at once (50 per `net.pending`), and time on the caller is forgiven only up to twice the settle deadline.
+  **Known gap:** WebTransport (QUIC) opens connections Electron 45 cannot switch off; a test records it. Deny UDP egress at the
+  firewall if that matters.
   `DBB_CALLER_NETWORK_USER_AGENT=<identity>` starts the browser with this mode already on, before any page exists, and the
   wallet balance poll (a request of the browser's own) is skipped while it is on. A one-file example caller, which answers
-  requests with a plain HTTP client and prints the verdict, is in `apps/browser/examples/`.
+  requests with a plain HTTP client and prints the verdict, is in `apps/browser/examples/`; by default it refuses private and
+  local addresses, caps response size and spaces page loads per host.
 - **`npm run build:standalone`** bundles everything except Electron into one folder (`apps/browser/standalone/`), so the app runs
   with just an Electron binary: no `npm install`, no Node version requirement on the machine that runs it.
 - **`net.policy {blockWebSockets}`** in the automation API (also `DBB_BLOCK_WEBSOCKETS=1`): refuses WebSockets before any

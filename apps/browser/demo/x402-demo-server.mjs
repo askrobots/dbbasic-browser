@@ -448,6 +448,29 @@ ${para("fourth")}${para("fifth")}
     return;
   }
 
+  // A hostile page: tries every way it can think of to reach a listener of the test's choosing (?tcp=PORT&udp=PORT),
+  // so a test can count what actually arrived. Nothing here is a vulnerability of its own: it only asks.
+  if (path === "/escape") {
+    const q = new URL(req.url, "http://x").searchParams;
+    const tcp = Number(q.get("tcp")) || 1, udp = Number(q.get("udp")) || 1;
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>escape</title><body><h1>escape attempts</h1>
+<link rel="preconnect" href="http://127.0.0.1:${tcp}"><link rel="dns-prefetch" href="http://127.0.0.1:${tcp}"><link rel="prefetch" href="http://127.0.0.1:${tcp}/prefetch">
+<img src="http://127.0.0.1:${tcp}/img"><script>
+const t = (f) => { try { const r = f(); if (r && r.catch) r.catch(() => {}); } catch {} };
+t(() => new WebSocket("ws://127.0.0.1:${tcp}/ws"));
+t(() => fetch("http://127.0.0.1:${tcp}/fetch", { mode: "no-cors" }));
+t(() => navigator.sendBeacon("http://127.0.0.1:${tcp}/beacon", "x"));
+t(() => new EventSource("http://127.0.0.1:${tcp}/sse"));
+t(() => { const x = new XMLHttpRequest(); x.open("GET", "http://127.0.0.1:${tcp}/xhr"); x.send(); });
+t(() => { const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:127.0.0.1:${udp}" }] }); pc.createDataChannel("d"); return pc.createOffer().then((o) => pc.setLocalDescription(o)); });
+t(() => { const w = new WebTransport("https://127.0.0.1:${udp}/wt"); return w.ready; });
+t(() => navigator.serviceWorker.register("/escape-sw.js"));
+</script>`);
+    return;
+  }
+  if (path === "/escape-sw.js") { res.writeHead(200, { "content-type": "text/javascript" }); res.end("self.addEventListener('fetch', () => {});"); return; }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });

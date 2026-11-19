@@ -4,7 +4,11 @@
  * nothing but an Electron binary — no npm install and no Node version requirement on the machine that runs it.
  *
  *   npm run build:standalone          → standalone/   (copy this folder anywhere)
- *   <electron> standalone/            (e.g.  ./electron-linux/electron standalone/ --no-sandbox   see the notes on sandboxing)
+ *   <electron> standalone/            e.g.  ./electron standalone/ --user-data-dir=<a folder of its own>
+ *
+ * On Linux, Chromium's sandbox needs either unprivileged user namespaces or a setuid chrome-sandbox helper. Where neither is
+ * available, prefer an AppArmor profile that allows user namespaces for this one binary, or make the helper setuid root once
+ * (chown root chrome-sandbox && chmod 4755 chrome-sandbox). Do not use --no-sandbox for pages you do not trust.
  *
  * It is the normal build plus the three SDK packages that the normal build leaves external (viem, anthropic, openai).
  */

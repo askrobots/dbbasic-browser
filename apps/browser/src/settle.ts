@@ -208,6 +208,9 @@ function settledOutcome(s: Snapshot): Pick<Verdict, "outcome" | "status" | "slow
 
 const streams = (s: Snapshot) => s.net.inFlight.filter((r) => r.longLived).length;
 
+/** How much waiting on the caller is forgiven: all of it, but never more than twice the deadline (so a call always ends within 3x). */
+export const callerAllowance = (callerWaitMs: number | undefined, cfg: SettleConfig): number => Math.min(callerWaitMs ?? 0, 2 * cfg.timeoutMs);
+
 export function step(s: Snapshot, cfg: SettleConfig, memo: Memo): Step {
   const base = { waitedMs: Math.round(s.nowMs) };
   const sc = streams(s);
@@ -237,7 +240,8 @@ export function step(s: Snapshot, cfg: SettleConfig, memo: Memo): Step {
   }
   memo.okSince = null; // something moved again: the "everything holds" clock restarts
 
-  if (s.nowMs - (s.callerWaitMs ?? 0) >= cfg.timeoutMs) {
+  // Time on the caller does not count, up to twice the deadline: a page that always has one request outstanding cannot freeze the clock for ever.
+  if (s.nowMs - callerAllowance(s.callerWaitMs, cfg) >= cfg.timeoutMs) {
     const botCheck = s.net.state === "challenge";
     return { done: true, verdict: { settled: false, outcome: botCheck ? "bot-check" : "deadline", rule: "deadline", blockedBy: unmet, ...streamField, ...base } };
   }

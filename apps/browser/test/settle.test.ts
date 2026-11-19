@@ -88,6 +88,7 @@ describe("waiting on a caller-supplied network layer", () => {
     expect(run(s(1_500))).toMatchObject({ done: true, verdict: { rule: "deadline" } }); // 10.5 s of its own time: over 10 s
     expect(run(s(2_500))).toEqual({ done: false }); // 9.5 s of its own time: still going
     expect(run(s(11_000))).toEqual({ done: false }); // nearly all of it on the caller
+    expect(run({ ...s(30_000), nowMs: 40_000 })).toMatchObject({ done: true, verdict: { rule: "deadline" } }); // forgiven only up to twice the deadline: it cannot freeze for ever
   });
   it("a slow SERVER is still caught by the deadline even when the caller answered", () => {
     const slow = { url: "https://a.test/slow", phase: "waiting" as const, ageMs: 12_000, longLived: false };

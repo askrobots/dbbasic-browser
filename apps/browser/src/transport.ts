@@ -63,7 +63,7 @@ export function setClientHints(h: Hints | null): void {
 export interface NetEvent {
   id: number;
   url: string;
-  type: "start" | "headers" | "progress" | "end" | "redirect" | "error";
+  type: "start" | "caller" | "headers" | "progress" | "end" | "redirect" | "error"; // "caller": parked, waiting for a caller-supplied network layer
   status?: number;
   /** Content-Length when the server sent one. */
   total?: number;

@@ -59,6 +59,7 @@ const USER_AGENT =
   process.env.DBB_USER_AGENT || brandedUserAgent(app.userAgentFallback, { name: "dbbasic-browser", version: PRODUCT_VERSION, url: "https://dbbasic.com" });
 app.userAgentFallback = USER_AGENT; // must be set before the app is ready
 
+
 // Load .env (the local hot-wallet key) so the browser signs with — and shows the
 // balance of — the funded wallet, not the placeholder. Never overrides an existing env.
 for (const p of [join(__dirname, "..", "..", "..", ".env"), join(process.cwd(), ".env")]) {
@@ -101,6 +102,7 @@ const FACILITATOR = process.env.X402_FACILITATOR || "https://x402.org/facilitato
  * back to start. Uses global fetch (main-process; does NOT go through protocol.handle).
  */
 async function refundMerchant(): Promise<{ tx?: string; error?: string }> {
+  if (callerNet.enabled) return { error: "switched off while the caller network is on" };
   if (!MERCHANT_KEY) return { error: "no merchant wallet configured" };
   const merchant = privateKeyToAccount(MERCHANT_KEY);
   const balAtomic = (await publicClient.readContract({ address: USDC_SEPOLIA, abi: BALANCE_ABI, functionName: "balanceOf", args: [merchant.address] })) as bigint;
@@ -204,25 +206,41 @@ const netPolicy = { blockWebSockets: process.env.DBB_BLOCK_WEBSOCKETS === "1" };
 /** A network layer the caller supplies (see provider.ts). Off until an automation caller turns it on. */
 const callerNet = new CallerNetwork(emitNet, nextNetId);
 let desktopUserAgent = "";
+/**
+ * This mode clears stored data at every visit, so it must only ever run on a profile of its own: starting the app with an
+ * explicit --user-data-dir. Never the normal one, whose logins it would wipe.
+ */
+export const dedicatedProfile = (argv: readonly string[] = process.argv): boolean => argv.some((a) => a === "--user-data-dir" || a.startsWith("--user-data-dir="));
+/** Things the browser would do on its own that this mode must not: refuse them with a reason. */
+const refuseWhileCallerNet = (what: string): void => {
+  if (callerNet.enabled) throw new ProviderError("caller-network-on", `${what} is switched off while the caller network is on (the browser makes no request of its own and signs nothing)`);
+};
 function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerTimeoutMs?: unknown }): void {
   if (p.answerTimeoutMs !== undefined) callerNet.answerTimeoutMs = clampAnswerTimeout(p.answerTimeoutMs);
   if (p.enabled === true) {
     // The caller's identity, always spelled out by the caller. The desktop browser's own identity is never lent to it.
     const ua = String(p.userAgent ?? callerNet.userAgent).trim();
     if (!ua) throw new ProviderError("bad-params", "userAgent is required: this mode takes its identity from the caller");
+    if (!dedicatedProfile()) throw new ProviderError("needs-dedicated-profile", "start the browser with --user-data-dir=<a folder of its own>: this mode clears stored data at every visit and must never run on your normal profile");
+    if (process.env.DBB_NATIVE_NETWORK === "1") throw new ProviderError("native-network", "DBB_NATIVE_NETWORK=1 turns request interception off, so the caller would not see the requests; unset it");
     if (ua.length > 300 || !/^[ -~]+$/.test(ua)) throw new ProviderError("bad-params", "userAgent must be printable ASCII, at most 300 characters");
     if (/dbbasic-browser/i.test(ua)) throw new ProviderError("bad-params", "userAgent must be the caller's own, not the desktop browser's");
     if (!callerNet.enabled) desktopUserAgent = session.defaultSession.getUserAgent();
     callerNet.userAgent = ua;
     callerNet.enabled = true;
     session.defaultSession.setUserAgent(ua);
-    for (const wc of webContents.getAllWebContents()) if (wc.getType() === "webview") wc.setUserAgent(ua); // pages that already exist keep the old one otherwise
+    for (const wc of webContents.getAllWebContents()) {
+      if (wc.getType() !== "webview") continue;
+      wc.setUserAgent(ua); // pages that already exist keep the old one otherwise
+      wc.setWebRTCIPHandlingPolicy("disable_non_proxied_udp"); // WebRTC opens UDP connections the caller would never see
+    }
   } else if (p.enabled === false && callerNet.enabled) {
     callerNet.enabled = false;
     callerNet.failAll("other", "the caller network was turned off");
+    void session.defaultSession.clearStorageData(); // leave nothing a caller-supplied page stored (the profile is a dedicated one)
     if (desktopUserAgent) {
       session.defaultSession.setUserAgent(desktopUserAgent);
-      for (const wc of webContents.getAllWebContents()) if (wc.getType() === "webview") wc.setUserAgent(desktopUserAgent);
+      for (const wc of webContents.getAllWebContents()) if (wc.getType() === "webview") { wc.setUserAgent(desktopUserAgent); wc.setWebRTCIPHandlingPolicy("default"); }
     }
   } else if (p.enabled !== undefined && typeof p.enabled !== "boolean") throw new ProviderError("bad-params", "enabled must be true or false");
   emit({ kind: "net-provider-changed", enabled: callerNet.enabled, answerTimeoutMs: callerNet.answerTimeoutMs });
@@ -230,8 +248,10 @@ function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerT
 
 function setupNetPolicy(): void {
   session.defaultSession.webRequest.onBeforeRequest({ urls: ["ws://*/*", "wss://*/*"] }, (details, callback) => {
-    if (netPolicy.blockWebSockets) emit({ kind: "websocket-refused", url: details.url });
-    callback({ cancel: netPolicy.blockWebSockets }); // cancelled before any connection is opened
+    // Always refused while the caller network is on: a WebSocket is a connection the caller never sees.
+    const refuse = netPolicy.blockWebSockets || callerNet.enabled;
+    if (refuse) emit({ kind: "websocket-refused", url: details.url });
+    callback({ cancel: refuse }); // cancelled before any connection is opened
   });
 }
 
@@ -371,6 +391,11 @@ function buildEngine(): X402Engine {
     ledger,
     fetchImpl: rawFetch as typeof fetch,
     approve: async ({ quote, resourceUrl, reason }) => {
+      // A payment is a signature from the wallet; in caller-network mode the only party that asked is a caller's answer.
+      if (callerNet.enabled) {
+        emit({ kind: "auto-decision", resource: resourceUrl, approved: false, price: formatUsd(quote.priceUsdMicro), mode: "caller-network", cap: 0 });
+        return false;
+      }
       // Automation may pre-decide — but never silently: every such decision is an event
       // (toast + inspector + the API's event log), and policy hard caps still apply
       // because we are only ever asked about payments the policy already allowed to prompt.
@@ -635,6 +660,7 @@ app.whenReady().then(() => {
   ipcMain.handle("x402:copy", (_e, text: string) => clipboard.writeText(String(text)));
   // Open the funding faucet in the OS browser with the address already on the clipboard.
   ipcMain.handle("x402:fund", () => {
+    if (callerNet.enabled) return;
     clipboard.writeText(account.address);
     return shell.openExternal("https://faucet.circle.com");
   });
@@ -649,6 +675,7 @@ app.whenReady().then(() => {
   app.on("web-contents-created", (_e, wc) => {
     if (wc.getType() !== "webview") return;
     trackLifecycle(wc);
+    if (callerNet.enabled) wc.setWebRTCIPHandlingPolicy("disable_non_proxied_udp"); // no UDP for ICE/STUN: it would bypass the caller
     wc.setWindowOpenHandler(({ url }) => {
       if (/^https?:\/\//i.test(url)) mainWindow?.webContents.send("tab:open", url);
       return { action: "deny" };
@@ -681,6 +708,7 @@ app.whenReady().then(() => {
   const reader = createReader({ getWindow: () => mainWindow, askChrome, emit, getAi: () => aiCfg, pages: readerPages });
   // From the chrome UI (a human clicked Reader): ask before anything is sent.
   ipcMain.handle("reader:open", async (_e, a: { wcId?: number }) => {
+    if (callerNet.enabled) return { ok: false, reason: "caller-network-on", message: "The reader is switched off while the caller network is on." };
     const r = await reader.open({ wcId: Number(a?.wcId), interactive: true });
     return { ok: r.ok, reason: r.reason, message: r.message, ai: r.ai };
   });
@@ -726,11 +754,12 @@ app.whenReady().then(() => {
           return { ok: r.ok, reason: r.reason, message: r.message, tab: r.tab, state: r.ai, summary: ai };
         },
         downloads: () => [...downloads.values()],
-        getNetPolicy: () => ({ ...netPolicy }),
+        getNetPolicy: () => ({ blockWebSockets: netPolicy.blockWebSockets || callerNet.enabled }),
         setNetPolicy: (p) => {
           if (typeof p.websockets === "boolean") netPolicy.blockWebSockets = p.websockets;
           emit({ kind: "net-policy-changed", blockWebSockets: netPolicy.blockWebSockets });
         },
+        assertNotCallerNet: refuseWhileCallerNet,
         settle: (ctx, opts) => runSettle({ ...ctx, isWithCaller: (u) => callerNet.isParked(u) }, opts),
         callerNet: {
           state: () => ({ enabled: callerNet.enabled, userAgent: callerNet.userAgent, answerTimeoutMs: callerNet.answerTimeoutMs, waiting: callerNet.parkedCount() }),
@@ -791,6 +820,7 @@ app.whenReady().then(() => {
   });
   // Show the balance on load, then poll — so funding shows up without a restart.
   mainWindow?.webContents.once("did-finish-load", () => void refreshBalance());
+  mainWindow?.webContents.once("did-finish-load", () => { if (callerNet.enabled) emit({ kind: "net-provider-changed", enabled: true, answerTimeoutMs: callerNet.answerTimeoutMs }); });
   setInterval(() => void refreshBalance(), 20_000);
 
   app.on("activate", () => {

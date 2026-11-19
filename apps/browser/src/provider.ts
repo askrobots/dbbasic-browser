@@ -27,6 +27,11 @@ const MIN_ANSWER_TIMEOUT_MS = 1_000;
 const MAX_ANSWER_TIMEOUT_MS = 120_000;
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const DOCUMENT_TTL_MS = 60_000;
+/** At most this many requests wait on the caller at once, and at most this many request-body bytes in total. */
+const MAX_PARKED = 64;
+const MAX_PARKED_BYTES = 64 * 1024 * 1024;
+/** `pending` returns at most this many at a time. */
+const PENDING_BATCH = 50;
 
 /** A request waiting for the caller. */
 export interface ParkedRequest {
@@ -114,11 +119,14 @@ export function buildResponse(requestUrl: string, a: Answer, method = "GET"): { 
   }
   if (status >= 300 && status < 400 && headers.has("location")) {
     // The page resolves a relative Location itself, but the facts and the events want it absolute.
+    let target: URL;
     try {
-      headers.set("location", new URL(headers.get("location")!, requestUrl).href);
+      target = new URL(headers.get("location")!, requestUrl);
     } catch {
-      /* leave it as the caller gave it */
+      throw new ProviderError("bad-params", "location is not a valid address");
     }
+    if (!/^https?:$/.test(target.protocol)) throw new ProviderError("bad-params", "a redirect may only go to an http(s) address");
+    headers.set("location", target.href);
   }
   const nullBody = NULL_BODY_STATUS.has(status) || method === "HEAD" || (status >= 300 && status < 400 && !body);
   return {
@@ -150,6 +158,7 @@ interface Entry {
   req: ParkedRequest;
   since: number;
   timer: NodeJS.Timeout;
+  bytes: number;
   resolve: (r: Response) => void;
   reject: (e: unknown) => void;
 }
@@ -192,8 +201,12 @@ export class CallerNetwork {
     const doc = this.takeDocument(input.url, input.method);
     if (doc) return this.serveDocument(input.url, doc);
 
+    // A page can ask for far more than a caller will ever answer. Past the limits the request fails at once, with a reason.
+    if (this.parked.size >= MAX_PARKED) throw this.refuse(input.url, "other", `too many requests are waiting on the caller (limit ${MAX_PARKED})`, "observed");
     const hasBody = !!input.body && input.method !== "GET" && input.method !== "HEAD";
     const bodyBuf = hasBody ? Buffer.from(await input.arrayBuffer()) : null;
+    const heldBytes = [...this.parked.values()].reduce((n, e) => n + e.bytes, 0);
+    if (bodyBuf && heldBytes + bodyBuf.byteLength > MAX_PARKED_BYTES) throw this.refuse(input.url, "other", "too much request data is waiting on the caller", "observed");
     if (bodyBuf && bodyBuf.byteLength > MAX_BODY_BYTES) throw this.refuse(input.url, "other", "request body too large to hand over", "observed");
 
     const headers: Record<string, string> = {};
@@ -216,7 +229,8 @@ export class CallerNetwork {
       };
       const timer = setTimeout(() => this.failEntry(id, "caller-silent", `the caller did not answer within ${this.answerTimeoutMs} ms`, "observed"), this.answerTimeoutMs);
       timer.unref?.();
-      this.parked.set(id, { req, since: Date.now(), timer, resolve, reject });
+      this.parked.set(id, { req, since: Date.now(), timer, bytes: bodyBuf?.byteLength ?? 0, resolve, reject });
+      this.emit({ id, url: input.url, type: "caller" });
       input.signal.addEventListener("abort", () => {
         const e = this.parked.get(id);
         if (!e) return;
@@ -231,7 +245,7 @@ export class CallerNetwork {
 
   /** Requests waiting for the caller, those after `afterId`. Waits up to `waitMs` for one to arrive. */
   async pending(afterId: number, waitMs: number): Promise<ParkedRequest[]> {
-    const snapshot = () => [...this.parked.values()].filter((e) => e.req.id > afterId).map((e) => ({ ...e.req, waitingMs: Date.now() - e.since }));
+    const snapshot = () => [...this.parked.values()].filter((e) => e.req.id > afterId).sort((a, b) => a.req.id - b.req.id).slice(0, PENDING_BATCH).map((e) => ({ ...e.req, waitingMs: Date.now() - e.since }));
     let out = snapshot();
     if (out.length || waitMs <= 0) return out;
     await new Promise<void>((resolve) => {

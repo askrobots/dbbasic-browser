@@ -13,7 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { webContents, type WebContents } from "electron";
-import { newMemo, resolveConfig, step, type FailureKind, type FailureSource, type SettleConfig, type Snapshot, type Verdict } from "./settle.js";
+import { callerAllowance, newMemo, resolveConfig, step, type FailureKind, type FailureSource, type SettleConfig, type Snapshot, type Verdict } from "./settle.js";
 import { netEvents, type NetEvent } from "./transport.js";
 
 export interface Lifecycle {
@@ -282,7 +282,7 @@ export async function runSettle(ctx: SettleContext, input: unknown): Promise<Set
 
   // A probe can hang on a broken page; whatever happens, the call returns shortly after the deadline.
   // The hard guard does not count time spent waiting on the caller either; that wait has its own bound.
-  const guardWait = async () => { while (!over && Date.now() - t0 - callerWaitMs < cfg.timeoutMs + 5000) await sleep(250); };
+  const guardWait = async () => { while (!over && Date.now() - t0 - callerAllowance(callerWaitMs, cfg) < cfg.timeoutMs + 5000) await sleep(250); };
   let over = false;
   const guard = guardWait().then((): SettleResult => finish({ settled: false, outcome: "deadline", rule: "deadline", waitedMs: Date.now() - t0, blockedBy: [{ rule: "page-unreachable", detail: "the page stopped answering" }] }));
   return Promise.race([loop(), guard]).finally(() => { over = true; });

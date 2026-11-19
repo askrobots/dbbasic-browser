@@ -11,6 +11,10 @@
  *   --answer-timeout <ms>    how long the browser waits for each answer before giving up on it (default 20000)
  *   --settle-timeout <ms>    deadline for the page to finish loading (default 30000)
  *   --fetch-timeout <ms>     how long this client waits on a server (default 15000)
+ *   --max-bytes <n>          largest response it will hand over (default 8388608); bigger ones are refused
+ *   --min-gap-ms <ms>        least time between two page loads from the same host (default 1000); page assets are not paced
+ *   --allow-private          also fetch loopback, local-network and link-local addresses (default: refused, since a page can ask for
+ *                            any address, including your own machine and your network's metadata service)
  *   --control-file <path>    where the browser published its address and token (default $DBB_CONTROL_FILE or ~/.dbbasic/control.json;
  *                            or set DBB_URL and DBB_TOKEN)
  *   --keep                   leave the caller network on when done (default: turn it off again)
@@ -19,10 +23,13 @@
  * DBB_CALLER_NETWORK_USER_AGENT=<the same identity> and HOMEPAGE=about:blank to have it make no request of its own, not even
  * for its first page.
  *
- * What this example does not do: it does not pace itself, check what a site allows, or keep cookies. Those are the caller's
- * decisions; the browser stores no state for you. Answers that carry Set-Cookie have it dropped.
+ * What it does not do: check what a site allows, or keep cookies. Those are the caller's decisions; the browser stores no state for
+ * you, and Set-Cookie in an answer is dropped. The private-address check is advisory: the name is resolved once to check it and again
+ * to connect, so a hostile name server could differ between the two; a firewall rule is the real guarantee.
  */
+import { lookup } from "node:dns/promises";
 import { readFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -34,6 +41,9 @@ const { values: o } = parseArgs({
     "answer-timeout": { type: "string", default: "20000" },
     "settle-timeout": { type: "string", default: "30000" },
     "fetch-timeout": { type: "string", default: "15000" },
+    "max-bytes": { type: "string", default: "8388608" },
+    "min-gap-ms": { type: "string", default: "1000" },
+    "allow-private": { type: "boolean", default: false },
     "control-file": { type: "string" },
     keep: { type: "boolean", default: false },
   },
@@ -69,6 +79,7 @@ const NOT_FORWARDED = new Set(["host", "content-length", "connection", "keep-ali
 /** A reason from the shared list, from what went wrong while fetching. */
 function kindOf(err) {
   const code = err?.cause?.code ?? err?.code ?? "";
+  if (err?.code === "PRIVATE") return "blocked";
   if (err?.name === "TimeoutError" || /TIMEDOUT|TIMEOUT/.test(code)) return "timed-out";
   if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "could-not-find-site";
   if (/^ECONN|EPIPE|UND_ERR_SOCKET|UND_ERR_CONNECT/.test(code)) return "could-not-connect";
@@ -76,10 +87,49 @@ function kindOf(err) {
   return "other";
 }
 
+/** Loopback, private, link-local, CGNAT, unspecified and unique-local addresses. */
+function isPrivate(ip) {
+  const v4 = ip.startsWith("::ffff:") ? ip.slice(7) : ip;
+  if (isIP(v4) === 4) {
+    const [a, b] = v4.split(".").map(Number);
+    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+  }
+  const x = ip.toLowerCase();
+  return x === "::1" || x === "::" || x.startsWith("fe8") || x.startsWith("fe9") || x.startsWith("fea") || x.startsWith("feb") || x.startsWith("fc") || x.startsWith("fd");
+}
+async function assertPublic(host) {
+  if (o["allow-private"]) return;
+  const addrs = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
+  if (addrs.some((a) => isPrivate(a.address))) throw Object.assign(new Error(`${host} is a private or local address (use --allow-private to fetch these)`), { code: "PRIVATE" });
+}
+
+// Page loads are spaced per host; a page's own files are not.
+const lastLoad = new Map();
+async function pace(host) {
+  const gap = Number(o["min-gap-ms"]);
+  const wait = (lastLoad.get(host) ?? 0) + gap - Date.now();
+  lastLoad.set(host, Math.max(Date.now(), (lastLoad.get(host) ?? 0) + gap));
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+}
+
+/** Read a body, giving up past the size limit. */
+async function readCapped(res, limit) {
+  const chunks = [];
+  let n = 0;
+  for await (const c of res.body ?? []) {
+    n += c.byteLength;
+    if (n > limit) throw Object.assign(new Error(`response is larger than ${limit} bytes`), { code: "TOOBIG" });
+    chunks.push(c);
+  }
+  return Buffer.concat(chunks);
+}
+
 async function answer(r) {
   try {
     const target = new URL(r.url);
     if (!/^https?:$/.test(target.protocol)) throw Object.assign(new Error("not an http(s) address"), { code: "UNSUPPORTED" });
+    await assertPublic(target.hostname.replace(/^\[|\]$/g, ""));
+    if (r.navigate) await pace(target.host);
     const headers = Object.fromEntries(Object.entries(r.headers).filter(([k]) => !NOT_FORWARDED.has(k.toLowerCase())));
     headers["user-agent"] = o["user-agent"];
     const res = await fetch(target, {
@@ -89,7 +139,7 @@ async function answer(r) {
       signal: AbortSignal.timeout(Number(o["fetch-timeout"])),
       ...(r.bodyBase64 ? { body: Buffer.from(r.bodyBase64, "base64") } : {}),
     });
-    const body = Buffer.from(await res.arrayBuffer());
+    const body = await readCapped(res, Number(o["max-bytes"]));
     const outHeaders = {};
     res.headers.forEach((v, k) => (outHeaders[k] = v));
     await call("net.answer", { id: r.id, status: res.status, statusText: res.statusText, headers: outHeaders, bodyBase64: body.toString("base64") });

@@ -42,6 +42,8 @@
       .tab:not(.on) .th svg { opacity: .8; }
       #status { position: fixed; left: 0; bottom: 0; z-index: 5; display: none; align-items: center; gap: 7px; max-width: 70%; padding: 4px 12px 4px 8px; background: #26262b; color: #c8c8ce; border: 1px solid #000; border-left: 0; border-bottom: 0; border-radius: 0 7px 0 0; font-size: 12px; pointer-events: none; }
       #status.show { display: flex; }
+      #cn { position: fixed; right: 8px; bottom: 8px; z-index: 7; display: none; padding: 4px 10px; background: #7a1f1f; color: #fff; border-radius: 6px; font-size: 12px; font-weight: 600; pointer-events: none; }
+      #cn.show { display: block; }
       #link { position: fixed; left: 0; bottom: 0; z-index: 6; display: none; max-width: 70%; padding: 4px 12px 4px 8px; background: #26262b; color: #c8c8ce; border: 1px solid #000; border-left: 0; border-bottom: 0; border-radius: 0 7px 0 0; font-size: 12px; pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #link.show { display: block; }
       #link.stacked { bottom: 27px; border-radius: 0 7px 7px 0; border-bottom: 1px solid #000; }
@@ -153,6 +155,7 @@
     </div>
     <div id="status"><span class="ic"></span><span class="tx"></span></div>
     <div id="link"></div>
+    <div id="cn">Caller network ON · this browser fetches nothing itself</div>
     <div id="toast"></div>
 
     <script>
@@ -438,7 +441,7 @@
         if (tab === active) paintLink(); // keep the link bar clear of the status line
         if (changed) syncTabs();
       }
-      setInterval(() => { for (const t of tabs) { for (const [id, r] of t.net.reqs) if (Date.now() - r.last > 20000) t.net.reqs.delete(id); refreshThrobber(t); } }, 250);
+      setInterval(() => { for (const t of tabs) { for (const [id, r] of t.net.reqs) if (Date.now() - r.last > (r.caller ? 130000 : 20000)) t.net.reqs.delete(id); refreshThrobber(t); } }, 250);
 
       // A response that is held open on purpose: an event stream, or a body gone quiet with no Content-Length.
       // A finished page can hold one open, so these must not count as "still loading" (see settle.ts).
@@ -462,7 +465,8 @@
           // Progress on an event stream is not "the page is still loading": it must not reset the quiet clock.
           if (!(e.type === "progress" && isEventStream(r))) tab.lastActivity = now;
           r.last = now;
-          if (e.type === "headers") { r.phase = "receiving"; r.total = e.total; r.contentType = e.contentType; }
+          if (e.type === "caller") r.caller = true; // parked: waiting on a caller-supplied network layer
+          else if (e.type === "headers") { r.phase = "receiving"; r.total = e.total; r.contentType = e.contentType; }
           else if (e.type === "progress") r.bytes = e.bytes;
           else if (e.type === "redirect") { reqs.delete(e.id); tab.redirect = { to: e.location, until: now + 700 }; tab.stats.redirects.push({ status: e.status, to: e.location }); }
           else if (e.type === "end") { reqs.delete(e.id); tab.stats.bytes += e.bytes || 0; }
@@ -1041,6 +1045,8 @@
           upsert(ev.resource, { outcome: "paid", paidStatus: ev.status, nonce: ev.nonce, validBefore: ev.validBefore, tx: ev.tx, requested: ev.requested, auth: ev.auth, signature: ev.signature });
           logHistory(ev.resource);
           toast("paid", `Paid ${ev.amount} ${ev.asset} → ${new URL(ev.dest).host}${ev.tx ? " ✓" : ""}`);
+        } else if (ev.kind === "net-provider-changed") {
+          $("cn").classList.toggle("show", !!ev.enabled);
         } else if (ev.kind === "auto-decision") {
           // Automation answered a payment prompt - never silent.
           toast(ev.approved ? "quoted" : "skipped", "🤖 " + (ev.approved ? "Auto-approved " : "Auto-declined ") + ev.price + " (" + ev.mode + ", cap $" + ev.cap + ") - " + shortPath(ev.resource), 5000);

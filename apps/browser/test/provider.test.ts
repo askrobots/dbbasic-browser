@@ -61,8 +61,8 @@ describe("a request is parked for the caller, then answered", () => {
     const res = await p;
     expect(await res.text()).toBe("<p>ok</p>");
     expect(net.isParked("https://a.test/next")).toBe(false);
-    expect(events.map((e) => e.type)).toEqual(["start", "headers", "end"]);
-    expect(events[1]).toMatchObject({ status: 200, contentType: "text/html" });
+    expect(events.map((e) => e.type)).toEqual(["start", "caller", "headers", "end"]);
+    expect(events[2]).toMatchObject({ status: 200, contentType: "text/html" });
   });
   it("a request body is handed over as base64", async () => {
     const { net } = make();
@@ -104,6 +104,33 @@ describe("a request is parked for the caller, then answered", () => {
     void net.fetch(req("https://a.test/2")).catch(() => {});
     expect((await waiting).map((r) => r.url)).toEqual(["https://a.test/2"]);
     expect(await net.pending(2, 30)).toEqual([]);
+  });
+});
+
+describe("limits on what a page can make the caller hold", () => {
+  it("at most 64 requests wait at once; the next fails at once, with a reason", async () => {
+    const { net, events } = make();
+    for (let i = 0; i < 64; i++) void net.fetch(req(`https://a.test/${i}`)).catch(() => {});
+    await new Promise((r) => setTimeout(r, 20));
+    expect(net.parkedCount()).toBe(64);
+    await expect(net.fetch(req("https://a.test/one-too-many"))).rejects.toThrow(/too many requests/);
+    expect(events.at(-1)).toMatchObject({ type: "error", failureKind: "other", failureSource: "observed" });
+    net.failAll("other", "cleanup");
+  });
+  it("pending hands over at most 50 at a time, oldest first", async () => {
+    const { net } = make();
+    for (let i = 0; i < 60; i++) void net.fetch(req(`https://a.test/${i}`)).catch(() => {});
+    await new Promise((r) => setTimeout(r, 20));
+    const first = await net.pending(0, 0);
+    expect(first.length).toBe(50);
+    expect(first[0]!.id).toBe(1);
+    expect((await net.pending(first.at(-1)!.id, 0)).length).toBe(10);
+    net.failAll("other", "cleanup");
+  });
+  it("a redirect may only go to an http(s) address", () => {
+    expect(() => buildResponse("https://a.test/", { status: 302, headers: { location: "file:///etc/passwd" } })).toThrow(ProviderError);
+    expect(() => buildResponse("https://a.test/", { status: 302, headers: { location: "javascript:alert(1)" } })).toThrow(ProviderError);
+    expect(() => buildResponse("https://a.test/", { status: 302, headers: { location: "https://b.test/x" } })).not.toThrow();
   });
 });
 

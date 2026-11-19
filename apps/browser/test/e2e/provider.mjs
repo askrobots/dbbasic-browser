@@ -125,11 +125,19 @@ export default async function (ctx) {
   const left = (await T("page.eval", { js: "JSON.stringify([document.cookie, localStorage.getItem('left'), sessionStorage.getItem('left')])" })).value;
   check(left === JSON.stringify(["", null, null]), "…and the next page finds no cookie, localStorage or sessionStorage from the last one", left);
 
+  // ---- things the browser would do on its own are switched off, visibly ----
+  check((await rejects(T("login", {})))?.code === "caller-network-on", "login is refused while the caller network is on");
+  check((await rejects(T("reader.open", {})))?.code === "caller-network-on", "the reader (an AI call) is refused while it is on");
+  check((await T("net.policy")).blockWebSockets === true, "WebSockets are reported as refused while it is on, whatever net.policy says");
+  const c = await ctx.chrome();
+  check((await c.ev(`document.getElementById('cn').classList.contains('show')`)) === true, "a visible 'Caller network ON' badge is shown");
+
   // ---- turning it off puts everything back ----
   stop = true;
   await T("net.provider", { enabled: false });
   await loop;
   check((await T("net.provider")).enabled === false, "turned off");
+  check((await c.ev(`document.getElementById('cn').classList.contains('show')`)) === false, "…and the badge goes away");
   await T("page.goto", { url: base + "/free" });
   check(/dbbasic-browser\/\S+ \(\+https:\/\/dbbasic\.com\)$/.test((await T("page.eval", { js: "navigator.userAgent" })).value), "the desktop browser's own identity is restored, and it fetches for itself again");
 }

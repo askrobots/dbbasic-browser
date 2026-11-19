@@ -24,7 +24,7 @@ import { makeCtx } from "../test/e2e/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const SUITES = ["api", "ui", "transport", "states", "reader", "downloads", "settle", "provider", "live-net"];
+const SUITES = ["api", "ui", "transport", "states", "reader", "downloads", "settle", "provider", "escape", "example", "live-net"];
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const run = wanted.length ? wanted : SUITES;
 for (const s of run) if (!SUITES.includes(s)) { console.error(`unknown suite "${s}" (have: ${SUITES.join(", ")})`); process.exit(2); }

@@ -61,6 +61,8 @@ export interface ControlDeps {
   aiStatus(): unknown;
   downloads(): unknown;
   getNetPolicy(): { blockWebSockets: boolean };
+  /** Throws "caller-network-on" while the caller network is on. */
+  assertNotCallerNet(what: string): void;
   callerNet: {
     state(): unknown;
     configure(p: { enabled?: unknown; userAgent?: unknown; answerTimeoutMs?: unknown }): void;
@@ -306,6 +308,7 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
     }
     case "login": {
       // Fill (and by default submit) the saved login for this tab's exact origin.
+      provider(() => d.assertNotCallerNet("login"));
       const t = resolveTab(p);
       await front(d, t);
       const r = await d.vault.fill(guest(t).id, typeof p.id === "string" ? p.id : undefined, p.submit !== false);
@@ -371,6 +374,7 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       return d.aiStatus();
     }
     case "reader.open": {
+      provider(() => d.assertNotCallerNet("the reader"));
       // Opens the reader view. Page text is sent to an AI provider ONLY when `acknowledge: true` is passed
       // (a human would have been asked); without it the reader opens with no summary.
       const t = resolveTab(p);
@@ -415,12 +419,16 @@ export async function startControl(d: ControlDeps, opts: { port: number; token?:
     res.end(JSON.stringify(body));
   };
   const readBody = async (req: IncomingMessage): Promise<string> => {
-    let b = "";
+    // Collect bytes and decode once: decoding each chunk would corrupt a multi-byte character that spans two of them.
+    const chunks: Buffer[] = [];
+    let n = 0;
     for await (const c of req) {
-      b += c;
-      if (b.length > 8 * 1024 * 1024) throw new RpcError("too-large", "request body too large");
+      const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
+      n += buf.byteLength;
+      if (n > 64 * 1024 * 1024) throw new RpcError("too-large", "request body too large"); // an answer may carry up to 32 MB, as base64
+      chunks.push(buf);
     }
-    return b;
+    return Buffer.concat(chunks).toString("utf8");
   };
 
   const server = createServer(async (req, res) => {
