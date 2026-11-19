@@ -34,12 +34,13 @@ const ALLOWED_NAMES = [
 const ALLOWED = new Set<string>(ALLOWED_NAMES);
 
 /**
- * Default models. Anthropic follows the current Claude Opus; for a once-per-click TL;DR a smaller model
- * (`claude-haiku-5-5`, or `claude-sonnet-5-5`) is far cheaper and faster, so it's a one-line switch via
- * DBB_AI_MODEL_ANTHROPIC. OpenAI defaults to a small current model for the same reason.
+ * Default models: small and fast, because a TL;DR is a once-per-click, latency-sensitive job. Measured on
+ * a real 26k-character page, claude-haiku-5-5 wrote an equally accurate summary in 2.6 s for $0.0015, versus
+ * 5.0 s and $0.0585 for claude-opus-5-5 (about 40x the cost). For richer summaries set
+ * DBB_AI_MODEL_ANTHROPIC=claude-opus-5-5 (or claude-sonnet-5-5).
  */
 export const DEFAULT_MODELS: Record<Provider, string> = {
-  anthropic: "claude-opus-5-5",
+  anthropic: "claude-haiku-5-5",
   openai: "gpt-5.4-mini",
 };
 

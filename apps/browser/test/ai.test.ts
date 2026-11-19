@@ -93,7 +93,7 @@ describe("estimateCostUsd", () => {
 describe("summarize — Anthropic", () => {
   it("opus-5-5: structured output, low effort, and the refusal fallback on the beta endpoint", async () => {
     const f = anthropicFake();
-    const r = await summarize(cfg("anthropic"), INPUT, { anthropic: f.client });
+    const r = await summarize(cfg("anthropic", "claude-opus-5-5"), INPUT, { anthropic: f.client });
     expect(f.plain).not.toHaveBeenCalled();
     const p = f.beta.mock.calls[0]![0] as Record<string, any>;
     expect(p.model).toBe("claude-opus-5-5");
@@ -108,9 +108,10 @@ describe("summarize — Anthropic", () => {
     expect(r).toMatchObject({ provider: "anthropic", model: "claude-opus-5-5", tldr: "A short summary.", sentChars: INPUT.text.length });
     expect(r.costUsd).toBeCloseTo((1000 * 4 + 100 * 20) / 1e6);
   });
-  it("haiku-5-5 uses the plain endpoint (no server-side fallback exists for it)", async () => {
+  it("haiku-5-5 is the default and uses the plain endpoint (no server-side fallback exists for it)", async () => {
     const f = anthropicFake();
-    await summarize(cfg("anthropic", "claude-haiku-5-5"), INPUT, { anthropic: f.client });
+    await summarize(cfg("anthropic"), INPUT, { anthropic: f.client }); // no model override: the default
+    expect((f.plain.mock.calls[0]![0] as Record<string, unknown>).model).toBe("claude-haiku-5-5");
     expect(f.beta).not.toHaveBeenCalled();
     const p = f.plain.mock.calls[0]![0] as Record<string, any>;
     expect(p.betas).toBeUndefined();
@@ -121,10 +122,11 @@ describe("summarize — Anthropic", () => {
     await expect(summarize(cfg("anthropic"), INPUT, { anthropic: f.client })).rejects.toMatchObject({ code: "refused" });
   });
   it("maps HTTP failures to friendly codes and never leaks the key", async () => {
-    const mk = (status: number, message: string) => ({
-      messages: { create: vi.fn() },
-      beta: { messages: { create: vi.fn().mockRejectedValue(Object.assign(new Error(message), { status })) } },
-    }) as unknown as AnthropicLike;
+    // Fail both endpoints: which one is used depends on the model, and this test is about error handling.
+    const mk = (status: number, message: string) => {
+      const fail = () => vi.fn().mockRejectedValue(Object.assign(new Error(message), { status }));
+      return { messages: { create: fail() }, beta: { messages: { create: fail() } } } as unknown as AnthropicLike;
+    };
     await expect(summarize(cfg("anthropic"), INPUT, { anthropic: mk(401, `bad key ${KEY_A}`) })).rejects.toMatchObject({ code: "auth" });
     await expect(summarize(cfg("anthropic"), INPUT, { anthropic: mk(429, "slow down") })).rejects.toMatchObject({ code: "rate-limit" });
     const e = (await summarize(cfg("anthropic"), INPUT, { anthropic: mk(500, `boom with ${KEY_A} inside`) }).catch((x) => x)) as AiError;
