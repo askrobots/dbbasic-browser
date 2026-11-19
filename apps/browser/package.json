@@ -12,12 +12,13 @@
   },
   "main": "src/main.ts",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:electron --external:viem --outfile=dist/main.js && cp src/chrome.html src/preload.cjs dist/",
-    "start": "npm run build && electron dist/main.js",
+    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --external:electron --external:viem --outfile=dist/main.js && cp src/chrome.html src/help.html src/preload.cjs src/webview-preload.cjs assets/icon.png dist/",
+    "start": "npm run build && node scripts/launch.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@dbbasic/vault": "*",
     "@dbbasic/x402-engine": "*",
     "viem": "^2.21.0"
   },

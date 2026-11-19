@@ -1,0 +1,299 @@
+/**
+ * Automation API — drive the real browser from scripts, tests and agents.
+ *
+ * Why this exists instead of "just use Playwright/CDP":
+ *   - It is the SAME window a human is looking at: tabs, payment inspector and all.
+ *   - Payments are first-class: read every quote/decision/receipt, assert on spend, and
+ *     set an approval policy (ask | auto up to $N | deny) — no native dialog to dodge.
+ *   - Logins use the vault: `login` fills + submits saved credentials without the script
+ *     ever holding the password.
+ *   - Input is real (trusted mouse/keyboard/text events), so sites that ignore
+ *     synthetic `.click()` behave exactly as they do for a person.
+ *
+ * Security model (this is remote control of a browser that holds a wallet and a vault):
+ *   - OFF unless DBB_CONTROL=1. Binds 127.0.0.1 only.
+ *   - Every request needs `Authorization: Bearer <token>`; the token is random per launch
+ *     (or DBB_CONTROL_TOKEN) and written 0600 to ~/.dbbasic/control.json.
+ *   - Requests carrying an `Origin` header are refused (a web page can't drive it), and
+ *     the Host header must be loopback (DNS-rebinding guard).
+ *   - The toolbar shows a visible 🤖 chip whenever it is on.
+ */
+
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { randomBytes } from "node:crypto";
+import { webContents, type WebContents } from "electron";
+import { safeEqual } from "@dbbasic/vault";
+import type { VaultService } from "./vault-service.js";
+
+export interface TabInfo {
+  id: number;
+  wcId: number | null;
+  url: string;
+  title: string;
+  active: boolean;
+  loading: boolean;
+}
+
+export interface ApprovalPolicy {
+  mode: "ask" | "auto" | "deny";
+  /** Auto-approve prompts up to this many USD (only used in "auto"). Policy hard caps still apply. */
+  maxUsd: number;
+}
+
+export interface ControlDeps {
+  /** Ask the chrome UI to do a tab operation and wait for its answer. */
+  askChrome(op: string, args: Record<string, unknown>): Promise<unknown>;
+  vault: VaultService;
+  eventsSince(n: number): { events: unknown[]; next: number };
+  getApproval(): ApprovalPolicy;
+  setApproval(p: ApprovalPolicy): void;
+  spent(): string;
+  receipts(): unknown;
+}
+
+class RpcError extends Error {
+  code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+let tabs: TabInfo[] = [];
+export const setTabs = (t: TabInfo[]) => void (tabs = t);
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const str = (v: unknown, name: string): string => {
+  if (typeof v !== "string" || !v) throw new RpcError("bad-params", `"${name}" (string) is required`);
+  return v;
+};
+
+function resolveTab(p: Record<string, unknown>): TabInfo {
+  const t = p.tab == null ? tabs.find((x) => x.active) : tabs.find((x) => x.id === Number(p.tab));
+  if (!t) throw new RpcError("no-tab", p.tab == null ? "no active tab" : `no tab ${String(p.tab)}`);
+  return t;
+}
+function guest(t: TabInfo): WebContents {
+  const wc = t.wcId == null ? undefined : webContents.fromId(t.wcId);
+  if (!wc || wc.isDestroyed()) throw new RpcError("tab-not-ready", `tab ${t.id} is not ready yet`);
+  return wc;
+}
+
+async function evalIn(wc: WebContents, js: string): Promise<unknown> {
+  try {
+    return await wc.executeJavaScript(js, true);
+  } catch (e) {
+    throw new RpcError("eval-error", e instanceof Error ? e.message : String(e));
+  }
+}
+
+/** Real input needs a visible, focused page — bring the tab to front first. */
+async function front(d: ControlDeps, t: TabInfo): Promise<WebContents> {
+  if (!t.active) {
+    await d.askChrome("tab.activate", { id: t.id });
+    await sleep(80);
+  }
+  const wc = guest(t);
+  wc.focus();
+  return wc;
+}
+
+const KEYS: Record<string, string> = { Enter: "Enter", Tab: "Tab", Escape: "Escape", Backspace: "Backspace", Delete: "Delete", ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown", " ": "Space" };
+
+export async function handle(d: ControlDeps, method: string, p: Record<string, unknown>): Promise<unknown> {
+  switch (method) {
+    // ---- meta / tabs --------------------------------------------------------
+    case "status":
+      return { version: 1, tabs, approval: d.getApproval(), spent: d.spent(), vault: await d.vault.state() };
+    case "tabs.list":
+      return tabs;
+    case "tabs.new":
+      return d.askChrome("tab.new", { url: p.url ?? null, activate: p.activate !== false, wait: p.wait !== false });
+    case "tabs.close":
+      return d.askChrome("tab.close", { id: resolveTab(p).id });
+    case "tabs.activate":
+      return d.askChrome("tab.activate", { id: resolveTab(p).id });
+
+    // ---- navigation ---------------------------------------------------------
+    case "page.goto":
+      return d.askChrome("tab.goto", { id: resolveTab(p).id, url: str(p.url, "url"), wait: p.wait !== false });
+    case "page.back":
+    case "page.forward":
+    case "page.reload":
+      return d.askChrome("tab." + method.slice(5), { id: resolveTab(p).id, wait: p.wait !== false });
+
+    // ---- reading ------------------------------------------------------------
+    case "page.eval":
+      return { value: await evalIn(guest(resolveTab(p)), str(p.js, "js")) };
+    case "page.text": {
+      const sel = p.selector == null ? null : str(p.selector, "selector");
+      return { text: await evalIn(guest(resolveTab(p)), `(() => { const e = ${sel ? `document.querySelector(${JSON.stringify(sel)})` : "document.body"}; return e ? e.innerText : null; })()`) };
+    }
+    case "page.html":
+      return { html: await evalIn(guest(resolveTab(p)), "document.documentElement.outerHTML") };
+    case "page.screenshot": {
+      const t = resolveTab(p);
+      const wc = await front(d, t);
+      const img = await wc.capturePage();
+      return { png: img.toPNG().toString("base64"), width: img.getSize().width, height: img.getSize().height };
+    }
+
+    // ---- acting (real, trusted input) ----------------------------------------
+    case "page.click": {
+      const t = resolveTab(p);
+      const wc = await front(d, t);
+      let x = Number(p.x), y = Number(p.y);
+      if (p.selector != null) {
+        const sel = str(p.selector, "selector");
+        const pt = (await evalIn(wc, `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; e.scrollIntoView({block:"center", inline:"center"}); const r = e.getBoundingClientRect(); return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) }; })()`)) as { x: number; y: number } | null;
+        if (!pt) throw new RpcError("no-element", `nothing matches ${sel}`);
+        ({ x, y } = pt);
+        await sleep(50); // let scroll settle
+      } else if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RpcError("bad-params", 'pass "selector" or both "x" and "y"');
+      wc.sendInputEvent({ type: "mouseMove", x, y });
+      wc.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
+      wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
+      return { clicked: { x, y } };
+    }
+    case "page.type": {
+      const t = resolveTab(p);
+      const wc = await front(d, t);
+      const text = typeof p.text === "string" ? p.text : str(p.text, "text");
+      if (p.selector != null) {
+        const sel = str(p.selector, "selector");
+        const ok = await evalIn(wc, `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return false; e.scrollIntoView({block:"center"}); e.focus(); ${p.clear !== false ? "if (e.select) e.select();" : ""} return true; })()`);
+        if (!ok) throw new RpcError("no-element", `nothing matches ${sel}`);
+      }
+      await wc.insertText(text); // replaces the selection when clear (default), else appends
+      return { typed: text.length };
+    }
+    case "page.press": {
+      const t = resolveTab(p);
+      const wc = await front(d, t);
+      const key = str(p.key, "key");
+      const keyCode = KEYS[key] ?? key;
+      wc.sendInputEvent({ type: "keyDown", keyCode });
+      if (key === "Enter") wc.sendInputEvent({ type: "char", keyCode: "\r" });
+      else if (key.length === 1) wc.sendInputEvent({ type: "char", keyCode: key });
+      wc.sendInputEvent({ type: "keyUp", keyCode });
+      return { pressed: key };
+    }
+    case "page.waitFor": {
+      const t = resolveTab(p);
+      const timeout = Math.min(Number(p.timeoutMs) || 10_000, 120_000);
+      const conds = {
+        selector: p.selector == null ? null : str(p.selector, "selector"),
+        text: p.text == null ? null : str(p.text, "text"),
+        url: p.url == null ? null : str(p.url, "url"),
+      };
+      if (!conds.selector && !conds.text && !conds.url) throw new RpcError("bad-params", 'pass at least one of "selector", "text", "url"');
+      const js = `(() => (${conds.selector ? `!!document.querySelector(${JSON.stringify(conds.selector)})` : "true"}) && (${conds.text ? `(document.body?.innerText||"").includes(${JSON.stringify(conds.text)})` : "true"}) && (${conds.url ? `location.href.includes(${JSON.stringify(conds.url)})` : "true"}))()`;
+      const end = Date.now() + timeout;
+      for (;;) {
+        try {
+          if (await guest(t).executeJavaScript(js)) return { matched: true };
+        } catch {
+          /* page mid-navigation — keep polling */
+        }
+        if (Date.now() > end) throw new RpcError("timeout", `waitFor timed out after ${timeout}ms`);
+        await sleep(100);
+      }
+    }
+
+    // ---- vault ---------------------------------------------------------------
+    case "vault.state":
+      return d.vault.state();
+    case "vault.unlock": {
+      const r = await d.vault.unlock(str(p.master, "master"));
+      if (!r.ok) throw new RpcError(r.code, r.message);
+      return r.data;
+    }
+    case "login": {
+      // Fill (and by default submit) the saved login for this tab's exact origin.
+      const t = resolveTab(p);
+      await front(d, t);
+      const r = await d.vault.fill(guest(t).id, typeof p.id === "string" ? p.id : undefined, p.submit !== false);
+      if (!r.ok) throw new RpcError(r.code, r.message);
+      if (p.submit !== false && p.wait !== false) await d.askChrome("tab.waitLoad", { id: t.id, ms: 15_000 });
+      return r.data; // username + origin only — never the password
+    }
+
+    // ---- x402 ----------------------------------------------------------------
+    case "x402.spent":
+      return { spent: d.spent() };
+    case "x402.receipts":
+      return d.receipts();
+    case "x402.events":
+      return d.eventsSince(Number(p.since) || 0);
+    case "x402.approval": {
+      if (p.mode != null) {
+        if (p.mode !== "ask" && p.mode !== "auto" && p.mode !== "deny") throw new RpcError("bad-params", 'mode must be "ask", "auto" or "deny"');
+        const maxUsd = p.maxUsd == null ? d.getApproval().maxUsd : Number(p.maxUsd);
+        if (!Number.isFinite(maxUsd) || maxUsd < 0) throw new RpcError("bad-params", "maxUsd must be a non-negative number");
+        d.setApproval({ mode: p.mode, maxUsd });
+      }
+      return d.getApproval();
+    }
+    default:
+      throw new RpcError("no-method", `unknown method "${method}"`);
+  }
+}
+
+export interface ControlHandle {
+  port: number;
+  token: string;
+  file: string;
+  close(): void;
+}
+
+export async function startControl(d: ControlDeps, opts: { port: number; token?: string }): Promise<ControlHandle> {
+  const token = opts.token || randomBytes(24).toString("hex");
+  const hostOk = (h: string | undefined) => h === `127.0.0.1:${opts.port}` || h === `localhost:${opts.port}`;
+
+  const reply = (res: ServerResponse, status: number, body: unknown) => {
+    res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(JSON.stringify(body));
+  };
+  const readBody = async (req: IncomingMessage): Promise<string> => {
+    let b = "";
+    for await (const c of req) {
+      b += c;
+      if (b.length > 8 * 1024 * 1024) throw new RpcError("too-large", "request body too large");
+    }
+    return b;
+  };
+
+  const server = createServer(async (req, res) => {
+    if (!hostOk(req.headers.host)) return reply(res, 403, { ok: false, error: { code: "bad-host", message: "loopback only" } });
+    if (req.headers.origin) return reply(res, 403, { ok: false, error: { code: "bad-origin", message: "browser-originated requests are refused" } });
+    const auth = req.headers.authorization ?? "";
+    if (!safeEqual(auth, `Bearer ${token}`)) return reply(res, 401, { ok: false, error: { code: "unauthorized", message: "missing or wrong bearer token" } });
+    if (req.method !== "POST" || req.url !== "/rpc") return reply(res, 404, { ok: false, error: { code: "not-found", message: "POST /rpc" } });
+
+    let id: unknown = null;
+    try {
+      const msg = JSON.parse(await readBody(req)) as { id?: unknown; method?: string; params?: Record<string, unknown> };
+      id = msg.id ?? null;
+      const result = await handle(d, str(msg.method, "method"), msg.params ?? {});
+      reply(res, 200, { id, ok: true, result });
+    } catch (e) {
+      const err = e instanceof RpcError ? e : new RpcError("error", e instanceof Error ? e.message : String(e));
+      reply(res, 200, { id, ok: false, error: { code: err.code, message: err.message } });
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(opts.port, "127.0.0.1", resolve);
+  });
+
+  const dir = join(homedir(), ".dbbasic");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const file = join(dir, "control.json");
+  writeFileSync(file, JSON.stringify({ url: `http://127.0.0.1:${opts.port}/rpc`, token, pid: process.pid }), { mode: 0o600 });
+  chmodSync(file, 0o600);
+  return { port: opts.port, token, file, close: () => server.close() };
+}

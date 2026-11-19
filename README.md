@@ -87,12 +87,13 @@ npm test             # runs the engine, proxy, and browser test suites
 # terminal 1 — a local x402 example gallery
 node apps/browser/demo/x402-demo-server.mjs
 
-# terminal 2 — build and launch the browser (opens on the gallery)
+# terminal 2 — build and launch the browser (opens on askrobots.com; use
+#   Help ▸ x402 Demo Gallery, or HOMEPAGE=http://127.0.0.1:8899/, to start on the gallery)
 npm run build   -w @dbbasic/browser
 npm start       -w @dbbasic/browser
 ```
 
-The browser opens on a **gallery** of x402-gated pages, each designed to trigger a
+The demo gallery is a set of x402-gated pages (Help ▸ x402 Demo Gallery), each designed to trigger a
 different payer decision. Click through them and watch the toolbar and the **⚡x402
 inspector**:
 

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>dbbasic-browser Help</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.6 -apple-system, system-ui, sans-serif; background: #17171b; color: #d8d8de; display: flex; }
+  nav { position: sticky; top: 0; align-self: flex-start; height: 100vh; width: 220px; flex: none; padding: 24px 18px; border-right: 1px solid #2a2a30; background: #1b1b20; }
+  nav b { display: block; margin-bottom: 12px; color: #fff; font-size: 14px; }
+  nav a { display: block; padding: 5px 8px; border-radius: 6px; color: #9a9aa2; text-decoration: none; font-size: 13.5px; }
+  nav a:hover { background: #24242b; color: #fff; }
+  main { max-width: 820px; padding: 28px 40px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; color: #fff; letter-spacing: -.01em; }
+  h2 { font-size: 19px; margin: 44px 0 8px; padding-top: 12px; color: #fff; border-top: 1px solid #2a2a30; }
+  h3 { font-size: 14px; margin: 22px 0 6px; color: #cde0ff; }
+  p, li { color: #c4c4cc; }
+  .lead { color: #8a8a90; margin: 0 0 8px; }
+  code, kbd { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+  code { background: #23232a; padding: 1px 6px; border-radius: 4px; color: #e8e8ea; }
+  kbd { background: #23232a; border: 1px solid #3a3a42; border-bottom-width: 2px; padding: 1px 7px; border-radius: 5px; color: #e8e8ea; white-space: nowrap; }
+  pre { background: #101013; border: 1px solid #2a2a30; border-radius: 8px; padding: 12px 14px; overflow: auto; font: 12.5px/1.55 ui-monospace, Menlo, monospace; color: #d8d8de; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid #2a2a30; vertical-align: top; }
+  th { color: #8a8a90; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  td:first-child { white-space: nowrap; }
+  .note { border-left: 3px solid #5b8cff; background: #1a2033; padding: 8px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; }
+  .warn { border-left-color: #f0c674; background: #201a0a; }
+  a { color: #7aa2ff; }
+</style>
+</head>
+<body>
+<nav>
+  <b>Help</b>
+  <a href="#start">Getting started</a>
+  <a href="#shortcuts">Keyboard shortcuts</a>
+  <a href="#tabs">Tabs</a>
+  <a href="#x402">x402 payments</a>
+  <a href="#passwords">Password manager</a>
+  <a href="#automation">Automation API</a>
+  <a href="#security">Security model</a>
+</nav>
+<main>
+  <h1>dbbasic-browser</h1>
+  <p class="lead">A browser that pays for the web itself — with a built-in password manager and a remote-control API.</p>
+
+  <h2 id="start">Getting started</h2>
+  <p>Type a URL and press <kbd>Enter</kbd>. Plain hosts default to <code>https://</code>; <code>localhost</code> and private-network addresses default to <code>http://</code>. Anything that isn't an address is a <b>search</b>, answered by askrobots.com. The first tab and every new tab open <b>askrobots.com</b> (<code>HOMEPAGE=https://…</code> changes that). The local x402 demo gallery is under <b>Help ▸ x402 Demo Gallery</b> (start it with <code>node apps/browser/demo/x402-demo-server.mjs</code>); <b>▶ Tour</b> always walks that gallery.</p>
+  <p>Toolbar, left to right: back / forward, address bar, <b>▶ Tour</b> (walks the demo gallery), <b>⚡ x402</b> (payment inspector), <b>🔑</b> (passwords), wallet balance, <b>Fund</b>, and the session spend meter. A <b>🤖</b> chip appears when the automation API is on.</p>
+
+  <h2 id="shortcuts">Keyboard shortcuts</h2>
+  <table>
+    <tr><th>Action</th><th>Shortcut</th></tr>
+    <tr><td>New tab</td><td><kbd>⌘T</kbd></td></tr>
+    <tr><td>Close tab</td><td><kbd>⌘W</kbd> (middle-click a tab also works)</td></tr>
+    <tr><td>Focus the address bar</td><td><kbd>⌘L</kbd></td></tr>
+    <tr><td>Next / previous tab</td><td><kbd>Ctrl</kbd>+<kbd>Tab</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd>, or <kbd>⌘⌥→</kbd> / <kbd>⌘⌥←</kbd></td></tr>
+    <tr><td>Reload the page</td><td><kbd>⌘R</kbd></td></tr>
+    <tr><td>Close the password panel</td><td><kbd>Esc</kbd></td></tr>
+    <tr><td>Help</td><td><kbd>F1</kbd></td></tr>
+  </table>
+  <p>On Windows/Linux use <kbd>Ctrl</kbd> where this says <kbd>⌘</kbd>.</p>
+
+  <h2 id="tabs">Tabs</h2>
+  <p>Each tab is its own page with its own payment inspector, so spend is attributed to the page that caused it. A <b>⚡</b> on a tab means something was paid for there. Links that open a new window (<code>target="_blank"</code>) open as tabs; clicking a transaction in the inspector opens it beside the paid page rather than replacing it. Tabs are not yet restored between launches.</p>
+
+  <h2 id="x402">x402 payments</h2>
+  <p>When a server answers <code>402 Payment Required</code>, the browser reads the price <i>before</i> paying, applies your spending policy, and either pays, asks you, or refuses.</p>
+  <ul>
+    <li><b>Auto-approve</b> below the policy threshold (default $0.05); <b>ask</b> above it, with a native dialog showing the price; <b>refuse</b> unknown tokens/networks.</li>
+    <li>Every decision is visible: a toast, a row in the ⚡ inspector (request, challenge, decision, signed authorization, settlement), and the session spend meter.</li>
+    <li>Real settlement happens on Base Sepolia testnet. Use <b>Fund</b> to get testnet USDC; <b>Refund</b> returns the merchant wallet's balance to you.</li>
+  </ul>
+
+  <h2 id="passwords">Password manager</h2>
+  <p>Click <b>🔑</b> to create a vault. It is one encrypted file (scrypt key derivation + AES-256-GCM) on this computer, protected by a master password. <b>There is no recovery</b> if you forget it, and nothing is uploaded anywhere.</p>
+  <h3>Saving</h3>
+  <p>Sign in to any site. After you submit, a bar offers <b>Save</b> (or <b>Update</b> if the password changed). The offer survives the redirect after login. Only real keyboard/mouse submissions trigger it — a page can't fake one.</p>
+  <h3>Signing in</h3>
+  <p>On a page with a login form and a saved login for that <i>exact</i> site, a bar offers <b>Sign in as …</b> (fill and submit) or <b>Fill</b>. Nothing is filled until you click. The 🔑 panel also lists this site's logins, lets you save one manually, generate a strong password, and delete entries.</p>
+  <h3>How it stays safe</h3>
+  <ul>
+    <li><b>Exact origin matching:</b> scheme + host + port must all match. <code>www.example.com</code> never fills <code>example.com</code>; lookalike domains never match.</li>
+    <li><b>Secrets stay out of the UI:</b> the page hands a submitted login straight to the main process, and fills go main → page. The browser chrome only ever sees usernames and origins.</li>
+    <li><b>Auto-lock</b> after 10 minutes of inactivity; <b>Lock</b> in the panel locks immediately.</li>
+  </ul>
+  <h3>Standalone</h3>
+  <p>The vault is also a stand-alone package with a CLI — <code>packages/vault</code>:</p>
+<pre>npm start -w @dbbasic/vault -- init
+npm start -w @dbbasic/vault -- add https://askrobots.com dan --generate 24
+npm start -w @dbbasic/vault -- get askrobots.com          # prints the password only
+# set DBB_VAULT=/path/to/vault.json to use a specific file, DBB_VAULT_PASSWORD for scripts</pre>
+  <div class="note">The browser's vault file lives in the app's data folder (override with <code>DBB_VAULT</code>). Point the CLI at the same file to share it.</div>
+
+  <h2 id="automation">Automation API</h2>
+  <p>Drive this browser from scripts, tests and agents — the same window you are looking at, with payments and the vault as first-class citizens. It is <b>off by default</b>. Start the browser with:</p>
+<pre>DBB_CONTROL=1 npm start -w @dbbasic/browser     # listens on 127.0.0.1:9777 (DBB_CONTROL_PORT to change)</pre>
+  <p>The URL and a per-launch bearer token are written (mode 0600) to <code>~/.dbbasic/control.json</code>. Call <code>POST /rpc</code> with <code>{"method": "…", "params": {…}}</code>; the answer is <code>{"ok": true, "result": …}</code> or <code>{"ok": false, "error": {"code", "message"}}</code>.</p>
+<pre>TOKEN=$(jq -r .token ~/.dbbasic/control.json)
+curl -s -H "Authorization: Bearer $TOKEN" -d '{"method":"page.goto","params":{"url":"askrobots.com"}}' http://127.0.0.1:9777/rpc</pre>
+  <p>Or use the bundled client (<code>apps/browser/scripts/dbb.mjs</code>):</p>
+<pre>import { connect } from "./scripts/dbb.mjs";
+const b = await connect();
+await b.call("page.goto", { url: "https://askrobots.com/login" });
+await b.call("login");                                   // fills + submits the saved login; you never see the password
+await b.call("page.waitFor", { text: "Dashboard" });
+const { spent } = await b.call("x402.spent");</pre>
+  <p>Every method takes an optional <code>tab</code> (id from <code>tabs.list</code>); the default is the active tab.</p>
+  <table>
+    <tr><th>Method</th><th>Params → result</th></tr>
+    <tr><td>status</td><td>tabs, approval policy, spend, vault state</td></tr>
+    <tr><td>tabs.list / new / close / activate</td><td><code>new</code>: <code>{url?, activate?, wait?}</code></td></tr>
+    <tr><td>page.goto</td><td><code>{url, wait?}</code> — waits for the load to finish (default)</td></tr>
+    <tr><td>page.back / forward / reload</td><td><code>{wait?}</code></td></tr>
+    <tr><td>page.text / html</td><td><code>{selector?}</code> → page text / HTML</td></tr>
+    <tr><td>page.eval</td><td><code>{js}</code> → <code>{value}</code> (JSON-serializable)</td></tr>
+    <tr><td>page.click</td><td><code>{selector}</code> or <code>{x, y}</code> — a <b>real</b> trusted click</td></tr>
+    <tr><td>page.type</td><td><code>{selector?, text, clear?}</code> — real text input; replaces content unless <code>clear:false</code></td></tr>
+    <tr><td>page.press</td><td><code>{key}</code> — <code>Enter</code>, <code>Tab</code>, <code>Escape</code>, arrows, or a character</td></tr>
+    <tr><td>page.waitFor</td><td><code>{selector?, text?, url?, timeoutMs?}</code> — all given conditions must hold</td></tr>
+    <tr><td>page.screenshot</td><td>→ <code>{png (base64), width, height}</code></td></tr>
+    <tr><td>vault.state / unlock</td><td><code>unlock</code>: <code>{master}</code></td></tr>
+    <tr><td>login</td><td><code>{id?, submit?, wait?}</code> — fill (and submit) the saved login for the tab's exact origin</td></tr>
+    <tr><td>x402.spent / receipts</td><td>session spend; full ledger</td></tr>
+    <tr><td>x402.events</td><td><code>{since}</code> → <code>{events, next}</code> — every quote, decision, payment and refusal</td></tr>
+    <tr><td>x402.approval</td><td><code>{mode: "ask"|"auto"|"deny", maxUsd}</code> — who answers payment prompts; call with no params to read</td></tr>
+  </table>
+  <div class="note"><b>Why use this instead of Playwright/CDP?</b> It controls the real, visible browser; input is genuinely trusted (sites that ignore synthetic clicks work); payments are inspectable and assertable (<code>x402.events</code>) rather than a dialog your test can't dismiss; and <code>login</code> signs you in without your script ever holding a password. Input methods bring the tab to the front, because real input needs a visible page.</div>
+
+  <h2 id="security">Security model</h2>
+  <ul>
+    <li>The automation API binds <b>127.0.0.1 only</b>, requires the bearer token on every request, refuses any request carrying an <code>Origin</code> header (so a web page can't drive it) and any non-loopback <code>Host</code> (DNS rebinding). A <b>🤖</b> chip shows whenever it is on.</li>
+    <li>Automation that relaxes payment approval is never silent: each decision raises a toast and an inspector/event-log entry. The spending policy's hard caps still apply on top.</li>
+    <li>Treat the token like a password: anyone who has it can drive a browser that holds a wallet key and (while unlocked) your vault. Keep <code>~/.dbbasic/control.json</code> private; leave the API off when you don't need it.</li>
+    <li><b>Redirects are visible to the page:</b> a redirect is handed back to the page, which re-requests the new address — so the address bar, the page's origin and the password manager's origin matching always reflect where you actually are, and each hop gets its own payment decision.</li>
+    <li>The wallet key for testnet payments is a hot key in <code>.env</code>. Never fund it with real money. See <code>SECURITY.md</code>.</li>
+  </ul>
+</main>
+</body>
+</html>

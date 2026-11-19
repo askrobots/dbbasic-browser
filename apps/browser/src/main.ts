@@ -10,17 +10,26 @@
  */
 
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, shell, type MenuItemConstructorOptions } from "electron";
 import { createPublicClient, http as viemHttp } from "viem";
 import { baseSepolia } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
 import { PolicyEngine, Ledger, X402Engine, formatUsd, signExactEvm } from "@dbbasic/x402-engine";
 import { createPaymentHandler } from "./intercept.js";
 import { netRequestFetch } from "./transport.js";
+import { registerVault } from "./vault-service.js";
+import { setTabs, startControl, type ApprovalPolicy, type ControlHandle, type TabInfo } from "./control.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Branding. (On macOS the Dock label/icon come from the .app bundle — scripts/launch.mjs
+// brands the dev bundle; these cover the in-app name, the Dock icon at runtime, and
+// the Windows/Linux window + taskbar icon.)
+// NOTE: the app name also decides the userData folder (cookies, the default vault.json).
+app.setName("dbbasic-browser");
+const ICON_PATH = join(__dirname, "icon.png");
 
 // Load .env (the local hot-wallet key) so the browser signs with — and shows the
 // balance of — the funded wallet, not the placeholder. Never overrides an existing env.
@@ -120,13 +129,46 @@ async function refreshBalance(): Promise<void> {
   }
 }
 
+/**
+ * Every x402 event goes to the UI AND into a ring buffer the automation API can read, so
+ * a test can assert on exactly what the human-visible inspector shows.
+ */
+const eventLog: Array<Record<string, unknown>> = [];
+let eventSeq = 0;
+function emit(payload: Record<string, unknown>): void {
+  mainWindow?.webContents.send("x402:event", payload);
+  eventLog.push({ seq: ++eventSeq, at: Date.now(), ...payload });
+  if (eventLog.length > 1000) eventLog.shift();
+}
+
+/** Who answers payment prompts. Default "ask" (native dialog); automation may relax it. */
+let approval: ApprovalPolicy = { mode: "ask", maxUsd: 0 };
+
+// Main → chrome UI requests (tab operations only the UI can do), answered over IPC.
+const chromeReqs = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+let chromeReqSeq = 0;
+function askChrome(op: string, args: Record<string, unknown>): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    if (!mainWindow) return reject(new Error("no window"));
+    const id = String(++chromeReqSeq);
+    const timer = setTimeout(() => {
+      chromeReqs.delete(id);
+      reject(new Error(`browser UI did not answer "${op}" in time`));
+    }, 45_000);
+    chromeReqs.set(id, { resolve, reject, timer });
+    mainWindow.webContents.send("ctl:req", { id, op, args });
+  });
+}
+
+let control: ControlHandle | null = null;
+
 function buildEngine(): X402Engine {
   const policy = new PolicyEngine();
   const ledger = new Ledger();
 
   // The engine's network calls go through netRequestFetch (see transport.ts): it never follows
-  // redirects itself — it returns 3xx to the renderer so URL/origin stay truthful — and it
-  // bypasses our own protocol.handle handler so it can't recurse into it.
+  // redirects itself — it returns 3xx to the renderer so URL/origin stay truthful — and, being
+  // net.request, it is not routed back into our own protocol.handle handler.
   const rawFetch = netRequestFetch();
 
   return new X402Engine({
@@ -135,6 +177,15 @@ function buildEngine(): X402Engine {
     ledger,
     fetchImpl: rawFetch as typeof fetch,
     approve: async ({ quote, resourceUrl, reason }) => {
+      // Automation may pre-decide — but never silently: every such decision is an event
+      // (toast + inspector + the API's event log), and policy hard caps still apply
+      // because we are only ever asked about payments the policy already allowed to prompt.
+      if (approval.mode !== "ask") {
+        const usd = Number(quote.priceUsdMicro) / 1e6;
+        const yes = approval.mode === "auto" && usd <= approval.maxUsd;
+        emit({ kind: "auto-decision", resource: resourceUrl, approved: yes, price: formatUsd(quote.priceUsdMicro), mode: approval.mode, cap: approval.maxUsd });
+        return yes;
+      }
       // Native modal — the price is shown to the user before a signature is produced.
       const { response } = await dialog.showMessageBox(mainWindow ?? undefined!, {
         type: "question",
@@ -150,8 +201,7 @@ function buildEngine(): X402Engine {
     onEvent: (e) => {
       // One structured event stream drives both the toolbar (meter/toasts) and the
       // per-tab inspector. All bigints are pre-formatted so IPC stays plain JSON.
-      const send = (payload: Record<string, unknown>) =>
-        mainWindow?.webContents.send("x402:event", payload);
+      const send = emit;
 
       if (e.type === "quoted") {
         // Price-before-paying: the 402 is free, so we can report cost before paying.
@@ -214,17 +264,86 @@ function buildEngine(): X402Engine {
   });
 }
 
+/** Open the built-in help page (optionally at an anchor) in a new tab. */
+function openHelp(anchor: string): void {
+  const url = pathToFileURL(join(__dirname, "help.html")).href + (anchor ? `#${anchor}` : "");
+  mainWindow?.webContents.send("tab:open", url);
+}
+
+/** Tell the chrome UI to do a tab action (new/close/focus-url/next/prev/reload). */
+const tabCmd = (cmd: string) => () => mainWindow?.webContents.send("tab:cmd", cmd);
+
+/**
+ * App menu. Tab shortcuts live here as accelerators rather than keydown handlers in the
+ * chrome document: once a page has focus, its <webview> swallows key events, but menu
+ * accelerators still fire. Reload targets the active TAB — Electron's default View►Reload
+ * would reload the chrome itself and wipe every open tab.
+ */
+function buildMenu(): void {
+  const template: MenuItemConstructorOptions[] = [
+    ...(process.platform === "darwin" ? [{ role: "appMenu" } as MenuItemConstructorOptions] : []),
+    {
+      label: "File",
+      submenu: [
+        { label: "New Tab", accelerator: "CmdOrCtrl+T", click: tabCmd("new") },
+        { label: "Close Tab", accelerator: "CmdOrCtrl+W", click: tabCmd("close") },
+        { label: "Open Location", accelerator: "CmdOrCtrl+L", click: tabCmd("focus-url") },
+        { type: "separator" },
+        { label: "Next Tab", accelerator: "Ctrl+Tab", click: tabCmd("next") },
+        { label: "Previous Tab", accelerator: "Ctrl+Shift+Tab", click: tabCmd("prev") },
+        { label: "Next Tab (alt)", accelerator: "CmdOrCtrl+Alt+Right", click: tabCmd("next"), visible: false },
+        { label: "Previous Tab (alt)", accelerator: "CmdOrCtrl+Alt+Left", click: tabCmd("prev"), visible: false },
+      ],
+    },
+    { role: "editMenu" },
+    {
+      label: "View",
+      submenu: [
+        { label: "Reload Page", accelerator: "CmdOrCtrl+R", click: tabCmd("reload") },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    { role: "windowMenu" },
+    {
+      role: "help",
+      submenu: [
+        { label: "dbbasic-browser Help", accelerator: "F1", click: () => openHelp("") },
+        { label: "Keyboard Shortcuts", click: () => openHelp("shortcuts") },
+        { label: "x402 Payments", click: () => openHelp("x402") },
+        { label: "x402 Demo Gallery (local)", click: () => mainWindow?.webContents.send("tab:open", "http://127.0.0.1:8899/") },
+        { label: "Password Manager", click: () => openHelp("passwords") },
+        { label: "Automation API", click: () => openHelp("automation") },
+        { type: "separator" },
+        {
+          label: control ? `Automation API: on (127.0.0.1:${control.port})` : "Automation API: off — launch with DBB_CONTROL=1",
+          enabled: false,
+        },
+        { type: "separator" },
+        { label: "Report an Issue…", click: () => void shell.openExternal("https://github.com/askrobots/dbbasic-browser/issues/new") },
+        { label: "Project on GitHub", click: () => void shell.openExternal("https://github.com/askrobots/dbbasic-browser") },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
+    title: "dbbasic-browser",
+    icon: ICON_PATH,
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
       webviewTag: true, // the page renders in a <webview>; chrome is the host document
       contextIsolation: true,
       nodeIntegration: false,
-      // Default to the local demo gallery for now — this is a demo-focused build.
-      additionalArguments: [`--homepage=${process.env.HOMEPAGE ?? "http://127.0.0.1:8899/"}`],
+      additionalArguments: [
+        `--homepage=${process.env.HOMEPAGE ?? "https://askrobots.com/"}`,
+        `--webview-preload=${pathToFileURL(join(__dirname, "webview-preload.cjs")).href}`,
+      ],
     },
   });
   mainWindow.loadFile(join(__dirname, "chrome.html"));
@@ -232,6 +351,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === "darwin") {
+    const img = nativeImage.createFromPath(ICON_PATH);
+    if (!img.isEmpty()) app.dock?.setIcon(img);
+  }
   const engine = buildEngine();
 
   // Take over https AND http. From here, every request the browser makes is
@@ -252,7 +375,58 @@ app.whenReady().then(() => {
   });
   ipcMain.handle("x402:refund", () => refundMerchant());
 
+  // Pages that ask for a new window (target=_blank, window.open) get a tab instead of a
+  // stray native window. Only web URLs — never let a page spawn file:/custom schemes.
+  app.on("web-contents-created", (_e, wc) => {
+    if (wc.getType() !== "webview") return;
+    wc.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) mainWindow?.webContents.send("tab:open", url);
+      return { action: "deny" };
+    });
+  });
+  buildMenu();
+  const vaultSvc = registerVault({ path: process.env.DBB_VAULT || join(app.getPath("userData"), "vault.json"), getWindow: () => mainWindow });
+
+  // Tab list mirror (for the automation API) and the chrome UI's answers to askChrome().
+  ipcMain.on("tabs:sync", (_e, list: TabInfo[]) => setTabs(Array.isArray(list) ? list : []));
+  ipcMain.on("ctl:res", (_e, r: { id: string; result?: unknown; error?: string }) => {
+    const p = chromeReqs.get(r.id);
+    if (!p) return;
+    clearTimeout(p.timer);
+    chromeReqs.delete(r.id);
+    if (r.error) p.reject(new Error(r.error));
+    else p.resolve(r.result);
+  });
+
   createWindow();
+  // Automation API: off unless asked for (see control.ts for the security model).
+  if (process.env.DBB_CONTROL === "1" || process.argv.includes("--control")) {
+    startControl(
+      {
+        askChrome,
+        vault: vaultSvc,
+        eventsSince: (n) => ({ events: eventLog.filter((e) => (e.seq as number) > n), next: eventSeq }),
+        getApproval: () => approval,
+        setApproval: (p) => {
+          approval = p;
+          emit({ kind: "approval-changed", mode: p.mode, maxUsd: p.maxUsd });
+        },
+        spent: () => formatUsd(engine.policy.spentUsdMicro()),
+        receipts: () => JSON.parse(JSON.stringify(engine.ledger.all(), (_k, v) => (typeof v === "bigint" ? v.toString() : v))),
+      },
+      { port: Number(process.env.DBB_CONTROL_PORT) || 9777, token: process.env.DBB_CONTROL_TOKEN },
+    )
+      .then((h) => {
+        control = h;
+        console.error(`[control] automation API on http://127.0.0.1:${h.port}/rpc — token in ${h.file}`);
+        mainWindow?.webContents.send("ctl:status", { port: h.port });
+        buildMenu(); // refresh the Help menu's status line
+      })
+      .catch((e) => console.error("[control] failed to start:", e));
+  }
+  mainWindow?.webContents.on("did-finish-load", () => {
+    if (control) mainWindow?.webContents.send("ctl:status", { port: control.port });
+  });
   // Show the balance on load, then poll — so funding shows up without a restart.
   mainWindow?.webContents.once("did-finish-load", () => void refreshBalance());
   setInterval(() => void refreshBalance(), 20_000);

@@ -7,3 +7,6 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Branded dev copy of Electron.app (scripts/launch.mjs)
+.bundle/

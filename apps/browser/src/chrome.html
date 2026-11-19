@@ -25,7 +25,46 @@
       #mbal.earning { color: #7ee787; border-color: #1c4a1a; }
       .txlink { color: #7aa2ff; cursor: pointer; text-decoration: underline; }
       #main { flex: 1; display: flex; min-height: 0; }
-      #page { flex: 1; border: 0; height: 100%; background: #fff; }
+      #pages { flex: 1; position: relative; min-width: 0; }
+      /* Inactive tabs stay full-size (so pages lay out correctly) but are hidden. */
+      .pg { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+      .pg.hidden { visibility: hidden; pointer-events: none; }
+      #tabbar { display: flex; align-items: flex-end; gap: 4px; padding: 6px 10px 0; background: #1a1a1e; }
+      #tabs { display: flex; gap: 2px; min-width: 0; overflow: hidden; }
+      /* width (not just flex-basis) so the container is sized from 200px, not from the full title text */
+      .tab { display: flex; align-items: center; gap: 6px; flex: 0 1 200px; width: 200px; min-width: 72px; padding: 6px 6px 6px 12px; border-radius: 8px 8px 0 0; background: #202024; color: #8a8a90; cursor: pointer; user-select: none; }
+      .tab:hover { background: #232328; }
+      .tab.on { background: #26262b; color: #e8e8ea; }
+      .tab .tt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tab .bolt { color: #7ee787; font-size: 11px; }
+      .tab .x { opacity: .55; border-radius: 4px; padding: 0 5px; line-height: 16px; }
+      .tab .x:hover { background: #3a3a40; opacity: 1; }
+      #newTab { margin-bottom: 3px; padding: 2px 9px; }
+      #ctlChip { padding: 6px 10px; border-radius: 7px; background: #2a1f0a; color: #f0c674; border: 1px solid #5a4514; white-space: nowrap; font-size: 12px; }
+      #keyBtn { position: relative; }
+      #keyDot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: #55555c; border: 2px solid #26262b; }
+      #keyBtn.unlocked #keyDot { background: #7ee787; }
+      #offerbar { display: none; align-items: center; gap: 8px; padding: 7px 12px; background: #1a2033; border-bottom: 1px solid #2a3a66; color: #cde0ff; font-size: 12px; flex-wrap: wrap; }
+      #offerbar.show { display: flex; }
+      #offerbar .msg { flex: 1; min-width: 160px; }
+      #offerbar .msg b { color: #fff; font-weight: 600; }
+      .sbtn { padding: 4px 10px; border-radius: 6px; border: 1px solid #3a5a9a; background: #23324e; color: #cde0ff; cursor: pointer; font-size: 12px; }
+      .sbtn:hover { background: #2b3d5e; }
+      .sbtn.quiet { background: transparent; border-color: #3a3a40; color: #9a9aa2; }
+      #vaultPanel { position: fixed; top: 84px; right: 10px; width: 350px; max-height: calc(100vh - 100px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; }
+      #vaultPanel.open { display: block; }
+      #vaultPanel h4 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+      #vaultPanel h4 .sp { flex: 1; }
+      #vaultPanel .sec { margin: 12px 0 4px; color: #7a7a82; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+      #vaultPanel input { width: 100%; padding: 6px 9px; margin: 3px 0; border-radius: 6px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; font-size: 12px; }
+      #vaultPanel input:focus { outline: none; border-color: #5b8cff; }
+      #vaultPanel .row2 { display: flex; gap: 6px; align-items: center; }
+      #vaultPanel .hint { color: #8a8a90; font-size: 11.5px; line-height: 1.5; margin: 4px 0; }
+      #vaultPanel .err { color: #ff9a9a; font-size: 11.5px; margin: 4px 0; }
+      .cred { display: flex; align-items: center; gap: 6px; padding: 6px 8px; margin: 3px 0; background: #17171b; border: 1px solid #2a2a30; border-radius: 7px; }
+      .cred .who { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+      .cred .who small { display: block; color: #7a7a82; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; }
+      .cred .x { cursor: pointer; opacity: .5; padding: 0 4px; } .cred .x:hover { opacity: 1; color: #ff9a9a; }
       #inspector { width: 400px; flex: none; background: #17171b; border-left: 1px solid #000; display: none; flex-direction: column; }
       #inspector.open { display: flex; }
       #insHead { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid #2a2a30; font-weight: 600; }
@@ -64,11 +103,18 @@
     </style>
   </head>
   <body>
+    <div id="tabbar">
+      <div id="tabs"></div>
+      <button class="btn" id="newTab" title="New tab (⌘T)">+</button>
+    </div>
     <div id="bar">
       <button class="btn" id="back">‹</button>
       <button class="btn" id="fwd">›</button>
-      <input id="url" placeholder="Enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
+      <input id="url" placeholder="Search askrobots.com or enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
+      <button class="btn" id="galleryBtn" title="Open the local x402 test gallery (http://127.0.0.1:8899/) — start it with: node apps/browser/demo/x402-demo-server.mjs">🧪 x402 tests</button>
       <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
+      <div id="ctlChip" style="display:none"></div>
+      <button class="btn" id="keyBtn" title="Passwords"><span>🔑</span><span id="keyDot"></span></button>
       <button class="btn" id="inspectBtn" title="x402 inspector">⚡ x402<span id="inspectCount">0</span></button>
       <div id="bal" class="chip" title="Your wallet USDC on Base Sepolia — click to copy address">◈ —</div>
       <div id="mbal" title="Merchant wallet — live payments land here" style="display:none">🏪 —</div>
@@ -76,8 +122,10 @@
       <button class="btn" id="fundBtn" title="Copy address + open the faucet">Fund</button>
       <div id="meter" class="zero" title="Total paid this session">$0.00</div>
     </div>
+    <div id="offerbar"></div>
+    <div id="vaultPanel"></div>
     <div id="main">
-      <webview id="page" src="about:blank"></webview>
+      <div id="pages"></div>
       <div id="inspector">
         <div id="insHead">
           <span>x402</span>
@@ -92,38 +140,250 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
-      const page = $("page");
       const urlInput = $("url");
 
-      function go(raw) {
-        let u = raw.trim();
-        if (!u) return;
-        if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(u)) {
-          // Default to https, but loopback and private-LAN dev hosts are almost always
-          // http — forcing https there just fails the handshake and shows a blank page.
-          const host = u.split("/")[0].split(":")[0];
-          const isLocal =
-            host === "localhost" ||
-            host.endsWith(".local") ||
-            /^127(\.\d+){3}$/.test(host) ||
-            /^10(\.\d+){3}$/.test(host) ||
-            /^192\.168(\.\d+){2}$/.test(host) ||
-            /^172\.(1[6-9]|2\d|3[01])(\.\d+){2}$/.test(host);
-          u = (isLocal ? "http://" : "https://") + u;
+      // ---- tabs ------------------------------------------------------------
+      // One <webview> per tab. Each tab owns its inspector rows so payment history
+      // follows the page that caused it, not whichever tab happens to be in front.
+      const tabs = [];
+      let active = null;
+      let nextTabId = 1;
+      let rows = new Map(); // alias for the active tab's inspector rows
+      const owners = new Map(); // resource URL -> tab that triggered it
+
+      const shown = (u) => (u && !u.startsWith("about:") ? u : "");
+
+      function newTab(url, activate = true) {
+        const wv = document.createElement("webview");
+        wv.className = "pg hidden";
+        wv.setAttribute("src", "about:blank");
+        wv.setAttribute("allowpopups", ""); // main's windowOpenHandler turns these into tabs
+        if (window.x402.webviewPreload) wv.setAttribute("preload", window.x402.webviewPreload);
+        const tab = { id: nextTabId++, wv, wcId: null, url: "", title: "", rows: new Map(), userClosed: false, paid: false, ready: false, pending: null, loading: false, saveOffer: null, fillOffer: null, waiters: [], navSeen: false };
+
+        // Navigate only once the webview is really ready — setting src at creation
+        // races its own init and can leave us stranded on about:blank.
+        wv.addEventListener("dom-ready", () => {
+          tab.ready = true;
+          try { tab.wcId = wv.getWebContentsId(); } catch {}
+          if (tab.pending) { const p = tab.pending; tab.pending = null; wv.src = p; }
+        });
+        wv.addEventListener("did-start-loading", () => { tab.loading = true; syncTabs(); });
+        wv.addEventListener("did-stop-loading", () => {
+          tab.loading = false;
+          syncTabs();
+          if (tab.navSeen && tab.waiters.length) { // automation is waiting for this navigation to finish
+            const ws = tab.waiters; tab.waiters = [];
+            for (const w of ws) w({ loaded: true });
+          }
+        });
+        // Reset this tab's inspector when navigation STARTS — the page's payment events
+        // fire during the load, so resetting on did-navigate (after) would wipe them.
+        wv.addEventListener("did-start-navigation", (e) => {
+          if (!e.isMainFrame || e.isInPlace) return;
+          if (shown(e.url)) { tab.url = e.url; tab.navSeen = true; }
+          tab.rows.clear();
+          tab.paid = false;
+          tab.userClosed = false; // new page — allow auto-open again
+          tab.fillOffer = null; // a save offer deliberately survives: login → redirect → "save?"
+          if (tab.saveOffer) { // …but not into a different site
+            let same = false;
+            try { same = new URL(e.url).origin === tab.saveOffer.origin; } catch {}
+            if (!same && shown(e.url)) { window.x402.vault.dismiss(tab.wcId); tab.saveOffer = null; }
+          }
+          renderTabs();
+          if (tab === active) renderOffer();
+          if (tab === active) renderInspector();
+        });
+        const onNav = (e) => {
+          if (!shown(e.url)) return;
+          tab.url = e.url;
+          if (tab === active) urlInput.value = e.url;
+        };
+        wv.addEventListener("did-navigate", onNav);
+        wv.addEventListener("did-navigate-in-page", (e) => { if (e.isMainFrame) onNav(e); });
+        wv.addEventListener("page-title-updated", (e) => { tab.title = e.title; renderTabs(); });
+
+        $("pages").appendChild(wv);
+        tabs.push(tab);
+        if (activate) switchTo(tab); else renderTabs();
+        if (url) go(url, tab);
+        return tab;
+      }
+
+      function switchTo(tab) {
+        active = tab;
+        for (const t of tabs) t.wv.classList.toggle("hidden", t !== tab);
+        rows = tab.rows;
+        urlInput.value = tab.url;
+        renderTabs();
+        renderInspector();
+        renderOffer();
+        if (vaultPanelOpen) renderVaultPanel();
+        if (!tab.url) urlInput.focus();
+      }
+
+      function closeTab(tab) {
+        const i = tabs.indexOf(tab);
+        if (i < 0) return;
+        tab.wv.remove();
+        tabs.splice(i, 1);
+        if (tabs.length === 0) return void openNewTab(); // never leave the window tab-less
+        if (active === tab) switchTo(tabs[Math.min(i, tabs.length - 1)]);
+        else renderTabs();
+      }
+
+      function cycleTab(dir) {
+        if (tabs.length < 2) return;
+        switchTo(tabs[(tabs.indexOf(active) + dir + tabs.length) % tabs.length]);
+      }
+
+      function tabLabel(t) {
+        if (t.title) return t.title;
+        try { return new URL(t.url).host; } catch { return t.url ? t.url : "New Tab"; }
+      }
+
+      function renderTabs() {
+        const bar = $("tabs");
+        bar.innerHTML = "";
+        for (const t of tabs) {
+          const el = document.createElement("div");
+          el.className = "tab" + (t === active ? " on" : "");
+          el.title = t.url || "New Tab";
+          const bolt = document.createElement("span");
+          bolt.className = "bolt"; bolt.textContent = t.paid ? "⚡" : "";
+          const tt = document.createElement("span");
+          tt.className = "tt"; tt.textContent = tabLabel(t);
+          const x = document.createElement("span");
+          x.className = "x"; x.textContent = "×";
+          x.onclick = (e) => { e.stopPropagation(); closeTab(t); };
+          el.append(bolt, tt, x);
+          el.onclick = () => switchTo(t);
+          el.onauxclick = (e) => { if (e.button === 1) closeTab(t); };
+          bar.appendChild(el);
         }
-        urlInput.value = u;
-        page.src = u;
+        document.title = active ? tabLabel(active) + " — dbbasic-browser" : "dbbasic-browser";
+        syncTabs();
+      }
+
+      // Mirror tab state to main so the automation API can address tabs by id.
+      function syncTabs() {
+        window.x402.syncTabs(tabs.map((t) => ({ id: t.id, wcId: t.wcId, url: t.url, title: t.title, active: t === active, loading: t.loading })));
+      }
+
+      // ---- automation (see control.ts) ---------------------------------------
+      // Resolves when the NEXT navigation in this tab finishes (or times out).
+      function waitLoad(tab, ms = 30000) {
+        return new Promise((resolve) => {
+          tab.navSeen = false;
+          const timer = setTimeout(() => { tab.waiters = tab.waiters.filter((w) => w !== done); resolve({ timeout: true }); }, ms);
+          const done = (r) => { clearTimeout(timer); resolve(r); };
+          tab.waiters.push(done);
+        });
+      }
+      async function tabReady(tab) {
+        for (let i = 0; i < 100 && tab.wcId == null; i++) await new Promise((r) => setTimeout(r, 50));
+        return tab.wcId != null;
+      }
+      const summary = (t, extra) => ({ id: t.id, wcId: t.wcId, url: t.url, title: t.title, ...extra });
+      window.x402.onControl(async (op, a) => {
+        const tab = a.id != null ? tabs.find((t) => t.id === a.id) : null;
+        if (a.id != null && !tab) throw new Error("no such tab: " + a.id);
+        switch (op) {
+          case "tab.new": {
+            const t = newTab(null, a.activate !== false);
+            await tabReady(t);
+            if (a.url) { const w = waitLoad(t); go(a.url, t); if (a.wait) return summary(t, await w); }
+            return summary(t, {});
+          }
+          case "tab.close": closeTab(tab); return { closed: a.id };
+          case "tab.activate": switchTo(tab); return summary(tab, {});
+          case "tab.goto": { const w = waitLoad(tab); go(a.url, tab); return summary(tab, a.wait ? await w : {}); }
+          case "tab.back": { const w = waitLoad(tab); tab.wv.goBack(); return summary(tab, a.wait ? await w : {}); }
+          case "tab.forward": { const w = waitLoad(tab); tab.wv.goForward(); return summary(tab, a.wait ? await w : {}); }
+          case "tab.reload": { const w = waitLoad(tab); tab.wv.reload(); return summary(tab, a.wait ? await w : {}); }
+          case "tab.waitLoad": return summary(tab, await waitLoad(tab, a.ms || 15000));
+          default: throw new Error("unknown op " + op);
+        }
+      });
+      window.x402.onControlStatus(({ port }) => {
+        const c = $("ctlChip");
+        c.style.display = "";
+        c.textContent = "🤖 :" + port;
+        c.title = "Automation API is listening on 127.0.0.1:" + port + " - this browser can be remote-controlled";
+      });
+
+      // A new tab opens the homepage (askrobots.com by default), like any browser's new-tab page.
+      // The automation API's tabs.new stays blank unless given a url, so scripts get a clean slate.
+      function openNewTab() {
+        const t = newTab(window.x402.homepage || null);
+        urlInput.focus();
+        urlInput.select();
+        return t;
+      }
+      $("newTab").onclick = () => openNewTab();
+
+      // Which tab does a payment event belong to? Events carry only a resource URL, so:
+      // reuse the earlier mapping; else among loading tabs prefer the one on the same
+      // origin, then the active one; else fall back to the active tab.
+      function ownerOf(resource) {
+        const prior = owners.get(resource);
+        if (prior && tabs.includes(prior)) return prior;
+        let origin = "";
+        try { origin = new URL(resource).origin; } catch {}
+        const loading = tabs.filter((t) => t.loading);
+        const sameOrigin = loading.find((t) => { try { return new URL(t.url).origin === origin; } catch { return false; } });
+        const t = sameOrigin || (loading.includes(active) ? active : loading[0]) || active;
+        owners.set(resource, t);
+        return t;
+      }
+
+      // Native menu accelerators (⌘T / ⌘W / ⌘L …) arrive here — they work even when
+      // focus is inside a page, which a document-level keydown would never see.
+      window.x402.onTabCommand((cmd) => {
+        if (cmd === "new") openNewTab();
+        else if (cmd === "close") closeTab(active);
+        else if (cmd === "focus-url") { urlInput.focus(); urlInput.select(); }
+        else if (cmd === "next") cycleTab(1);
+        else if (cmd === "prev") cycleTab(-1);
+        else if (cmd === "reload") { try { active.wv.reload(); } catch {} }
+      });
+      // target=_blank / window.open from a page → a new tab beside it.
+      window.x402.onOpenTab((url) => newTab(url));
+
+      // Anything that isn't clearly an address is a search — answered by askrobots.com
+      // (the template its own opensearch.xml advertises).
+      const SEARCH_URL = "https://askrobots.com/dashboard/search/?q=%s&source=opensearch";
+      const isLocalHost = (host) =>
+        host === "localhost" || host.endsWith(".local") ||
+        /^127(\.\d+){3}$/.test(host) || /^10(\.\d+){3}$/.test(host) ||
+        /^192\.168(\.\d+){2}$/.test(host) || /^172\.(1[6-9]|2\d|3[01])(\.\d+){2}$/.test(host);
+
+      function toUrl(raw) {
+        const u = raw.trim();
+        if (!u) return "";
+        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(u) || /^(about|file|data|view-source):/i.test(u)) return u;
+        const host = u.split(/[/?#]/)[0].split(":")[0];
+        if (!/\s/.test(u) && (isLocalHost(host) || /^[^\s.]+(\.[^\s.]+)+$/.test(host))) {
+          // Default to https, but loopback and private-LAN dev hosts are almost always http —
+          // forcing https there just fails the handshake and shows a blank page.
+          return (isLocalHost(host) ? "http://" : "https://") + u;
+        }
+        return SEARCH_URL.replace("%s", encodeURIComponent(u).replace(/%20/g, "+"));
+      }
+
+      function go(raw, tab = active) {
+        const u = toUrl(raw);
+        if (!u) return;
+        tab.url = u;
+        if (tab === active) urlInput.value = u;
+        renderTabs();
+        if (tab.ready) tab.wv.src = u;
+        else tab.pending = u; // applied on dom-ready
       }
       urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") go(urlInput.value); });
-      $("back").onclick = () => page.canGoBack() && page.goBack();
-      $("fwd").onclick = () => page.canGoForward() && page.goForward();
-      // Reset the inspector when navigation STARTS — the page's payment events fire
-      // during the load, so resetting on did-navigate (after) would wipe the very
-      // entries that belong to this page.
-      page.addEventListener("did-start-navigation", (e) => {
-        if (e.isMainFrame && !e.isInPlace) resetInspector();
-      });
-      page.addEventListener("did-navigate", (e) => { urlInput.value = e.url; });
+      $("back").onclick = () => { try { active.wv.canGoBack() && active.wv.goBack(); } catch {} };
+      $("fwd").onclick = () => { try { active.wv.canGoForward() && active.wv.goForward(); } catch {} };
 
       function toast(cls, text, ms = 4000) {
         const n = document.createElement("div");
@@ -133,17 +393,201 @@
         setTimeout(() => n.remove(), ms);
       }
 
+      // ---- password manager ------------------------------------------------
+      // Secrets never reach this document: logins go page → main, fills go main → page.
+      // We only ever see usernames, origins and ids.
+      const vault = window.x402.vault;
+      let vstate = { exists: false, unlocked: false, count: null };
+      let vaultPanelOpen = false;
+      let vaultMsg = ""; // transient error/info line inside the panel
+
+      function h(tag, props, ...kids) {
+        const el = document.createElement(tag);
+        for (const [k, v] of Object.entries(props || {})) {
+          if (k === "class") el.className = v;
+          else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+          else el.setAttribute(k, v);
+        }
+        for (const kid of kids) el.append(kid == null ? "" : kid.nodeType ? kid : document.createTextNode(String(kid)));
+        return el;
+      }
+      const hostOf = (u) => { try { return new URL(u).host; } catch { return u; } };
+
+      function applyVaultState(st) {
+        vstate = st;
+        $("keyBtn").classList.toggle("unlocked", st.unlocked);
+        $("keyBtn").title = st.unlocked ? `Passwords — unlocked (${st.count} saved)` : st.exists ? "Passwords — locked" : "Passwords — set up";
+        if (vaultPanelOpen) renderVaultPanel();
+        renderOffer();
+      }
+      vault.state().then(applyVaultState);
+      vault.onState(applyVaultState);
+
+      function setVaultPanel(open) {
+        vaultPanelOpen = open;
+        $("vaultPanel").classList.toggle("open", open);
+        $("keyBtn").classList.toggle("on", open);
+        if (open) { vaultMsg = ""; renderVaultPanel(); }
+      }
+      $("keyBtn").onclick = () => setVaultPanel(!vaultPanelOpen);
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && vaultPanelOpen) setVaultPanel(false); });
+
+      async function renderVaultPanel() {
+        const P = $("vaultPanel");
+        P.innerHTML = "";
+        const err = () => (vaultMsg ? h("div", { class: "err" }, vaultMsg) : "");
+
+        if (!vstate.exists) {
+          const m1 = h("input", { type: "password", placeholder: "Master password (8+ characters)", autocomplete: "off" });
+          const m2 = h("input", { type: "password", placeholder: "Confirm master password", autocomplete: "off" });
+          const go = async () => {
+            if (m1.value !== m2.value) { vaultMsg = "Passwords don't match."; return renderVaultPanel(); }
+            const r = await vault.create(m1.value);
+            vaultMsg = r.ok ? "" : r.message;
+            if (!r.ok) renderVaultPanel();
+          };
+          m2.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+          P.append(h("h4", {}, "🔑 Set up your password vault"),
+            h("div", { class: "hint" }, "Passwords are encrypted on this computer with your master password. There is no recovery if you forget it, and nothing is sent anywhere."),
+            m1, m2, err(), h("button", { class: "sbtn", onclick: go }, "Create vault"));
+          m1.focus();
+          return;
+        }
+
+        if (!vstate.unlocked) {
+          const m = h("input", { type: "password", placeholder: "Master password", autocomplete: "off" });
+          const go = async () => {
+            const r = await vault.unlock(m.value);
+            vaultMsg = r.ok ? "" : r.message;
+            if (!r.ok) renderVaultPanel();
+          };
+          m.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+          P.append(h("h4", {}, "🔑 Vault locked"), m, err(), h("button", { class: "sbtn", onclick: go }, "Unlock"));
+          m.focus();
+          return;
+        }
+
+        const siteRes = active && active.wcId != null ? await vault.list(active.wcId) : { ok: true, data: [] };
+        const allRes = await vault.list();
+        if (!vaultPanelOpen || !vstate.unlocked) return; // state changed while we awaited
+        P.innerHTML = "";
+        const site = siteRes.ok ? siteRes.data : [];
+        const all = allRes.ok ? allRes.data : [];
+        const host = active && active.url ? hostOf(active.url) : "";
+
+        P.append(h("h4", {}, `🔑 ${all.length} saved`, h("span", { class: "sp" }), h("button", { class: "sbtn quiet", onclick: () => vault.lock() }, "Lock")));
+        if (vaultMsg) P.append(h("div", { class: "err" }, vaultMsg));
+
+        if (host) {
+          P.append(h("div", { class: "sec" }, "This site · " + host));
+          if (!site.length) P.append(h("div", { class: "hint" }, "No saved login for this exact site."));
+          for (const c of site) {
+            P.append(h("div", { class: "cred" },
+              h("div", { class: "who" }, c.username || "(no username)"),
+              h("button", { class: "sbtn", onclick: () => doFill(c.id, false) }, "Fill"),
+              h("button", { class: "sbtn", onclick: () => doFill(c.id, true) }, "Sign in")));
+          }
+          // Manual add for the current page.
+          const u = h("input", { placeholder: "Username or email", autocomplete: "off" });
+          const pw = h("input", { type: "password", placeholder: "Password", autocomplete: "off" });
+          P.append(h("div", { class: "sec" }, "Save a login for this site"), u,
+            h("div", { class: "row2" }, pw, h("button", { class: "sbtn quiet", onclick: async () => { pw.type = "text"; pw.value = await vault.generate(20); } }, "Generate")),
+            h("button", { class: "sbtn", onclick: async () => {
+              if (!pw.value) return;
+              const r = await vault.add({ wcId: active.wcId, username: u.value, password: pw.value });
+              vaultMsg = r.ok ? "" : r.message;
+              if (r.ok) toast("quoted", "Saved " + (u.value || "login") + " for " + host, 2500);
+              renderVaultPanel();
+            } }, "Save"));
+        }
+
+        P.append(h("div", { class: "sec" }, "All logins"));
+        if (!all.length) P.append(h("div", { class: "hint" }, "Nothing saved yet. Sign in to a site and you'll be offered to save it."));
+        for (const c of all) {
+          P.append(h("div", { class: "cred" },
+            h("div", { class: "who" }, c.username || "(no username)", h("small", {}, c.origin)),
+            h("span", { class: "x", title: "Delete", onclick: async () => {
+              if (!confirm(`Delete the saved login for ${c.username || "(no username)"} on ${c.origin}?`)) return;
+              await vault.remove(c.id);
+              renderVaultPanel();
+            } }, "✕")));
+        }
+      }
+
+      async function doFill(id, submit) {
+        if (!active || active.wcId == null) return;
+        const r = await vault.fill({ wcId: active.wcId, id, submit });
+        if (r.ok) { toast("quoted", (submit ? "Signing in as " : "Filled ") + (r.data.username || "login"), 2200); setVaultPanel(false); }
+        else { vaultMsg = r.message; if (vaultPanelOpen) renderVaultPanel(); else toast("skipped", r.message); }
+      }
+
+      // Offers pushed from main (page has a login form we know / user just submitted one).
+      vault.onOffer((o) => {
+        const tab = tabs.find((t) => t.wcId === o.wcId);
+        if (!tab) return;
+        if (o.kind === "save") {
+          tab.saveOffer = o;
+          // Same lifetime as the main-process copy of the pending login; don't nag forever.
+          setTimeout(() => { if (tab.saveOffer === o) { tab.saveOffer = null; if (tab === active) renderOffer(); } }, 120000);
+        } else tab.fillOffer = o;
+        if (tab === active) renderOffer();
+      });
+
+      function renderOffer() {
+        const bar = $("offerbar");
+        bar.innerHTML = "";
+        const t = active;
+        if (!t) return void bar.classList.remove("show");
+        const close = (which) => h("button", { class: "sbtn quiet", onclick: () => {
+          if (which === "save") { vault.dismiss(t.wcId); t.saveOffer = null; } else t.fillOffer = null;
+          renderOffer();
+        } }, which === "save" ? "Not now" : "✕");
+
+        if (t.saveOffer) {
+          const o = t.saveOffer;
+          const who = o.username || "this login";
+          const canSave = vstate.unlocked; // mode may be stale (e.g. "locked" before the user unlocked)
+          const msg = !vstate.exists ? ["Create a password vault to save ", who, " for ", hostOf(o.origin), "?"]
+            : !canSave ? ["Unlock your vault to save ", who, " for ", hostOf(o.origin), "."]
+            : [o.mode === "update" ? "Update the saved password for " : "Save password for ", who, " on ", hostOf(o.origin), "?"];
+          const main = canSave
+            ? h("button", { class: "sbtn", onclick: async () => {
+                const r = await vault.accept(t.wcId);
+                t.saveOffer = null;
+                toast(r.ok ? "paid" : "skipped", r.ok ? "Saved login for " + hostOf(o.origin) : "Couldn't save: " + r.message);
+                renderOffer();
+              } }, o.mode === "update" ? "Update" : "Save")
+            : h("button", { class: "sbtn", onclick: () => setVaultPanel(true) }, !vstate.exists ? "Create vault…" : "Unlock…");
+          bar.append(h("span", { class: "msg" }, "🔑 ", h("b", {}, msg[0]), msg[1], h("b", {}, msg[2]), msg[3]), main, close("save"));
+          return void bar.classList.add("show");
+        }
+
+        if (t.fillOffer && t.fillOffer.matches.length) {
+          const m = t.fillOffer.matches;
+          bar.append(h("span", { class: "msg" }, "🔑 Saved login for ", h("b", {}, hostOf(t.fillOffer.origin))));
+          for (const c of m.slice(0, 3)) {
+            bar.append(h("button", { class: "sbtn", onclick: () => doFill(c.id, true) }, "Sign in" + (c.username ? " as " + c.username : "")),
+              h("button", { class: "sbtn quiet", onclick: () => doFill(c.id, false) }, "Fill"));
+          }
+          bar.append(close("fill"));
+          return void bar.classList.add("show");
+        }
+        bar.classList.remove("show");
+      }
+
       // ---- guided tour -----------------------------------------------------
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       function currentBase() {
         try {
-          const u = new URL(page.getURL());
-          if (u.protocol.startsWith("http")) return u.origin;
+          const u = new URL(active.url);
+          // Only reuse the current origin if it is local — the tour's routes live on the demo gallery.
+          if (u.protocol.startsWith("http") && isLocalHost(u.hostname)) return u.origin;
         } catch {}
         return "http://127.0.0.1:8899"; // default demo gallery
       }
       const TOUR = [["/", 2600], ["/room", 3400], ["/article", 3400], ["/free", 2800], ["/unknown", 3400], ["/", 1600]];
       let touring = false;
+      $("galleryBtn").onclick = () => newTab("http://127.0.0.1:8899/");
       $("tourBtn").onclick = async () => {
         if (touring) { touring = false; return; } // second click stops
         touring = true;
@@ -160,11 +604,10 @@
       };
 
       // ---- inspector -------------------------------------------------------
-      const rows = new Map(); // resource URL -> accumulated lifecycle (this page)
-      const history = []; // persistent session log, newest-first
+      // `rows` (resource URL -> lifecycle) lives on each tab; see the tabs section.
+      const history = []; // persistent session log across all tabs, newest-first
       let view = "page"; // "page" | "session"
       let inspectorOpen = false;
-      let userClosed = false; // once the user closes it on a page, stop auto-opening
 
       function setInspector(open) {
         inspectorOpen = open;
@@ -173,7 +616,7 @@
       }
       $("inspectBtn").onclick = () => {
         setInspector(!inspectorOpen);
-        userClosed = !inspectorOpen;
+        active.userClosed = !inspectorOpen; // once closed on a page, stop auto-opening
       };
       function setView(v) {
         view = v;
@@ -183,12 +626,6 @@
       }
       $("tabPage").onclick = () => setView("page");
       $("tabSession").onclick = () => setView("session");
-
-      function resetInspector() {
-        rows.clear();
-        userClosed = false; // new page — allow auto-open again
-        renderInspector();
-      }
 
       function cheapest(quotes) {
         return (quotes || []).reduce((a, b) => (!a || parseFloat(b.price.replace("$","")) < parseFloat(a.price.replace("$","")) ? b : a), null);
@@ -223,7 +660,7 @@
       // Click a real tx → open it on BaseScan in the page.
       $("insList").addEventListener("click", (e) => {
         const l = e.target.closest(".txlink");
-        if (l && l.dataset.url) go(l.dataset.url);
+        if (l && l.dataset.url) newTab(l.dataset.url); // keep the paid page; open the tx beside it
       });
 
       function renderInspector() {
@@ -316,16 +753,19 @@
       }
 
       function upsert(resource, patch) {
-        const e = rows.get(resource) || { resource };
+        const t = ownerOf(resource);
+        const e = t.rows.get(resource) || { resource };
         Object.assign(e, patch);
-        rows.set(resource, e);
-        if (!inspectorOpen && !userClosed) setInspector(true); // surface payment activity
+        t.rows.set(resource, e);
+        if (patch.outcome === "paid" && !t.paid) { t.paid = true; renderTabs(); }
+        if (t !== active) return; // background tab: record it, don't disturb the one in front
+        if (!inspectorOpen && !t.userClosed) setInspector(true); // surface payment activity
         renderInspector();
       }
 
       // Log a terminal outcome (paid / refused) to the persistent session history.
       function logHistory(resource) {
-        const e = rows.get(resource);
+        const e = ownerOf(resource).rows.get(resource);
         if (!e) return;
         const st = statusOf(e);
         history.unshift({
@@ -339,6 +779,9 @@
       }
 
       window.x402.onEvent((ev) => {
+        // "quoted" opens a resource's lifecycle (quoted → decided → paid). Drop any stale
+        // tab mapping so a second tab loading the same URL isn't credited to the first.
+        if (ev.kind === "quoted") owners.delete(ev.resource);
         if (ev.kind === "quoted") {
           const c = cheapest(ev.quotes);
           upsert(ev.resource, { quote: c, quotes: ev.quotes, rejected: ev.rejected });
@@ -352,6 +795,11 @@
           upsert(ev.resource, { outcome: "paid", paidStatus: ev.status, nonce: ev.nonce, validBefore: ev.validBefore, tx: ev.tx, requested: ev.requested, auth: ev.auth, signature: ev.signature });
           logHistory(ev.resource);
           toast("paid", `Paid ${ev.amount} ${ev.asset} → ${new URL(ev.dest).host}${ev.tx ? " ✓" : ""}`);
+        } else if (ev.kind === "auto-decision") {
+          // Automation answered a payment prompt - never silent.
+          toast(ev.approved ? "quoted" : "skipped", "🤖 " + (ev.approved ? "Auto-approved " : "Auto-declined ") + ev.price + " (" + ev.mode + ", cap $" + ev.cap + ") - " + shortPath(ev.resource), 5000);
+        } else if (ev.kind === "approval-changed") {
+          toast("quoted", "🤖 Payment approval set to " + ev.mode + (ev.mode === "auto" ? " up to $" + ev.maxUsd : ""), 5000);
         } else if (ev.kind === "skipped") {
           upsert(ev.resource, { outcome: "skipped", skipReason: ev.reason });
           logHistory(ev.resource);
@@ -406,18 +854,9 @@
         }
       };
 
-      // Load the homepage once the webview is actually ready to navigate. Setting
-      // page.src at parse time races the <webview>'s own async init, which can
-      // re-apply its original src="about:blank" and leave us stranded there.
-      let homeLoaded = false;
-      function loadHome() {
-        if (homeLoaded || !window.x402.homepage) return;
-        homeLoaded = true;
-        go(window.x402.homepage);
-      }
-      page.addEventListener("dom-ready", loadHome);   // fires when the webview is ready
-      setTimeout(loadHome, 600);                       // fallback if dom-ready already fired
-      urlInput.focus();
+      // First tab opens on the homepage; go() defers the navigation until dom-ready.
+      newTab(window.x402.homepage || null);
+      if (!window.x402.homepage) urlInput.focus();
     </script>
   </body>
 </html>
