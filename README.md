@@ -78,6 +78,7 @@ Requires Node 20+.
 
 ```bash
 npm install          # installs all workspaces
+# (If your npm blocks install scripts and Electron's binary is missing, run: node node_modules/electron/install.js)
 npm test           # unit tests: engine, proxy, vault and browser
 npm run e2e -w @dbbasic/browser   # end-to-end: drives the real browser through its automation API
                                    # (macOS/desktop; E2E_LIVE_NET=1 / E2E_LIVE_AI=1 add checks against real sites / real AI keys)
