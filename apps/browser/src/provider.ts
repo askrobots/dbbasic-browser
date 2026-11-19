@@ -87,7 +87,7 @@ export const normUrl = (u: string): string => {
 };
 
 /** Turn a caller's answer into a Response, validating everything the caller sent. */
-export function buildResponse(requestUrl: string, a: Answer, method = "GET"): { response: Response; bytes: number } {
+export function buildResponse(requestUrl: string, a: Answer, method = "GET"): { response: Response; bytes: number; setCookies: string[] } {
   if (!a || typeof a !== "object") throw new ProviderError("bad-params", "an answer is an object with a status");
   const status = a.status;
   if (!Number.isInteger(status) || status < 200 || status > 599) throw new ProviderError("bad-params", "status must be a whole number from 200 to 599");
@@ -103,9 +103,15 @@ export function buildResponse(requestUrl: string, a: Answer, method = "GET"): { 
   if (body && body.byteLength > MAX_BODY_BYTES) throw new ProviderError("too-large", `a body can be at most ${MAX_BODY_BYTES} bytes`);
 
   const headers = new Headers();
+  const setCookies: string[] = [];
   if (a.headers !== undefined) {
     if (!a.headers || typeof a.headers !== "object" || Array.isArray(a.headers)) throw new ProviderError("bad-params", "headers must be an object of name → value");
     for (const [k, v] of Object.entries(a.headers)) {
+      if (k.toLowerCase() === "set-cookie") {
+        // Never passed to the page; kept apart so a caller-chosen per-visit cookie jar can use them (see CookieJar).
+        for (const one of Array.isArray(v) ? v : [v]) if (typeof one === "string") setCookies.push(one);
+        continue;
+      }
       if (DROPPED_HEADERS.has(k.toLowerCase())) continue;
       for (const one of Array.isArray(v) ? v : [v]) {
         if (typeof one !== "string") throw new ProviderError("bad-params", `header ${k} must be text`);
@@ -132,6 +138,7 @@ export function buildResponse(requestUrl: string, a: Answer, method = "GET"): { 
   return {
     response: new Response(nullBody ? null : (body as unknown as BodyInit), { status, statusText: a.statusText ?? "", headers }),
     bytes: nullBody ? 0 : (body?.byteLength ?? 0),
+    setCookies,
   };
 }
 
@@ -146,6 +153,100 @@ export function kindOf(h: Record<string, string>): { navigate: boolean; destinat
   if (/^image\//.test(a)) return { navigate: false, destination: "image" };
   if (/^text\/css/.test(a)) return { navigate: false, destination: "style" };
   return { navigate: false, destination: "" };
+}
+
+/** A parsed Set-Cookie line, in the shape Electron's cookie store takes. */
+export interface ParsedCookie {
+  name: string;
+  value: string;
+  domain?: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  sameSite: "unspecified" | "no_restriction" | "lax" | "strict";
+  /** Seconds since the epoch; absent = a session cookie. */
+  expirationDate?: number;
+}
+
+/** Cookie limits for one visit: how many, and how large. */
+export const MAX_COOKIES_PER_VISIT = 50;
+export const MAX_COOKIE_BYTES = 4096;
+
+/**
+ * Parse one Set-Cookie line (RFC 6265 §5.2, the parts that matter). Returns null for anything unusable. This only reads the line:
+ * whether the cookie may be set (prefixes such as __Host-, Secure on plain http, public-suffix domains) is decided by Chromium's own
+ * cookie store when it is stored, not here.
+ */
+export function parseSetCookie(line: string, requestUrl: string, nowSec = Date.now() / 1000): ParsedCookie | null {
+  if (typeof line !== "string" || line.length > MAX_COOKIE_BYTES * 2) return null;
+  const parts = line.split(";");
+  const first = parts.shift() ?? "";
+  const eq = first.indexOf("=");
+  if (eq <= 0) return null;
+  const name = first.slice(0, eq).trim();
+  const value = first.slice(eq + 1).trim();
+  if (!name || /[\x00-\x1f\x7f\s=;,]/.test(name) || /[\x00-\x1f\x7f;]/.test(value) || name.length + value.length > MAX_COOKIE_BYTES) return null;
+  let path = "";
+  const c: ParsedCookie = { name, value, path: "", secure: false, httpOnly: false, sameSite: "unspecified" };
+  let maxAge: number | null = null;
+  let expires: number | null = null;
+  for (const p of parts) {
+    const i = p.indexOf("=");
+    const k = (i < 0 ? p : p.slice(0, i)).trim().toLowerCase();
+    const v = i < 0 ? "" : p.slice(i + 1).trim();
+    if (k === "domain" && v) c.domain = v.replace(/^\./, "").toLowerCase().length ? (v.startsWith(".") ? v : "." + v).toLowerCase() : undefined;
+    else if (k === "path" && v.startsWith("/")) path = v;
+    else if (k === "secure") c.secure = true;
+    else if (k === "httponly") c.httpOnly = true;
+    else if (k === "samesite") c.sameSite = v.toLowerCase() === "strict" ? "strict" : v.toLowerCase() === "lax" ? "lax" : v.toLowerCase() === "none" ? "no_restriction" : "unspecified";
+    else if (k === "max-age" && /^-?\d+$/.test(v)) maxAge = Number(v);
+    else if (k === "expires") {
+      const t = Date.parse(v);
+      if (Number.isFinite(t)) expires = t / 1000;
+    }
+  }
+  if (!path) {
+    // RFC 6265 §5.1.4: the directory of the request path.
+    let p = "/";
+    try {
+      p = new URL(requestUrl).pathname;
+    } catch {
+      /* keep "/" */
+    }
+    path = p.length > 1 && p.lastIndexOf("/") > 0 ? p.slice(0, p.lastIndexOf("/")) : "/";
+  }
+  c.path = path;
+  if (maxAge !== null) c.expirationDate = nowSec + maxAge; // Max-Age wins over Expires
+  else if (expires !== null) c.expirationDate = expires;
+  return c;
+}
+
+/**
+ * Is a request first-party for cookie purposes? A navigation is. Anything else is only when the page it follows is on the same site
+ * (the same host, or the same last two name labels). Third-party requests get no cookies, and none are stored from them.
+ */
+export function firstParty(url: string, follows: string, navigate: boolean): boolean {
+  if (navigate) return true;
+  try {
+    const a = new URL(url).hostname;
+    const b = new URL(follows).hostname;
+    const site = (h: string) => h.split(".").slice(-2).join(".");
+    return a === b || site(a) === site(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The per-visit cookie jar a caller can switch on. The browser's own cookie store holds the cookies (so Domain, Path, Secure, SameSite
+ * and prefixes are Chromium's rules, and a page's own document.cookie sees the same jar), and the visit's clean slate empties it.
+ */
+export interface CookieJar {
+  on(): boolean;
+  /** The Cookie header for a request, or "". */
+  header(url: string): Promise<string>;
+  /** Store a cookie from a response. Failures are the store's refusals and are ignored. */
+  store(url: string, cookie: ParsedCookie): Promise<void>;
 }
 
 export function clampAnswerTimeout(ms: unknown): number {
@@ -170,12 +271,20 @@ export class CallerNetwork {
   private parked = new Map<number, Entry>();
   private waiters = new Set<() => void>();
   private documents = new Map<string, { doc: Document; expires: number }>();
+  /** Set by the browser when the per-visit cookie jar is wanted; null = cookies are neither stored nor sent (the default). */
+  jar: CookieJar | null = null;
+  private visitCookies = 0;
   private emit: (e: NetEvent) => void;
   private nextId: () => number;
 
   constructor(emit: (e: NetEvent) => void, nextId: () => number) {
     this.emit = emit;
     this.nextId = nextId;
+  }
+
+  /** A new visit begins: the cookie allowance starts over (the cookies themselves are cleared by the browser). */
+  newVisit(): void {
+    this.visitCookies = 0;
   }
 
   /** Is a document the caller already has waiting for this address? */
@@ -213,6 +322,13 @@ export class CallerNetwork {
     input.headers.forEach((v, k) => (headers[k] = v));
     headers["user-agent"] = this.userAgent; // the caller's identity, never the desktop browser's
     const referrer = input.referrer && input.referrer !== "about:client" ? input.referrer : (input.headers.get("referer") ?? "");
+    const kind = kindOf(headers);
+    // The browser's Cookie header is the only one: whatever the page or Chromium put there is replaced, and without the jar there is none.
+    delete headers["cookie"];
+    if (this.jar?.on() && firstParty(input.url, referrer, kind.navigate)) {
+      const cookie = await this.jar.header(input.url);
+      if (cookie) headers["cookie"] = cookie;
+    }
 
     const id = this.nextId();
     this.emit({ id, url: input.url, type: "start" });
@@ -224,7 +340,7 @@ export class CallerNetwork {
         headers,
         ...(bodyBuf ? { bodyBase64: bodyBuf.toString("base64") } : {}),
         follows: referrer,
-        ...kindOf(headers),
+        ...kind,
         waitingMs: 0,
       };
       const timer = setTimeout(() => this.failEntry(id, "caller-silent", `the caller did not answer within ${this.answerTimeoutMs} ms`, "observed"), this.answerTimeoutMs);
@@ -264,11 +380,23 @@ export class CallerNetwork {
   answer(id: number, a: Answer): void {
     const e = this.parked.get(id);
     if (!e) throw new ProviderError("no-request", `no request ${id} is waiting (answered already, timed out, or aborted)`);
-    const { response, bytes } = buildResponse(e.req.url, a, e.req.method); // throws before anything changes if the answer is bad
+    const { response, bytes, setCookies } = buildResponse(e.req.url, a, e.req.method); // throws before anything changes if the answer is bad
     clearTimeout(e.timer);
     this.parked.delete(id);
     this.emitAnswer(id, e.req.url, response, bytes);
-    e.resolve(response);
+    // The cookies are stored BEFORE the page sees the response, so the request that follows it (a redirect back) carries them.
+    const jar = this.jar;
+    if (jar?.on() && setCookies.length && firstParty(e.req.url, e.req.follows, e.req.navigate)) {
+      const stores: Promise<void>[] = [];
+      for (const line of setCookies) {
+        if (this.visitCookies >= MAX_COOKIES_PER_VISIT) break;
+        const parsed = parseSetCookie(line, e.req.url);
+        if (!parsed) continue;
+        this.visitCookies++;
+        stores.push(jar.store(e.req.url, parsed).catch(() => {}));
+      }
+      void Promise.all(stores).then(() => e.resolve(response));
+    } else e.resolve(response);
   }
 
   /** Refuse a request with a reason from the shared list. */

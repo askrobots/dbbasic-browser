@@ -125,6 +125,23 @@ export default async function (ctx) {
   const left = (await T("page.eval", { js: "JSON.stringify([document.cookie, localStorage.getItem('left'), sessionStorage.getItem('left')])" })).value;
   check(left === JSON.stringify(["", null, null]), "…and the next page finds no cookie, localStorage or sessionStorage from the last one", left);
 
+  // ---- cookies: none by default; optionally kept for ONE visit ----
+  check((await T("net.provider")).cookies === "off", "cookies are off by default (none stored, none sent)");
+  v = await settle("" + base + "/cookie-loop");
+  check(v.outcome === "failed" && v.failure?.kind === "redirect-loop", "a site that sets a cookie and redirects back loops without the jar", `${v.outcome} ${v.failure?.kind}`);
+  check((await rejects(T("net.provider", { cookies: "forever" })))?.code === "bad-params", "an unknown cookie mode is refused");
+  await T("net.provider", { cookies: "visit" });
+  seen.length = 0;
+  v = await settle(base + "/cookie-loop");
+  check(v.settled && v.outcome === "ok" && v.redirects.length === 1 && /cookie came back/i.test((await T("page.text")).text), "with the per-visit jar the cookie comes back and the page loads", `${v.outcome}, ${v.redirects.length} redirect(s)`);
+  await settle(base + "/headers");
+  check(JSON.parse((await T("page.text")).text).cookie === undefined, "…and the next visit starts with no cookie (the jar lives for one visit)");
+  await T("net.provider", { cookies: "off" });
+
+  // ---- a page that never stops moving itself ends as a loop ----
+  v = await settle(base + "/self-loop", { timeoutMs: 30000 });
+  check(v.outcome === "failed" && v.failure?.kind === "redirect-loop" && v.failure?.source === "observed", "a page that keeps moving itself ends as a redirect loop, after a limited number of moves", `${v.outcome} ${v.failure?.kind} after ${v.moves?.length} moves`);
+
   // ---- things the browser would do on its own are switched off, visibly ----
   check((await rejects(T("login", {})))?.code === "caller-network-on", "login is refused while the caller network is on");
   check((await rejects(T("reader.open", {})))?.code === "caller-network-on", "the reader (an AI call) is refused while it is on");

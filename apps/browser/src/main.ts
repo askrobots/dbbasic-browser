@@ -22,7 +22,7 @@ import { PolicyEngine, Ledger, X402Engine, formatUsd, signExactEvm } from "@dbba
 import { createPaymentHandler, type RawFetch } from "./intercept.js";
 import { brandedUserAgent } from "./compat.js";
 import { emitNet, netEvents, netRequestFetch, nextNetId, setClientHints, type NetEvent } from "./transport.js";
-import { CallerNetwork, ProviderError, clampAnswerTimeout, type Answer, type Document } from "./provider.js";
+import { CallerNetwork, ProviderError, clampAnswerTimeout, type Answer, type CookieJar, type Document } from "./provider.js";
 import { safeExternalUrl } from "./urls.js";
 import { describeAi, loadAiEnv, resolveAi, type AiConfig, type Provider } from "./ai-config.js";
 import { createReader } from "./reader-service.js";
@@ -215,7 +215,26 @@ export const dedicatedProfile = (argv: readonly string[] = process.argv): boolea
 const refuseWhileCallerNet = (what: string): void => {
   if (callerNet.enabled) throw new ProviderError("caller-network-on", `${what} is switched off while the caller network is on (the browser makes no request of its own and signs nothing)`);
 };
-function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerTimeoutMs?: unknown }): void {
+/** The per-visit cookie jar, kept in Chromium's own cookie store (see provider.ts). Off unless asked for. */
+let cookiesPerVisit = false;
+const visitJar: CookieJar = {
+  on: () => cookiesPerVisit,
+  header: async (url) => (await session.defaultSession.cookies.get({ url })).map((c) => `${c.name}=${c.value}`).join("; "),
+  store: async (url, c) => {
+    try {
+      await session.defaultSession.cookies.set({ url, name: c.name, value: c.value, ...(c.domain ? { domain: c.domain } : {}), path: c.path, secure: c.secure, httpOnly: c.httpOnly, sameSite: c.sameSite, ...(c.expirationDate !== undefined ? { expirationDate: c.expirationDate } : {}) });
+    } catch (e) {
+      console.error(`[cookies] refused ${c.name}: ${(e as Error).message}`); // a refusal by the cookie store (prefix, Secure on http, bad domain…)
+      throw e;
+    }
+  },
+};
+function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerTimeoutMs?: unknown; cookies?: unknown }): void {
+  if (p.cookies !== undefined) {
+    if (p.cookies !== "off" && p.cookies !== "visit") throw new ProviderError("bad-params", 'cookies must be "off" (the default: none stored, none sent) or "visit" (kept for one visit only)');
+    cookiesPerVisit = p.cookies === "visit";
+    callerNet.jar = cookiesPerVisit ? visitJar : null;
+  }
   if (p.answerTimeoutMs !== undefined) callerNet.answerTimeoutMs = clampAnswerTimeout(p.answerTimeoutMs);
   if (p.enabled === true) {
     // The caller's identity, always spelled out by the caller. The desktop browser's own identity is never lent to it.
@@ -237,6 +256,8 @@ function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerT
   } else if (p.enabled === false && callerNet.enabled) {
     callerNet.enabled = false;
     callerNet.failAll("other", "the caller network was turned off");
+    cookiesPerVisit = false;
+    callerNet.jar = null;
     void session.defaultSession.clearStorageData(); // leave nothing a caller-supplied page stored (the profile is a dedicated one)
     if (desktopUserAgent) {
       session.defaultSession.setUserAgent(desktopUserAgent);
@@ -762,7 +783,7 @@ app.whenReady().then(() => {
         assertNotCallerNet: refuseWhileCallerNet,
         settle: (ctx, opts) => runSettle({ ...ctx, isWithCaller: (u) => callerNet.isParked(u) }, opts),
         callerNet: {
-          state: () => ({ enabled: callerNet.enabled, userAgent: callerNet.userAgent, answerTimeoutMs: callerNet.answerTimeoutMs, waiting: callerNet.parkedCount() }),
+          state: () => ({ cookies: cookiesPerVisit ? "visit" : "off", enabled: callerNet.enabled, userAgent: callerNet.userAgent, answerTimeoutMs: callerNet.answerTimeoutMs, waiting: callerNet.parkedCount() }),
           configure: configureCallerNet,
           pending: (afterId, waitMs) => callerNet.pending(afterId, waitMs),
           answer: (id, a) => callerNet.answer(id, a as unknown as Answer),
@@ -772,6 +793,7 @@ app.whenReady().then(() => {
           // moves ITSELF is the same visit and keeps what it set. (Tabs share one session, so this is meant for one visit at a time.)
           freshVisit: async (wcId) => {
             if (!callerNet.enabled) return;
+            callerNet.newVisit();
             const wc = webContents.fromId(wcId);
             try {
               await Promise.race([wc?.executeJavaScript("try { sessionStorage.clear(); } catch {}", false), new Promise((r) => setTimeout(r, 1000))]);

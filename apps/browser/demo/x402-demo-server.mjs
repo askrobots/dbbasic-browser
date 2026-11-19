@@ -471,6 +471,20 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
   }
   if (path === "/escape-sw.js") { res.writeHead(200, { "content-type": "text/javascript" }); res.end("self.addEventListener('fetch', () => {});"); return; }
 
+  // A site that answers the first request with a cookie and a redirect back to the same address, and loops forever if the cookie
+  // never comes back. (And a page that moves itself in an endless loop.)
+  if (path === "/cookie-loop") {
+    if (!/\bseen=1\b/.test(req.headers.cookie || "")) { res.writeHead(302, { location: "/cookie-loop", "set-cookie": ["seen=1; Path=/; HttpOnly"] }); res.end(); return; }
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Cookie came back</title><body style="font:18px system-ui;padding:40px"><h1>The cookie came back</h1>`);
+    return;
+  }
+  if (path === "/self-loop") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Loop</title><body><h1>I keep moving</h1><script>setTimeout(() => location.assign("/self-loop?n=" + Date.now()), 50)</script>`);
+    return;
+  }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });

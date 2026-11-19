@@ -31,6 +31,8 @@ export interface Lifecycle {
 }
 
 const lifecycles = new Map<number, Lifecycle>();
+/** How many times a page may move itself within one visit before it counts as a loop. */
+const MAX_PAGE_MOVES = 20;
 
 /**
  * Chromium reports any failure inside our network layer as a generic error (ERR_FAILED / ERR_UNEXPECTED), but the
@@ -91,6 +93,8 @@ export function trackLifecycle(wc: WebContents): void {
       l.download = null;
       l.status = null;
       l.crashed = false;
+      // A page that keeps moving itself never settles: past this many moves it is a loop, and the visit ends with that reason.
+      if (l.moves.length > MAX_PAGE_MOVES) l.failed = { description: `the page moved itself more than ${MAX_PAGE_MOVES} times`, kind: "redirect-loop", source: "observed" };
     }
   });
   wc.on("did-navigate", (_e, url, httpResponseCode) => {

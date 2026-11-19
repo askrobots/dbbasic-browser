@@ -65,7 +65,7 @@ export interface ControlDeps {
   assertNotCallerNet(what: string): void;
   callerNet: {
     state(): unknown;
-    configure(p: { enabled?: unknown; userAgent?: unknown; answerTimeoutMs?: unknown }): void;
+    configure(p: { enabled?: unknown; userAgent?: unknown; answerTimeoutMs?: unknown; cookies?: unknown }): void;
     pending(afterId: number, waitMs: number): Promise<unknown>;
     answer(id: number, a: Record<string, unknown>): void;
     fail(id: number, kind: unknown, detail?: unknown): void;
@@ -319,9 +319,9 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
 
     // ---- a network layer the caller supplies ---------------------------------
     case "net.provider": {
-      // {enabled?, userAgent?, answerTimeoutMs?}: while on, the browser makes NO request of its own; each one is handed to the
+      // {enabled?, userAgent?, answerTimeoutMs?, cookies?: "off" | "visit"}: while on, the browser makes NO request of its own; each one is handed to the
       // caller (net.pending) to answer (net.answer) or refuse (net.fail). userAgent is required when turning it on.
-      if (p.enabled !== undefined || p.answerTimeoutMs !== undefined || p.userAgent !== undefined) provider(() => d.callerNet.configure(p));
+      if (p.enabled !== undefined || p.answerTimeoutMs !== undefined || p.userAgent !== undefined || p.cookies !== undefined) provider(() => d.callerNet.configure(p));
       return d.callerNet.state();
     }
     case "net.pending": {

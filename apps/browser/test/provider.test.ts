@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CallerNetwork, ProviderError, buildResponse, clampAnswerTimeout } from "../src/provider.js";
+import { CallerNetwork, ProviderError, buildResponse, clampAnswerTimeout, firstParty, parseSetCookie, type CookieJar, type ParsedCookie } from "../src/provider.js";
 import type { NetEvent } from "../src/transport.js";
 
 const make = () => {
@@ -218,5 +218,84 @@ describe("a document the caller already has", () => {
     net.registerDocument(doc);
     vi.advanceTimersByTime(61_000);
     expect(net.hasDocumentFor("https://a.test/final")).toBe(false);
+  });
+});
+
+describe("parseSetCookie", () => {
+  const p = (line: string, url = "https://a.test/dir/page") => parseSetCookie(line, url, 1_000_000);
+  it("reads name, value and the attributes that matter", () => {
+    expect(p("k=v; Path=/x; Domain=a.test; Secure; HttpOnly; SameSite=Lax; Max-Age=60")).toEqual({ name: "k", value: "v", domain: ".a.test", path: "/x", secure: true, httpOnly: true, sameSite: "lax", expirationDate: 1_000_060 });
+  });
+  it("defaults the path to the directory of the request, and has no expiry for a session cookie", () => {
+    expect(p("k=v")).toMatchObject({ path: "/dir", sameSite: "unspecified" });
+    expect(p("k=v")!.expirationDate).toBeUndefined();
+    expect(p("k=v", "https://a.test/")).toMatchObject({ path: "/" });
+  });
+  it("Max-Age wins over Expires", () => {
+    expect(p("k=v; Expires=Wed, 21 Oct 2099 07:28:00 GMT; Max-Age=5")!.expirationDate).toBe(1_000_005);
+    expect(p("k=v; Expires=Wed, 21 Oct 2099 07:28:00 GMT")!.expirationDate).toBeGreaterThan(4_000_000_000);
+  });
+  it("rejects what is unusable", () => {
+    for (const bad of ["", "novalue", "=v", "a b=c", "k=v\u0001", "k=" + "x".repeat(5000)]) expect(p(bad)).toBeNull();
+  });
+});
+
+describe("firstParty", () => {
+  it("a navigation is; a request is when the page it follows is on the same site", () => {
+    expect(firstParty("https://a.test/", "", true)).toBe(true);
+    expect(firstParty("https://a.test/img", "https://a.test/page", false)).toBe(true);
+    expect(firstParty("https://cdn.a.test/img", "https://www.a.test/page", false)).toBe(true);
+    expect(firstParty("https://tracker.example/px", "https://a.test/page", false)).toBe(false);
+    expect(firstParty("https://a.test/img", "", false)).toBe(false); // no page to compare with: not first-party
+  });
+});
+
+describe("the per-visit cookie jar (off by default)", () => {
+  const jarOf = (stored: ParsedCookie[], header = "seen=1") => ({ on: () => true, header: async () => header, store: async (_u: string, c: ParsedCookie) => { await new Promise((r) => setTimeout(r, 10)); stored.push(c); } }) as CookieJar;
+  it("with no jar, no cookie is sent and a Set-Cookie is dropped", async () => {
+    const { net } = make();
+    const p = net.fetch(req("https://a.test/x", { headers: { cookie: "page=sent" } }));
+    const [r] = await net.pending(0, 0);
+    expect(r!.headers.cookie).toBeUndefined();
+    net.answer(1, { status: 200, headers: { "set-cookie": "a=b" }, bodyText: "x" });
+    expect([...(await p).headers.keys()]).not.toContain("set-cookie");
+  });
+  it("a Set-Cookie is stored BEFORE the page sees the response, and the browser's Cookie header is the only one", async () => {
+    const { net } = make();
+    const stored: ParsedCookie[] = [];
+    net.jar = jarOf(stored);
+    const p = net.fetch(req("https://a.test/x", { headers: { cookie: "page=sent", "upgrade-insecure-requests": "1" } }));
+    const [r] = await net.pending(0, 500); // the jar is asked first, so the request is parked a moment later
+    expect(r!.headers.cookie).toBe("seen=1");
+    net.answer(1, { status: 302, headers: { location: "/x", "set-cookie": ["seen=1; Path=/"] } });
+    await p;
+    expect(stored.map((c) => c.name)).toEqual(["seen"]); // already stored when the response resolved
+  });
+  it("a third-party request gets no cookie, and none is stored from it", async () => {
+    const { net } = make();
+    const stored: ParsedCookie[] = [];
+    net.jar = jarOf(stored);
+    const p = net.fetch(req("https://tracker.example/px", { headers: { referer: "https://a.test/page" } }));
+    const [r] = await net.pending(0, 0);
+    expect(r!.headers.cookie).toBeUndefined();
+    net.answer(1, { status: 200, headers: { "set-cookie": "t=1" }, bodyText: "x" });
+    await p;
+    expect(stored).toEqual([]);
+  });
+  it("at most 50 cookies per visit; a new visit starts the count over", async () => {
+    const { net } = make();
+    const stored: ParsedCookie[] = [];
+    net.jar = jarOf(stored);
+    const p = net.fetch(req("https://a.test/x", { headers: { "upgrade-insecure-requests": "1" } }));
+    await net.pending(0, 500);
+    net.answer(1, { status: 200, headers: { "set-cookie": Array.from({ length: 60 }, (_, i) => `c${i}=v`) }, bodyText: "x" });
+    await p;
+    expect(stored.length).toBe(50);
+    net.newVisit();
+    const p2 = net.fetch(req("https://a.test/y", { headers: { "upgrade-insecure-requests": "1" } }));
+    await net.pending(1, 500);
+    net.answer(2, { status: 200, headers: { "set-cookie": "again=1" }, bodyText: "x" });
+    await p2;
+    expect(stored.length).toBe(51);
   });
 });

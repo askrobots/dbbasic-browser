@@ -50,6 +50,11 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   64 requests waiting at once (50 per `net.pending`), and time on the caller is forgiven only up to twice the settle deadline.
   **Known gap:** WebTransport (QUIC) opens connections Electron 45 cannot switch off; a test records it. Deny UDP egress at the
   firewall if that matters.
+  `net.provider {cookies: "visit"}` (default `"off"`: none stored, none sent) keeps cookies for ONE visit: a Set-Cookie in an answer is
+  stored in the browser's own cookie store (Chromium applies its rules for Domain, Path, Secure, SameSite and prefixes) before the page
+  sees the response, so a site that sets a cookie and redirects back no longer loops; the browser's Cookie header is the only one, third-
+  party requests get none, at most 50 cookies of 4 KB per visit, and the next visit starts empty. A page that moves itself more than 20
+  times in one visit now ends as a redirect loop.
   `DBB_CALLER_NETWORK_USER_AGENT=<identity>` starts the browser with this mode already on, before any page exists, and the
   wallet balance poll (a request of the browser's own) is skipped while it is on. A one-file example caller, which answers
   requests with a plain HTTP client and prints the verdict, is in `apps/browser/examples/`; by default it refuses private and
