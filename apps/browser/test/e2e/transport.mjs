@@ -1,6 +1,6 @@
 // The network layer: redirects reach the page, cookies round-trip, x402 behind a redirect, gzip, headers.
 export default async function (ctx) {
-  const { call: T, check, base } = ctx;
+  const { call: T, check, base, sleep } = ctx;
   const port = new URL(base).port;
   const loc = async () => (await T("page.eval", { js: "location.href" })).value;
   const tab0 = async () => (await T("tabs.list")).find((t) => t.active);
@@ -71,4 +71,16 @@ export default async function (ctx) {
   await T("page.goto", { url: base + "/ws-page" });
   check((await wsTitle()) === "ws:open", "turning the policy off allows WebSockets again");
   await T("net.policy", { blockWebSockets: "yes" }).then(() => check(false, "a non-boolean policy value was accepted"), (e) => check(e.code === "bad-params", "a non-boolean policy value is rejected"));
+
+  // One goto is ONE request to the site, including when the tab is already on that address (it used to load twice).
+  const hits = async () => (await (await fetch(base + "/hits")).json()).hits;
+  await T("page.goto", { url: base + "/free" });
+  let h0 = await hits();
+  await T("page.goto", { url: base + "/free" });
+  await sleep(500);
+  check((await hits()) - h0 === 1, "going to the address a tab is already on makes ONE request to the server (it used to make two)", `${(await hits()) - h0} request(s)`);
+  h0 = await hits();
+  await T("page.goto", { url: base + "/free?other=1" });
+  await sleep(500);
+  check((await hits()) - h0 === 1, "going to a different address makes one request");
 }

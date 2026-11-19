@@ -626,7 +626,8 @@
         tab.stats = { requests: 0, bytes: 0, hosts: new Set(), redirects: [] }; // a new VISIT: facts start over (a page moving itself continues it)
         if (tab === active) setUrlBar(tab);
         renderTabs();
-        if (tab.ready) tab.wv.src = u;
+        // loadURL, not the src attribute: setting src to the address the page is already on loads it TWICE (two requests to the site).
+        if (tab.ready) { try { Promise.resolve(tab.wv.loadURL(u)).catch(() => {}); } catch { tab.wv.src = u; } }
         else tab.pending = u; // applied on dom-ready
       }
       urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") go(urlInput.value); });
