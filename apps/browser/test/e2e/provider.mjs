@@ -65,6 +65,20 @@ export default async function (ctx) {
   const sub = seen.find((r) => !r.navigate);
   check(!!sub && sub.follows.startsWith(base + "/late"), "a page's own request says which page it follows", sub && `${new URL(sub.url).pathname} follows ${sub.follows.replace(base, "")}`);
 
+  // ---- a page that has loaded and then moves itself: the request for where it goes says which page it came from ----
+  seen.length = 0;
+  v = await settle(base + "/moves-js", { quietMs: 1500 });
+  let mv = seen.find((r) => r.navigate && new URL(r.url).pathname === "/redir/chain");
+  check(!!mv && mv.follows === base + "/moves-js", "page A committed, then A's script moves to B: the request for B follows A's address", mv && `follows="${mv.follows.replace(base, "")}"`);
+  check(v.moves.length === 1, "…and it is reported as a move the page made, not a new visit", `${v.moves.length} move(s)`);
+  seen.length = 0;
+  v = await settle(base + "/moves-meta", { quietMs: 1500 });
+  mv = seen.find((r) => r.navigate && new URL(r.url).pathname === "/free");
+  check(!!mv && mv.follows === base + "/moves-meta", "the same for a <meta refresh>", mv && `follows="${mv.follows.replace(base, "")}"`);
+  seen.length = 0;
+  await settle(base + "/free");
+  check(seen.find((r) => r.navigate)?.follows === "", "a first visit (a goto) follows nothing", JSON.stringify(seen.find((r) => r.navigate)?.follows));
+
   // ---- a refusal ends the load with the caller's reason ----
   rules.push([(p) => p === "/refuse", (r) => T("net.fail", { id: r.id, kind: "blocked", detail: "the site's rules disallow this" })]);
   let h0 = await hits();
