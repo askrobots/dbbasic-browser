@@ -148,6 +148,11 @@ function bumpBalance(): void {
 
 /** Push both wallet balances (buyer + merchant) to the toolbar. A free RPC query. */
 async function refreshBalance(): Promise<void> {
+  // In caller-network mode the browser makes no request of its own, and this is one (an RPC query), so it is skipped.
+  if (callerNet.enabled) {
+    mainWindow?.webContents.send("x402:balance", { usdc: null, address: account.address, merchantUsdc: null, merchantAddress: MERCHANT_ADDRESS ?? null });
+    return;
+  }
   try {
     const usdc = await usdcBalance(account.address);
     const merchantUsdc = MERCHANT_ADDRESS ? await usdcBalance(MERCHANT_ADDRESS) : null;
@@ -592,7 +597,19 @@ function createWindow(): void {
 app.whenReady().then(() => {
   // Chrome's Accept-Language shape ("en-US,en;q=0.9"), not the bare locale the session defaults to.
   const locale = app.getLocale() || "en-US";
+  // DBB_CALLER_NETWORK_USER_AGENT=<identity> starts with the caller-supplied network layer already ON, before any page is
+  // created, so not even the first tab is fetched by the browser itself. (Same rules as net.provider: the identity is the caller's.)
+  const startWithCaller = process.env.DBB_CALLER_NETWORK_USER_AGENT;
   session.defaultSession.setUserAgent(USER_AGENT, locale.includes("-") ? `${locale},${locale.split("-")[0]}` : locale); // Chromium adds the q-values itself
+  if (startWithCaller) {
+    try {
+      configureCallerNet({ enabled: true, userAgent: startWithCaller });
+    } catch (e) {
+      console.error(`[net] DBB_CALLER_NETWORK_USER_AGENT refused: ${(e as Error).message}`);
+      app.exit(2);
+      return;
+    }
+  }
   if (process.platform === "darwin") {
     const img = nativeImage.createFromPath(ICON_PATH);
     if (!img.isEmpty()) app.dock?.setIcon(img);
