@@ -474,7 +474,10 @@ export class CallerNetwork {
 
   /** A failure raised before anything was parked. */
   private refuse(url: string, kind: FailureKind, detail: string, source: "observed" | "caller"): Error {
-    this.emit({ id: this.nextId(), url, type: "error", error: detail, failureKind: kind, failureSource: source });
+    // A request refused before it was parked still happened: it starts, then fails (so it is counted as requested and failed).
+    const id = this.nextId();
+    this.emit({ id, url, type: "start" });
+    this.emit({ id, url, type: "error", error: detail, failureKind: kind, failureSource: source });
     return new Error(`caller:${kind}: ${detail}`);
   }
 }

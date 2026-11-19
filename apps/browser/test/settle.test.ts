@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SETTLE_DEFAULTS, blockers, classifyFailure, newMemo, resolveConfig, step, type Snapshot } from "../src/settle.js";
+import { SETTLE_DEFAULTS, blockers, classifyFailure, newMemo, resolveConfig, step, summarizeResources, type Snapshot } from "../src/settle.js";
 
 const CFG = { ...SETTLE_DEFAULTS, timeoutMs: 10_000, quietMs: 500, frameTimeoutMs: 3_000 };
 const snap = (over: Partial<Snapshot> & { nowMs?: number } = {}): Snapshot => ({
@@ -222,6 +222,28 @@ describe("outcomes: what actually happened", () => {
   });
 });
 
+describe("summarizeResources: how much of the page arrived", () => {
+  const stats = (over: object = {}) => ({ requests: 10, answered: 6, errorStatus: 1, cancelled: 1, failures: [{ kind: "blocked", error: "x" }, { kind: null, error: "ERR_CONNECTION_REFUSED" }], ...over });
+  it("counts what was requested, answered, failed (by reason) and cancelled, and what is still waiting", () => {
+    expect(summarizeResources(stats(), { failed: false, status: 200 })).toEqual({
+      requested: 10, answered: 6, errorStatus: 1, failed: 2, failedByKind: { blocked: 1, "could-not-connect": 1 }, cancelled: 1, waiting: 1, mainDocument: "answered",
+    });
+  });
+  it("a reason the caller gave is kept; one the browser saw is classified from the error text", () => {
+    const r = summarizeResources(stats({ failures: [{ kind: "caller-silent", error: "x" }, { kind: null, error: "ERR_NAME_NOT_RESOLVED" }, { kind: "bogus", error: "ERR_CERT_DATE_INVALID" }] }), { failed: false, status: 200 });
+    expect(r.failedByKind).toEqual({ "caller-silent": 1, "could-not-find-site": 1, certificate: 1 });
+  });
+  it("the main document is failed, answered or pending", () => {
+    expect(summarizeResources(stats(), { failed: true, status: null }).mainDocument).toBe("failed");
+    expect(summarizeResources(stats(), { failed: false, status: 404 }).mainDocument).toBe("answered");
+    expect(summarizeResources(stats(), { failed: false, status: null }).mainDocument).toBe("pending");
+  });
+  it("a complete page has no failures and nothing waiting", () => {
+    const r = summarizeResources({ requests: 3, answered: 3, errorStatus: 0, cancelled: 0, failures: [] }, { failed: false, status: 200 });
+    expect(r).toMatchObject({ failed: 0, waiting: 0, failedByKind: {} });
+  });
+});
+
 describe("classifyFailure", () => {
   const cases: Array<[string, string]> = [
     ["ERR_NAME_NOT_RESOLVED", "could-not-find-site"],
@@ -234,6 +256,7 @@ describe("classifyFailure", () => {
     ["ERR_INTERNET_DISCONNECTED", "offline"],
     ["ERR_CONNECTION_TIMED_OUT", "timed-out"],
     ["ERR_BLOCKED_BY_CLIENT", "blocked"],
+    ["ERR_UNSAFE_PORT", "blocked"],
     ["ERR_SOMETHING_NEW", "other"],
     ["", "other"],
   ];

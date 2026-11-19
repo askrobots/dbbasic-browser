@@ -180,7 +180,7 @@
         wv.setAttribute("allowpopups", ""); // main's windowOpenHandler turns these into tabs
         if (window.x402.webviewPreload) wv.setAttribute("preload", window.x402.webviewPreload);
         const tab = { id: nextTabId++, wv, wcId: null, url: "", title: "", rows: new Map(), userClosed: false, paid: false, ready: false, pending: null, loading: false, saveOffer: null, fillOffer: null, waiters: [], navSeen: false,
-          el: null, reader: null, aiBusy: null, net: { reqs: new Map() }, lastActivity: 0, stats: { requests: 0, bytes: 0, hosts: new Set(), redirects: [] }, redirect: null, settledUntil: 0, failed: null, netError: null, thState: null, thText: "" };
+          el: null, reader: null, aiBusy: null, net: { reqs: new Map() }, lastActivity: 0, stats: { requests: 0, bytes: 0, hosts: new Set(), redirects: [], answered: 0, errorStatus: 0, cancelled: 0, failures: [] }, redirect: null, settledUntil: 0, failed: null, netError: null, thState: null, thText: "" };
 
         // Navigate only once the webview is really ready — setting src at creation
         // races its own init and can leave us stranded on about:blank.
@@ -466,11 +466,20 @@
           if (!(e.type === "progress" && isEventStream(r))) tab.lastActivity = now;
           r.last = now;
           if (e.type === "caller") r.caller = true; // parked: waiting on a caller-supplied network layer
-          else if (e.type === "headers") { r.phase = "receiving"; r.total = e.total; r.contentType = e.contentType; }
+          else if (e.type === "headers") {
+            r.phase = "receiving"; r.total = e.total; r.contentType = e.contentType;
+            r.answered = true; tab.stats.answered++; // a response arrived (what the status was is counted apart)
+            if (e.status >= 400) { r.errStatus = true; tab.stats.errorStatus++; }
+          }
           else if (e.type === "progress") r.bytes = e.bytes;
-          else if (e.type === "redirect") { reqs.delete(e.id); tab.redirect = { to: e.location, until: now + 700 }; tab.stats.redirects.push({ status: e.status, to: e.location }); }
+          else if (e.type === "redirect") { tab.stats.answered++; reqs.delete(e.id); tab.redirect = { to: e.location, until: now + 700 }; tab.stats.redirects.push({ status: e.status, to: e.location }); }
           else if (e.type === "end") { reqs.delete(e.id); tab.stats.bytes += e.bytes || 0; }
-          else if (e.type === "error") { reqs.delete(e.id); tab.netError = String(e.error || "").replace(/^net::/, ""); }
+          else if (e.type === "error") {
+            // A request that ends in an error is a failure, even if its response had started (then it is not also "answered").
+            if (r.answered) { tab.stats.answered--; if (r.errStatus) tab.stats.errorStatus--; }
+            if (e.error === "aborted") tab.stats.cancelled++; // the page itself gave up on it
+            else if (tab.stats.failures.length < 500) tab.stats.failures.push({ kind: e.failureKind || null, error: String(e.error || "").replace(/^net::/, "").slice(0, 120) });
+            reqs.delete(e.id); tab.netError = String(e.error || "").replace(/^net::/, ""); }
         }
         refreshThrobber(tab);
       });
@@ -532,7 +541,7 @@
               url: tab.url, title: tab.title, state: tab.thState, pay,
               inFlight: [...tab.net.reqs.values()].map((x) => ({ url: x.url, phase: x.phase, ageMs: now - x.t0, longLived: isLongLived(x, now) })),
               sinceActivityMs: now - (tab.lastActivity || now),
-              stats: { requests: tab.stats.requests, bytes: tab.stats.bytes, hosts: [...tab.stats.hosts], redirects: tab.stats.redirects },
+              stats: { requests: tab.stats.requests, bytes: tab.stats.bytes, hosts: [...tab.stats.hosts], redirects: tab.stats.redirects, answered: tab.stats.answered, errorStatus: tab.stats.errorStatus, cancelled: tab.stats.cancelled, failures: tab.stats.failures },
             };
           }
           default: throw new Error("unknown op " + op);
@@ -623,7 +632,7 @@
         const u = toUrl(raw);
         if (!u) return;
         tab.url = u.startsWith("data:") || u.startsWith("dbb-reader:") ? "" : u;
-        tab.stats = { requests: 0, bytes: 0, hosts: new Set(), redirects: [] }; // a new VISIT: facts start over (a page moving itself continues it)
+        tab.stats = { requests: 0, bytes: 0, hosts: new Set(), redirects: [], answered: 0, errorStatus: 0, cancelled: 0, failures: [] }; // a new VISIT: facts start over (a page moving itself continues it)
         if (tab === active) setUrlBar(tab);
         renderTabs();
         // loadURL, not the src attribute: setting src to the address the page is already on loads it TWICE (two requests to the site).

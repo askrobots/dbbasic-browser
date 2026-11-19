@@ -514,6 +514,14 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     return;
   }
 
+  // A page whose files do not all arrive: one image fine, one that answers 404, one that cannot connect, one script whose connection drops.
+  if (path === "/resources") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>resources</title><body style="font:18px system-ui;padding:40px"><h1>Some files will not arrive</h1>
+<img src="/slow-image.png" width="8" height="8"><img src="/status/404" width="8" height="8"><img src="http://127.0.0.1:1/x.png" width="8" height="8"><script src="/fail"></script>`);
+    return;
+  }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });

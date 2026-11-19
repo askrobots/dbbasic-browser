@@ -38,6 +38,11 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 - **Blank-page options** on the finished-loading verdict: `minText` (visible text below this many characters, default 20, makes a page
   "blank"; 0 turns the test off) and `blankWaitMs` (default 0: keep checking for that long, while the page would settle as blank, for text
   or media to appear). A page that stays blank is still reported blank, and the wait is in `waitedMs`.
+- **`resources` in the finished-loading verdict**: how much of the page arrived. Counts of requests started, answered (a redirect counts;
+  4xx/5xx counted apart), failed with the reasons, cancelled by the page, and still waiting, plus whether the main document was answered or
+  failed. `outcome: "ok"` still means only that the main document settled; this makes a half-loaded page visible, which matters to test
+  scripts and demo recording as much as to anything driving the browser. A request refused before it started (a limit, a full queue) counts as
+  requested and failed. `ERR_UNSAFE_PORT` now classifies as `blocked` (the browser itself refused it).
 - **Console and cookie facts** in the finished-loading verdict: console messages counted by level plus the first 20 errors (200 characters
   each, as the page's own text), and the cookies that apply to the final address by name, domain, path and flags, never their values.
 - **A network layer the caller supplies** (`net.provider`, `net.pending`, `net.answer`, `net.fail`, `page.load`). While on, the

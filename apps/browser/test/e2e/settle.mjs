@@ -18,6 +18,19 @@ export default async function (ctx) {
   v = await settle(base + "/redir/chain");
   check(v.settled && v.status === 200 && v.final.url === base + "/free" && v.redirects.length === 2, "a redirect chain: the final URL, its status (200, not the first hop's 302) and each hop are reported", v.redirects.map((r) => `${r.status}→${r.to.replace(base, "")}`).join(", "));
 
+  // ---- how much of the page arrived ----
+  v = await settle(base + "/free", quick);
+  check(v.resources?.mainDocument === "answered" && v.resources.failed === 0 && v.resources.answered === v.resources.requested && v.resources.waiting === 0, "a complete page: everything it asked for was answered, nothing failed", JSON.stringify(v.resources));
+  v = await settle(base + "/resources", quick);
+  const rs = v.resources;
+  check(v.outcome === "ok" && rs.mainDocument === "answered", "a page that loses files is still 'ok' (the main document settled)…", `${v.outcome}`);
+  check(rs.requested >= 5 && rs.errorStatus === 1 && rs.failed === 2 && rs.failedByKind["could-not-connect"] === 1 && rs.failedByKind.blocked === 1, "…and the counts say how much arrived: 2 failed (one dropped connection, one port the browser refuses), 1 answered with an error status", JSON.stringify(rs));
+  check(rs.answered >= 3 && rs.waiting === 0, "…the rest were answered, none still waiting", `${rs.answered} answered, ${rs.waiting} waiting`);
+  v = await settle(base + "/redir/chain", quick);
+  check(v.resources.requested === 3 && v.resources.answered === 3 && v.resources.failed === 0, "a redirect chain counts every hop as answered", JSON.stringify(v.resources));
+  v = await settle("http://nonexistent-host.invalid/", quick);
+  check(v.resources.mainDocument === "failed" && v.resources.failed >= 1 && v.resources.failedByKind["could-not-find-site"] >= 1, "a load that fails: the main document is 'failed', with the reason counted", JSON.stringify(v.resources));
+
   // ---- console and cookie facts ----
   v = await settle(base + "/console", quick);
   check(v.console?.counts?.error === 25 && v.console.counts.warning === 1 && v.console.counts.info === 1, "console messages are counted by level", JSON.stringify(v.console?.counts));

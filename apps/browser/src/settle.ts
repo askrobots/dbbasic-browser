@@ -106,9 +106,55 @@ export function classifyFailure(description: string): FailureKind {
   if (/TOO_MANY_REDIRECTS|REDIRECT_LOOP/.test(d)) return "redirect-loop";
   if (/INTERNET_DISCONNECTED|NETWORK_CHANGED|ERR_NETWORK_ACCESS|PROXY/.test(d)) return "offline";
   if (/TIMED_OUT|TIMEOUT/.test(d)) return "timed-out";
-  if (/BLOCKED|ERR_ACCESS_DENIED|ERR_ABORTED_BY_BLOCKER/.test(d)) return "blocked";
+  if (/BLOCKED|ERR_ACCESS_DENIED|ERR_ABORTED_BY_BLOCKER|ERR_UNSAFE_PORT|ERR_UNSAFE_REDIRECT/.test(d)) return "blocked"; // the browser itself refused it
   if (/ERR_CONNECTION|ERR_EMPTY_RESPONSE|ERR_ADDRESS|ERR_SOCKET|ERR_CONNECT|REFUSED|RESET/.test(d)) return "could-not-connect";
   return "other";
+}
+
+/** What the network layer counted for a visit, as the browser UI keeps it. */
+export interface ResourceStats {
+  requests: number;
+  answered: number;
+  errorStatus: number;
+  cancelled: number;
+  failures: Array<{ kind: string | null; error: string }>;
+}
+
+/** How much of a page arrived. "ok" says the main document settled; this says what happened to everything else it asked for. */
+export interface Resources {
+  /** Requests started (the main document, its redirects, and everything the page asked for). */
+  requested: number;
+  /** Got a response (a redirect counts). Of these, `errorStatus` answered with 4xx or 5xx. */
+  answered: number;
+  errorStatus: number;
+  /** Ended in an error: refused, could not connect, timed out... by reason below. */
+  failed: number;
+  failedByKind: Partial<Record<FailureKind, number>>;
+  /** The page gave up on them itself (it navigated away or cancelled). Not counted as failures. */
+  cancelled: number;
+  /** Started, not answered or failed yet when the verdict was given. */
+  waiting: number;
+  /** The page itself: "answered" once its response status is known, "failed" if the load failed, else "pending". */
+  mainDocument: "answered" | "failed" | "pending";
+}
+
+export function summarizeResources(stats: ResourceStats, main: { failed: boolean; status: number | null }): Resources {
+  const failedByKind: Partial<Record<FailureKind, number>> = {};
+  for (const f of stats.failures) {
+    const kind = (FAILURE_KINDS as readonly string[]).includes(f.kind ?? "") ? (f.kind as FailureKind) : classifyFailure(f.error);
+    failedByKind[kind] = (failedByKind[kind] ?? 0) + 1;
+  }
+  const failed = stats.failures.length;
+  return {
+    requested: stats.requests,
+    answered: stats.answered,
+    errorStatus: stats.errorStatus,
+    failed,
+    failedByKind,
+    cancelled: stats.cancelled,
+    waiting: Math.max(0, stats.requests - stats.answered - failed - stats.cancelled),
+    mainDocument: main.failed ? "failed" : main.status !== null ? "answered" : "pending",
+  };
 }
 
 export interface InFlight {

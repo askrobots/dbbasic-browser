@@ -83,6 +83,7 @@ export default async function (ctx) {
   rules.push([(p) => p === "/refuse", (r) => T("net.fail", { id: r.id, kind: "blocked", detail: "the site's rules disallow this" })]);
   let h0 = await hits();
   v = await settle(base + "/refuse");
+  check(v.resources?.mainDocument === "failed" && v.resources.failedByKind.blocked === 1, "…and the counts record the caller's refusal by reason", JSON.stringify(v.resources));
   check(v.outcome === "failed" && v.failure?.kind === "blocked" && v.failure?.source === "caller", "a refusal: failed, kind 'blocked', source 'caller'", JSON.stringify(v.failure));
   check(v.failure?.description === "the site's rules disallow this", "…with the caller's own words", v.failure?.description);
   check((await hits()) === h0, "…and the refused request never reached the server (the browser makes none of its own)");
@@ -149,8 +150,9 @@ export default async function (ctx) {
   rules.push([(p) => p === "/img" || p === "/fetch" || p === "/xhr" || p === "/beacon" || p === "/sse" || p === "/prefetch", (r) => T("net.fail", { id: r.id, kind: "blocked", detail: "test" })]);
   await T("net.provider", { limits: { requests: 3 } });
   seen.length = 0;
-  await settle(base + "/escape");
+  v = await settle(base + "/escape");
   check(seen.length <= 3, "past the request limit the browser asks the caller for nothing more", `${seen.length} handed over`);
+  check(v.resources.failedByKind.other >= 1 && v.resources.failed >= 1, "…and the verdict counts those refusals as failures, by reason", JSON.stringify(v.resources));
   await T("net.provider", { limits: { requests: 0 } });
   seen.length = 0;
   await settle(base + "/escape");
