@@ -957,7 +957,7 @@
           if (!r.ok) toast("skipped", r.message || "Could not keep this page");
           else {
             const up = r.record.remote && r.record.remote.files ? r.record.remote.files.length : 0;
-            toast("paid", "Kept “" + r.record.title + "”" + (r.bookmarked || up ? " — on askrobots too (" + [r.bookmarked ? "bookmark" : "", up ? (up === 1 ? "1 file" : up + " files") : ""].filter(Boolean).join(", ") + ")" : "") + (r.record.remote && r.record.remote.error ? " — could not save the copy to askrobots: " + r.record.remote.error : ""));
+            toast("paid", "Kept “" + r.record.title + "”" + (r.bookmarked || up ? " — on askrobots too (" + [r.bookmarked ? "bookmark" : "", up ? (up === 1 ? "1 file" : up + " files") : ""].filter(Boolean).join(", ") + ")" : "") + (r.record.remote && r.record.remote.error ? ". Picture not saved to askrobots: " + r.record.remote.error : ""), r.record.remote && r.record.remote.error ? 12000 : 4000);
           }
         } finally { b.disabled = false; }
       };

@@ -1026,10 +1026,21 @@ app.whenReady().then(async () => {
           error = e instanceof Error ? e.message : String(e);
         }
       };
+      // The server's refusal, said plainly (it comes as {"error": "..."} text).
+      const plain = (m: string) => {
+        let t = m;
+        try {
+          const j = JSON.parse(m) as Record<string, unknown>;
+          if (typeof j.error === "string") t = j.error;
+        } catch {
+          /* already text */
+        }
+        return /not available for this connection|unknown tool|not found/i.test(t) ? "askrobots does not allow saving files for this connection yet (the copy is on this Mac)" : t.slice(0, 200);
+      };
       if (png) await upload("image", keptFilename(record, "png"), png);
       const header = `${record.title}\n${record.url}\nKept ${when} UTC${record.reason ? `\nWhy: ${record.reason}` : ""}\n\n`;
       await upload("text", keptFilename(record, "txt"), Buffer.from(header + text, "utf8"));
-      record = (await keep.update(record.id, { remote: { files, ...(error ? { error } : {}) } })) ?? record;
+      record = (await keep.update(record.id, { remote: { files, ...(error ? { error: plain(error) } : {}) } })) ?? record;
     }
     if (o.close !== false) await askChrome("tab.close", { id: t.id }).catch(() => {});
     emit({ kind: "kept", title: record.title, url: record.url, id: record.id, imageBytes: record.imageBytes, textChars: record.textChars });
