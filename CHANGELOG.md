@@ -6,6 +6,7 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **A reload button** in the toolbar (⌘R as before); while a page is loading it is a Stop button.
 - **Resource status** (◔ in the toolbar). Memory and CPU per tab, what the browser costs in total (pages, browser, graphics),
   the cache, and what the data folder is made of, with a Clear cache button and Close per tab; amber when a tab is using over
   800 MB or most of a CPU. On a Mac it reports the physical footprint (Activity Monitor's number, which includes memory the

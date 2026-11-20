@@ -79,4 +79,24 @@ export default async function (ctx) {
   await T("page.goto", { url: base + "/free" });
   await sleep(400);
   check((await linkBar()) === null, "navigating away clears a stale link address");
+
+  // Reload button: reloads the page, and is a Stop button while a page is loading.
+  await T("page.goto", { url: base + "/free" });
+  await T("page.eval", { js: "window.__marker = 'before-reload'" });
+  check(await c.ev(`(() => { const b = document.getElementById('reload'); return !!b && b.textContent === '⟳' && /Reload/.test(b.title) })()`), "the toolbar has a reload button");
+  await c.ev(`document.getElementById('reload').click()`);
+  let gone = false;
+  for (let i = 0; i < 60 && !gone; i++) { await sleep(100); gone = (await T("page.eval", { js: "window.__marker === undefined" })).value === true; }
+  check(gone, "clicking it reloads the page (a value the page held is gone)");
+  // while a slow page loads it is a Stop button, and clicking it stops the load
+  const slow = T("page.goto", { url: base + "/slow", wait: false });
+  await sleep(500);
+  const during = await c.ev(`(() => { const b = document.getElementById('reload'); return b.textContent + '|' + b.title })()`);
+  check(/^✕\|Stop/.test(during), "while a page is loading the button is a Stop button", during);
+  await slow.catch(() => {});
+  await c.ev(`document.getElementById('reload').click()`);
+  let back = false;
+  for (let i = 0; i < 60 && !back; i++) { await sleep(100); back = await c.ev(`document.getElementById('reload').textContent === '⟳'`); }
+  check(back, "clicking Stop ends the load and the button goes back to Reload");
 }
+

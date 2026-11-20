@@ -177,6 +177,7 @@
     <div id="bar">
       <button class="btn" id="back">‹</button>
       <button class="btn" id="fwd">›</button>
+      <button class="btn" id="reload" title="Reload (⌘R)">⟳</button>
       <input id="url" placeholder="Search askrobots.com or enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
       <button class="btn" id="galleryBtn" title="Open the local x402 test gallery (http://127.0.0.1:8899/) — start it with: node apps/browser/demo/x402-demo-server.mjs">🧪 x402 tests</button>
       <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
@@ -264,7 +265,7 @@
           if (tab.pending) { const p = tab.pending; tab.pending = null; wv.src = p; }
         });
         wv.addEventListener("ipc-message", (e) => { if (e.channel === "link-hover") { tab.hoverLink = typeof e.args[0] === "string" ? e.args[0] : null; if (tab === active) paintLink(); } });
-        wv.addEventListener("did-start-loading", () => { tab.loading = true; refreshThrobber(tab); syncTabs(); });
+        wv.addEventListener("did-start-loading", () => { tab.loading = true; refreshThrobber(tab); syncTabs(); if (tab === active) paintReload(); });
         wv.addEventListener("did-fail-load", (e) => {
           if (!e.isMainFrame || e.errorCode === -3) return; // -3 = aborted (a newer navigation replaced it)
           tab.failed = { code: e.errorCode, desc: tab.netError || String(e.errorDescription || "").replace(/^net::/, "") };
@@ -273,6 +274,7 @@
         wv.addEventListener("did-stop-loading", () => {
           tab.loading = false;
           refreshThrobber(tab);
+          if (tab === active) paintReload();
           syncTabs();
           if (tab.navSeen && tab.waiters.length) { // automation is waiting for this navigation to finish
             const ws = tab.waiters; tab.waiters = [];
@@ -330,6 +332,7 @@
         setUrlBar(tab);
         renderTabs();
         refreshThrobber(tab);
+        paintReload();
         renderInspector();
         renderOffer();
         if (vaultPanelOpen) renderVaultPanel();
@@ -900,6 +903,15 @@
         else tab.pending = u; // applied on dom-ready
       }
       urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") go(urlInput.value); });
+      // Reload, which becomes Stop while the page is loading.
+      function paintReload() {
+        const b = $("reload");
+        if (!b) return;
+        const loading = !!(active && active.loading);
+        b.textContent = loading ? "✕" : "⟳";
+        b.title = loading ? "Stop loading" : "Reload (⌘R)";
+      }
+      $("reload").onclick = () => { if (!active) return; try { active.loading ? active.wv.stop() : active.wv.reload(); } catch {} };
       $("back").onclick = () => { try { active.wv.canGoBack() && active.wv.goBack(); } catch {} };
       $("fwd").onclick = () => { try { active.wv.canGoForward() && active.wv.goForward(); } catch {} };
 
