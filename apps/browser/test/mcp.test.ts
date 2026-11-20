@@ -479,6 +479,25 @@ describe("where tokens are kept, and which servers there are", () => {
     expect(disk.size).toBe(0);
   });
 
+  it("never touches the keychain until it must: no file means nothing is decrypted, and the service reads nothing at start-up", () => {
+    const calls: string[] = [];
+    const enc = { isEncryptionAvailable: () => (calls.push("available"), true), encryptString: (s: string) => (calls.push("encrypt"), Buffer.from(s)), decryptString: (b: Buffer) => (calls.push("decrypt"), b.toString()) };
+    const disk = new Map<string, Buffer>();
+    const files = { read: (p: string) => disk.get(p) ?? null, write: (p: string, b: Buffer | null) => void (b ? disk.set(p, b) : disk.delete(p)) };
+    const store = createStore("/x", enc, files);
+    expect(store.load()).toBeNull(); // no file yet
+    expect(calls).toEqual([]);
+    const { f } = fakeServer();
+    const svc = new McpService({ fetch: f, store, servers: [SERVER], openExternal: () => {}, callerNetworkOn: () => false, announce: () => {} });
+    expect(calls).toEqual([]); // constructing the service reads nothing
+    expect(svc.state()[0]).toMatchObject({ signedIn: false, persistent: true });
+    expect(calls).toEqual([]); // and neither does showing the state when nobody is signed in
+    store.save("secret"); // a first sign-in is where it reaches the keychain
+    expect(calls).toEqual(["available", "encrypt"]);
+    expect(store.load()).toBe("secret");
+    expect(calls).toEqual(["available", "encrypt", "decrypt"]);
+  });
+
   it("reads extra servers from a file, skips bad entries and says why, and lets an entry replace the built-in one", () => {
     const good = { id: "notes", name: "Notes", url: "https://notes.example/mcp", tools: ["list", "add"], readOnly: ["list"] };
     const r = parseServerConfigs(JSON.stringify([good, { id: "Bad Id", name: "x", url: "https://a.example" }, { ...good, id: "plain", url: "http://notes.example/mcp" }, { ...good, id: "ro", readOnly: ["nope"] }, { ...good, id: "empty", tools: [] }]));

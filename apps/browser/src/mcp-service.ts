@@ -107,7 +107,7 @@ export function loadServerConfigs(file: string | undefined, read: (p: string) =>
 // ---- storage -----------------------------------------------------------------------------------------------------
 
 export interface Store {
-  /** False when nothing is written to disk (no OS encryption): sign-ins last until the browser closes. */
+  /** False when nothing is written to disk (no OS encryption): sign-ins last until the browser closes. Asking may reach the system keychain, so ask only when it matters. */
   readonly persistent: boolean;
   load(): string | null;
   save(text: string | null): void;
@@ -122,23 +122,37 @@ export interface Files {
   write(p: string, b: Buffer | null): void;
 }
 
-/** Tokens go to disk only encrypted with the operating system's keychain; otherwise nowhere. */
+/**
+ * Tokens go to disk only encrypted with the operating system's keychain; otherwise nowhere.
+ * Nothing here touches the keychain until it has to: on macOS even asking whether encryption is available can raise a system
+ * password prompt, so a browser that starts and never uses a connection must not ask. Loading looks for the file first and only
+ * decrypts when there is one; saving is where a first sign-in reaches the keychain.
+ */
 export function createStore(path: string, enc: Encryption, files: Files): Store {
   let memory: string | null = null;
-  const persistent = enc.isEncryptionAvailable();
+  let available: boolean | null = null;
+  const canEncrypt = (): boolean => (available ??= enc.isEncryptionAvailable());
   return {
-    persistent,
+    get persistent() {
+      return canEncrypt();
+    },
     load() {
-      if (!persistent) return memory;
+      let b: Buffer | null = null;
       try {
-        const b = files.read(path);
-        return b ? enc.decryptString(b) : null;
+        b = files.read(path);
+      } catch {
+        b = null;
+      }
+      if (!b) return memory; // no file: nothing to decrypt, so no keychain
+      if (!canEncrypt()) return memory;
+      try {
+        return enc.decryptString(b);
       } catch {
         return null; // unreadable or from another user: start signed out
       }
     },
     save(text) {
-      if (!persistent) {
+      if (!canEncrypt()) {
         memory = text;
         return;
       }
@@ -207,7 +221,6 @@ const compactArgs = (a: Record<string, unknown>): string => {
 };
 
 export class McpService {
-  private saved: Saved;
   private meta = new Map<string, ServerMeta>();
   private flows = new Map<string, { cancel(): void }>();
   private errors = new Map<string, string>();
@@ -217,17 +230,25 @@ export class McpService {
   /** Sign-ins waiting for the redirect to arrive inside this browser, by their secret state. */
   private expecting = new Map<string, { redirect: string; resolve(code: string): void; reject(e: Error): void; timer: NodeJS.Timeout }>();
 
-  constructor(private d: McpDeps) {
-    let s: Saved = { servers: {} };
-    try {
-      const t = d.store.load();
-      const j = t ? (JSON.parse(t) as Saved) : null;
-      if (j && isObj(j.servers)) s = j;
-    } catch {
-      /* start signed out */
+  private loaded: Saved | null = null;
+
+  /** What is saved, read the first time something needs it (not at start-up: reading may reach the keychain). */
+  private get saved(): Saved {
+    if (!this.loaded) {
+      let s: Saved = { servers: {} };
+      try {
+        const t = this.d.store.load();
+        const j = t ? (JSON.parse(t) as Saved) : null;
+        if (j && isObj(j.servers)) s = j;
+      } catch {
+        /* start signed out */
+      }
+      this.loaded = s;
     }
-    this.saved = s;
+    return this.loaded;
   }
+
+  constructor(private d: McpDeps) {}
 
   private now() {
     return (this.d.now ?? Date.now)();
@@ -252,7 +273,7 @@ export class McpService {
       signedIn: !!this.saved.servers[c.id]?.tokens,
       connecting: this.flows.has(c.id),
       tools: c.tools,
-      persistent: this.d.store.persistent,
+      persistent: this.saved.servers[c.id]?.tokens ? this.d.store.persistent : true, // only asked when signed in, so a closed panel never reaches the keychain
       ...(this.errors.has(c.id) ? { error: this.errors.get(c.id) as string } : {}),
     }));
   }
