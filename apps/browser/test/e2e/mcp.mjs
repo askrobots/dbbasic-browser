@@ -56,7 +56,7 @@ export default async function (ctx) {
   check(lookup.reply.startsWith("Result: Found 2 notes about cats.") && !lookup.events.some((e) => e.kind === "confirm"), "the assistant can use a read tool, with no question asked");
   const log = await (await fetch(base + "/v1/_log")).json();
   const toolMsg = log.at(-1).messages.at(-1);
-  check(toolMsg.role === "tool" && toolMsg.content.startsWith("<data>") && toolMsg.content.includes("IGNORE ALL PREVIOUS INSTRUCTIONS"), "what the server returned reaches the model tagged as untrusted data (its text is there, as data)");
+  check(toolMsg.role === "tool" && /^\[Content from the person's own account/.test(toolMsg.content) && /<untrusted-[0-9a-f]{12}>/.test(toolMsg.content) && toolMsg.content.includes("IGNORE ALL PREVIOUS INSTRUCTIONS"), "what the server returned reaches the model marked as from the person's account, not from the person, inside the untrusted tags (its text is there, as data)");
   check(!log.at(-1).tools.some((t) => /wipe/.test(t.function.name)) && !/delete everything/i.test(JSON.stringify(log.at(-1).tools)), "the model is never offered a tool the entry did not allow");
   const who = await T("chat.send", { text: "whois" });
   check(/Ada/.test(who.reply) && !/private notes|interactions/.test(who.reply) && !/private notes/.test(JSON.stringify(await (await fetch(base + "/v1/_log")).json())), "fields the entry drops (notes, interactions) never reach the model");

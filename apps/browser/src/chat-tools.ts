@@ -111,6 +111,7 @@ export function pageTools(run: Runner): ToolDef[] {
     },
     {
       name: "open_tab",
+      origin: "browser",
       description: "Open an address in a new tab and wait for it to load.",
       input_schema: { type: "object", properties: { url: { type: "string" } }, required: ["url"], additionalProperties: false },
       risk: "act",
@@ -123,6 +124,7 @@ export function pageTools(run: Runner): ToolDef[] {
     },
     {
       name: "go_to",
+      origin: "browser",
       description: "Go to an address in a tab and wait for it to load.",
       input_schema: { type: "object", properties: { ...tabProp, url: { type: "string" } }, required: ["url"], additionalProperties: false },
       risk: "act",
@@ -135,6 +137,7 @@ export function pageTools(run: Runner): ToolDef[] {
     },
     {
       name: "back",
+      origin: "browser",
       description: "Go back one page in a tab.",
       input_schema: { type: "object", properties: tabProp, additionalProperties: false },
       risk: "act",
@@ -143,6 +146,7 @@ export function pageTools(run: Runner): ToolDef[] {
     },
     {
       name: "switch_tab",
+      origin: "browser",
       description: "Bring a tab to the front.",
       input_schema: { type: "object", properties: { tab: tabProp.tab }, required: ["tab"], additionalProperties: false },
       risk: "act",
@@ -151,6 +155,7 @@ export function pageTools(run: Runner): ToolDef[] {
     },
     {
       name: "click",
+      origin: "browser",
       description: "Click a link, button, checkbox or radio button by its ref. A click that submits a form or is about buying, paying, deleting or sending is always asked about.",
       input_schema: { type: "object", properties: { ...tabProp, ...refProp }, required: ["ref"], additionalProperties: false },
       risk: "act",
@@ -177,6 +182,7 @@ export function pageTools(run: Runner): ToolDef[] {
     },
     {
       name: "type_text",
+      origin: "browser",
       description: "Type into a text field by its ref. By default it replaces what is there. Never for password, card or code fields.",
       input_schema: { type: "object", properties: { ...tabProp, ...refProp, text: { type: "string" }, clear: { type: "boolean", description: "Replace the current value (default true)." } }, required: ["ref", "text"], additionalProperties: false },
       risk: "act",
@@ -191,6 +197,7 @@ export function pageTools(run: Runner): ToolDef[] {
     },
     {
       name: "choose",
+      origin: "browser",
       description: "Choose an option in a dropdown by its ref and the option's value or words.",
       input_schema: { type: "object", properties: { ...tabProp, ...refProp, option: { type: "string" } }, required: ["ref", "option"], additionalProperties: false },
       risk: "act",
@@ -209,6 +216,7 @@ export function pageTools(run: Runner): ToolDef[] {
     },
     {
       name: "press_key",
+      origin: "browser",
       description: `Press one key in the page: ${KEYS.join(", ")}. Enter is always asked about because it can submit a form.`,
       input_schema: { type: "object", properties: { ...tabProp, key: { type: "string", enum: KEYS } }, required: ["key"], additionalProperties: false },
       risk: "act",

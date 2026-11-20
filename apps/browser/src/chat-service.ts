@@ -14,7 +14,7 @@
 
 import { estimateCostUsd } from "./ai.js";
 import { describeAi, redact, type AiConfig } from "./ai-config.js";
-import { runChat, type ChatEvent, type ChatMsg, type ModelClient, type Policy, type ToolDef } from "./chat-core.js";
+import { newBoundary, runChat, type ChatEvent, type ChatMsg, type ModelClient, type Policy, type ToolDef } from "./chat-core.js";
 import { chatModel } from "./chat-models.js";
 import { pageTools, type Runner } from "./chat-tools.js";
 
@@ -62,6 +62,8 @@ export class ChatService {
   private running: AbortController | null = null;
   private pending = new Map<string, (ok: boolean) => void>();
   private consented = new Set<string>();
+  /** A random word for this conversation's untrusted tags; a new conversation gets a new one. */
+  private boundary = newBoundary();
   mode: Policy["mode"] = "ask";
 
   constructor(private deps: ChatDeps) {}
@@ -102,6 +104,7 @@ export class ChatService {
   clear(): void {
     this.stop();
     this.history = [];
+    this.boundary = newBoundary();
     this.log = [];
     this.push({ kind: "cleared" });
   }
@@ -159,6 +162,7 @@ export class ChatService {
         history: this.history,
         userText: t,
         policy: { mode: this.mode },
+        boundary: this.boundary,
         signal: ctl.signal,
         confirm: (a) =>
           new Promise<boolean>((resolve) => {

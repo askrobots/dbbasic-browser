@@ -27,7 +27,9 @@ export default async function (ctx) {
 
   const log = await (await fetch(base + "/v1/_log")).json();
   const lastReq = JSON.stringify(log.at(-1));
-  check(log.at(-1).messages.at(-1).role === "tool" && log.at(-1).messages.at(-1).content.startsWith("<data>"), "what a tool returned goes to the model tagged as untrusted data");
+  const tm = log.at(-1).messages.at(-1);
+  const word = /<untrusted-([0-9a-f]{12})>/.exec(log.at(-1).messages[0].content)?.[1];
+  check(tm.role === "tool" && /^\[Content from a web page/.test(tm.content) && !!word && tm.content.includes(`<untrusted-${word}>`) && tm.content.endsWith(`</untrusted-${word}>`), "what a tool returned goes to the model with a line saying it is not from the person, between tags that carry this conversation's random word (the same word as in the system prompt)", word);
   check(/UNTRUSTED/.test(log.at(-1).messages[0].content) && log.at(-1).tools.some((t) => t.function.name === "type_text"), "the model is told the data is untrusted and is given the tools");
   check(!/hunter2|4111111111111111|123456|csrf-secret-value/.test(JSON.stringify(log)), "none of the secret values on the page ever reached the model");
 

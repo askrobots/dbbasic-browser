@@ -408,6 +408,7 @@ export class McpService {
       description: `[${c.name}] ${(t.description ?? t.name).slice(0, 500)}`,
       input_schema: schema as Record<string, unknown>,
       risk: reads ? "read" : "act",
+      origin: "account",
       private: true, // what a connected account returns is private: after it, typing and opening addresses always ask
       run: async (input) => {
         this.refuseInCallerMode();

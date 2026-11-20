@@ -614,14 +614,14 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
       const lastUser = [...msgs].reverse().find((m) => m.role === "user");
       const sinceUser = msgs.slice(msgs.lastIndexOf(lastUser) + 1);
       const results = sinceUser.filter((m) => m.role === "tool");
-      const asJson = (m) => { try { return JSON.parse(m.content.replace(/^<data>\n?/, "").replace(/\n?<\/data>.*$/s, "")); } catch { return null; } };
+      const asJson = (m) => { try { return JSON.parse(m.content.replace(/^[^]*?<untrusted-[0-9a-f]+>\n?/, "").replace(/\n?<\/untrusted-[0-9a-f]+>[^]*$/, "")); } catch { return null; } };
       const call = (name, args) => ({ content: null, tool_calls: [{ id: "call_" + results.length, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
       const say = (t) => ({ content: t });
       const fieldRef = (n, name) => asJson(results[n])?.fields?.find((f) => f.name === name)?.ref;
       const buttonRef = (n, text) => asJson(results[n])?.buttons?.find((b) => b.text === text)?.ref;
       const text = String(lastUser?.content ?? "");
       let msg;
-      if (text.startsWith("read")) msg = results.length === 0 ? call("read_page", {}) : say("The page says: " + String(results[0].content).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").slice(0, 60));
+      if (text.startsWith("read")) msg = results.length === 0 ? call("read_page", {}) : say("The page says: " + String(results[0].content).replace(/^\[[^\]]*\]\n/, "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").slice(0, 60));
       else if (text.startsWith("fill")) {
         if (results.length === 0) msg = call("list_fields", {});
         else if (results.length === 1) msg = call("type_text", { ref: fieldRef(0, "first"), text: "Grace" });
@@ -642,7 +642,7 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
         const t = (body.tools ?? []).find((x) => x.function.name.endsWith("__lookup"));
         if (!t) msg = say("Result: no such tool");
         else if (results.length === 0) msg = call(t.function.name, { q: "cats" });
-        else msg = say("Result: " + String(results[0].content).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim().slice(0, 70));
+        else msg = say("Result: " + String(results[0].content).replace(/^\[[^\]]*\]\n/, "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim().slice(0, 70));
       } else if (text.startsWith("keep")) {
         const t = (body.tools ?? []).find((x) => x.function.name.endsWith("__save"));
         if (results.length === 0) msg = call(t.function.name, { title: "A good page", project_id: "SOMEONE-ELSES" });
