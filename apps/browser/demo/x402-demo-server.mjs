@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.DEMO_PORT) || 8899;
+const fakeModelLog = [];
 const HOST = process.env.DEMO_HOST || "0.0.0.0"; // reachable via LAN IP; mock content only
 
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
@@ -521,6 +522,50 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
 <img src="/slow-image.png" width="8" height="8"><img src="/status/404" width="8" height="8"><img src="http://127.0.0.1:1/x.png" width="8" height="8"><script src="/fail"></script>`);
     return;
   }
+
+  // A scripted stand-in for a chat model that speaks the OpenAI chat API, so the browser's chat can be tested without a
+  // real model: the first words of the person's message pick a script, and each tool result moves it on a step.
+  if (path === "/v1/chat/completions" && req.method === "POST") {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      const body = JSON.parse(raw || "{}");
+      fakeModelLog.push(body);
+      const msgs = body.messages ?? [];
+      const lastUser = [...msgs].reverse().find((m) => m.role === "user");
+      const sinceUser = msgs.slice(msgs.lastIndexOf(lastUser) + 1);
+      const results = sinceUser.filter((m) => m.role === "tool");
+      const asJson = (m) => { try { return JSON.parse(m.content.replace(/^<data>\n?/, "").replace(/\n?<\/data>.*$/s, "")); } catch { return null; } };
+      const call = (name, args) => ({ content: null, tool_calls: [{ id: "call_" + results.length, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
+      const say = (t) => ({ content: t });
+      const fieldRef = (n, name) => asJson(results[n])?.fields?.find((f) => f.name === name)?.ref;
+      const buttonRef = (n, text) => asJson(results[n])?.buttons?.find((b) => b.text === text)?.ref;
+      const text = String(lastUser?.content ?? "");
+      let msg;
+      if (text.startsWith("read")) msg = results.length === 0 ? call("read_page", {}) : say("The page says: " + String(results[0].content).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").slice(0, 60));
+      else if (text.startsWith("fill")) {
+        if (results.length === 0) msg = call("list_fields", {});
+        else if (results.length === 1) msg = call("type_text", { ref: fieldRef(0, "first"), text: "Grace" });
+        else if (results.length === 2) msg = call("choose", { ref: fieldRef(0, "country"), option: "United States" });
+        else msg = say("Filled in the name and the country.");
+      } else if (text.startsWith("submit")) {
+        if (results.length === 0) msg = call("list_fields", {});
+        else if (results.length === 1) msg = call("click", { ref: buttonRef(0, "Create account") });
+        else msg = say("Result: " + (results[1].content.includes("declined") ? "declined" : "clicked"));
+      } else if (text.startsWith("password")) {
+        if (results.length === 0) msg = call("list_fields", {});
+        else if (results.length === 1) msg = call("type_text", { ref: fieldRef(0, "pw"), text: "hunter3" });
+        else msg = say("Result: " + (results[1].isError || /refused/.test(results[1].content) ? "refused" : "typed"));
+      } else if (text.startsWith("leave")) {
+        if (results.length === 0) msg = call("go_to", { url: "http://localhost:" + PORT + "/free?leak=1" });
+        else msg = say("Result: " + (/declined/.test(results[0].content) ? "declined" : "went"));
+      } else msg = say("I can read, fill, submit, and leave.");
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ id: "x", choices: [{ index: 0, message: { role: "assistant", ...msg }, finish_reason: msg.tool_calls ? "tool_calls" : "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+    });
+    return;
+  }
+  if (path === "/v1/_log") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(fakeModelLog)); return; }
 
   // A form with every kind of field the form tools have to understand, including ones that must never be reported.
   if (path === "/forms") {

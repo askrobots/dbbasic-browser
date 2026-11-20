@@ -31,7 +31,8 @@ import { noteDownload, runSettle, trackLifecycle, noteKnownDocument } from "./se
 import { EXPIRED_HTML, READER_SCHEME, ReaderPages, readerIdFromUrl } from "./reader-pages.js";
 import { READER_CSP } from "./reader.js";
 import { registerVault } from "./vault-service.js";
-import { setTabs, startControl, type ApprovalPolicy, type ControlHandle, type TabInfo } from "./control.js";
+import { handle as handleControl, setTabs, startControl, type ApprovalPolicy, type ControlDeps, type ControlHandle, type TabInfo } from "./control.js";
+import { ChatService } from "./chat-service.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -811,9 +812,33 @@ app.whenReady().then(async () => {
 
   createWindow();
   // Automation API: off unless asked for (see control.ts for the security model).
-  if (process.env.DBB_CONTROL === "1" || process.argv.includes("--control")) {
-    startControl(
-      {
+  // The in-browser chat: a model, the page tools (run in-process, the same methods scripts use) and the person's say.
+  const chat = new ChatService({
+    getAi: () => aiCfg,
+    run: (m, p) => handleControl(controlDeps, m, p),
+    toPanel: (e) => mainWindow?.webContents.send("chat:event", e),
+    announce: (e) => emit(e),
+    callerNetworkOn: () => callerNet.enabled,
+    consent: async ({ model, where }) => {
+      const opts: Electron.MessageBoxOptions = {
+        type: "question",
+        buttons: ["Send", "Cancel"],
+        defaultId: 1,
+        cancelId: 1,
+        message: `Let the assistant send to ${where}?`,
+        detail: `Your messages, and whatever the assistant reads from your open pages (text, field names, addresses), go to ${model} at ${where}. It does not list or fill password, card number or one-time-code fields, but visible page text is visible to it. You approve each action before it happens. This question is asked once per model per session.`,
+      };
+      const r = mainWindow ? await dialog.showMessageBox(mainWindow, opts) : await dialog.showMessageBox(opts);
+      return r.response === 0;
+    },
+  });
+  ipcMain.handle("chat:state", () => chat.state());
+  ipcMain.handle("chat:send", (_e, text: unknown) => chat.send(String(text ?? "")));
+  ipcMain.handle("chat:stop", () => (chat.stop(), true));
+  ipcMain.handle("chat:confirm", (_e, id: unknown, ok: unknown) => chat.confirm(String(id), ok === true));
+  ipcMain.handle("chat:clear", () => (chat.clear(), true));
+  ipcMain.handle("chat:mode", (_e, m: unknown) => chat.setMode(m));
+  const controlDeps: ControlDeps = {
         askChrome,
         background,
         focusWindow: () => {
@@ -871,12 +896,13 @@ app.whenReady().then(async () => {
           noteKnownDocument,
         },
         aiStatus: () => describeAi(aiCfg),
+        chat,
         setAiProvider: (p) => (p === "anthropic" || p === "openai" ? setAiProvider(p) : false),
         spent: () => formatUsd(engine.policy.spentUsdMicro()),
         receipts: () => JSON.parse(JSON.stringify(engine.ledger.all(), (_k, v) => (typeof v === "bigint" ? v.toString() : v))),
-      },
-      { port: Number(process.env.DBB_CONTROL_PORT) || 9777, token: process.env.DBB_CONTROL_TOKEN },
-    )
+  };
+  if (process.env.DBB_CONTROL === "1" || process.argv.includes("--control")) {
+    startControl(controlDeps, { port: Number(process.env.DBB_CONTROL_PORT) || 9777, token: process.env.DBB_CONTROL_TOKEN })
       .then((h) => {
         control = h;
         console.error(`[control] automation API on http://127.0.0.1:${h.port}/rpc — token in ${h.file}`);

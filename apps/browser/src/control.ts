@@ -30,6 +30,7 @@ import { safeEqual } from "@dbbasic/vault";
 import type { VaultService } from "./vault-service.js";
 import type { SettleContext } from "./settle-service.js";
 import type { ExtensionRegistry } from "./extensions.js";
+import type { ChatService } from "./chat-service.js";
 
 export interface TabInfo {
   id: number;
@@ -63,6 +64,8 @@ export interface ControlDeps {
   /** AI Reader: open the reader view for a tab (and, only with `acknowledge`, summarize it). */
   reader(p: Record<string, unknown>): Promise<unknown>;
   aiStatus(): unknown;
+  /** The in-browser chat (see chat-service.ts). */
+  chat: ChatService;
   downloads(): unknown;
   getNetPolicy(): { blockWebSockets: boolean };
   /** Methods added by local extensions (see extensions.ts), reached as ext.<name>. */
@@ -324,6 +327,30 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
         await sleep(100);
       }
     }
+
+    // ---- chat ------------------------------------------------------------------
+    case "chat.state":
+      return d.chat.state();
+    case "chat.send": {
+      // Sends one message and waits for the assistant to finish (wait:false returns at once; poll chat.events).
+      const text = str(p.text, "text");
+      if (p.mode != null) d.chat.setMode(p.mode);
+      const run = d.chat.send(text);
+      if (p.wait === false) return { started: true };
+      return run;
+    }
+    case "chat.events":
+      return d.chat.eventsSince(Number(p.since) || 0);
+    case "chat.confirm":
+      return { settled: d.chat.confirm(str(p.id, "id"), p.ok === true) };
+    case "chat.stop":
+      d.chat.stop();
+      return { stopped: true };
+    case "chat.clear":
+      d.chat.clear();
+      return { cleared: true };
+    case "chat.mode":
+      return { mode: d.chat.setMode(p.mode) };
 
     // ---- vault ---------------------------------------------------------------
     case "vault.state":
