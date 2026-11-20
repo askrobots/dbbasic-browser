@@ -98,12 +98,14 @@
       #omni .or[data-kind="notice"] { color: #f0c674; cursor: default; white-space: normal; }
       #omni .or[data-kind="notice"].link { cursor: pointer; }
       #omni .or .p { color: #f08a7a; font-size: 11.5px; }
-      #omniOut { position: fixed; z-index: 29; background: #1a1a1f; border: 1px solid #3a3a40; border-radius: 9px; box-shadow: 0 12px 40px rgba(0,0,0,.6); display: none; font-size: 12.5px; max-height: 60vh; flex-direction: column; }
-      #omniOut.open { display: flex; }
-      #omniOut .h { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #2c2c32; color: #e8e8ea; }
-      #omniOut .h .sp { flex: 1; color: #8a8a90; font-size: 11px; }
-      #omniOut .h button { background: none; border: 0; color: #9a9aa2; cursor: pointer; font-size: 14px; }
-      #omniOut pre { margin: 0; padding: 10px 12px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: #d8d8dc; font: 12px/1.45 ui-monospace, Menlo, monospace; }
+      #chatLog .cmd { background: #15201a; border: 1px solid #24402c; border-radius: 9px; padding: 8px 10px; font-size: 12.5px; color: #d8e8dc; max-width: 96%; }
+      #chatLog .cmd .typed { font: 12px/1.4 ui-monospace, Menlo, monospace; color: #9cc3ff; word-break: break-word; }
+      #chatLog .cmd .s { color: #e8e8ea; margin-top: 3px; word-break: break-word; }
+      #chatLog .cmd a, .note a { color: #9cc3ff; cursor: pointer; text-decoration: underline; margin-left: 6px; }
+      #chatLog .cmd ol { margin: 6px 0 0; padding-left: 20px; } #chatLog .cmd li { margin: 2px 0; word-break: break-word; }
+      #chatLog .cmd li a { margin-left: 0; }
+      #chatLog .cmd details { margin-top: 6px; } #chatLog .cmd summary { color: #8a8a90; cursor: pointer; font-size: 11.5px; }
+      #chatLog .cmd pre { margin: 4px 0 0; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: #c8c8cc; font: 11.5px/1.45 ui-monospace, Menlo, monospace; }
       #bmPanel { position: fixed; top: 84px; right: 10px; width: 420px; max-height: calc(100vh - 100px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12.5px; }
       #bmPanel.open { display: block; }
       #bmPanel h4 { margin: 0 0 4px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
@@ -768,6 +770,38 @@
           if (why) chatPush("note", why);
         }
         else if (e.kind === "cleared") chatEmptyState();
+        else if (e.kind === "command") { chatLog.appendChild(cmdCard(e)); chatLog.scrollTop = chatLog.scrollHeight; }
+      }
+      // A command you ran from the address bar: what you typed, what it means, links to what it made or found, and the answer as data.
+      function cmdCard(e) {
+        const card = document.createElement("div"); card.className = "cmd";
+        const typed = document.createElement("div"); typed.className = "typed"; typed.textContent = e.typed;
+        const s = document.createElement("div"); s.className = "s"; s.textContent = "✓ " + e.sentence;
+        if (e.page) s.appendChild(openLink(e.page));
+        card.append(typed, s);
+        if (e.items && e.items.length) {
+          const ol = document.createElement("ol");
+          for (const it of e.items) {
+            const li = document.createElement("li");
+            if (it.page) li.appendChild(openLink(it.page, it.title)); else li.textContent = it.title;
+            ol.appendChild(li);
+          }
+          card.appendChild(ol);
+        }
+        if (e.details) {
+          const d = document.createElement("details");
+          if (e.readOnly && !(e.items && e.items.length)) d.open = true;
+          const sm = document.createElement("summary"); sm.textContent = "answer from askrobots";
+          const pre = document.createElement("pre"); pre.textContent = e.details;
+          d.append(sm, pre); card.appendChild(d);
+        }
+        return card;
+      }
+      // Only ever an address the main process checked is on the service's own site; it opens in a new tab.
+      function openLink(url, text) {
+        const a = document.createElement("a"); a.textContent = text || "Open"; a.title = url;
+        a.onclick = (ev) => { ev.preventDefault(); newTab(url); };
+        return a;
       }
       async function chatRefresh() {
         chatInfo = await window.x402.chat.state();
@@ -1175,25 +1209,6 @@
       }
       // ---- "/" commands: complete, confirm when asked to, run, show the answer ----
       let omniConfirm = null;
-      const omniOut = document.createElement("div"); omniOut.id = "omniOut"; document.body.appendChild(omniOut);
-      function omniOutClose() { omniOut.classList.remove("open"); }
-      function omniShowResult(title, text, ok) {
-        let body = String(text || "");
-        try { body = JSON.stringify(JSON.parse(body), null, 2); } catch {}
-        const b = urlInput.getBoundingClientRect();
-        omniOut.style.left = b.left + "px"; omniOut.style.top = (b.bottom + 4) + "px"; omniOut.style.width = Math.max(b.width, 480) + "px";
-        omniOut.textContent = "";
-        const h = document.createElement("div"); h.className = "h";
-        const t = document.createElement("b"); t.textContent = (ok ? "✓ " : "✗ ") + title;
-        const sp = document.createElement("span"); sp.className = "sp"; sp.textContent = ok ? "answer from askrobots.com (Esc closes)" : "";
-        const x = document.createElement("button"); x.textContent = "✕"; x.title = "Close"; x.onclick = omniOutClose;
-        h.append(t, sp, x);
-        const pre = document.createElement("pre"); pre.textContent = body.slice(0, 100000) || "(no answer)";
-        omniOut.append(h, pre);
-        omniOut.classList.add("open");
-      }
-      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && omniOut.classList.contains("open") && !omni.classList.contains("open")) omniOutClose(); });
-      document.addEventListener("mousedown", (e) => { if (omniOut.classList.contains("open") && !omniOut.contains(e.target) && e.target !== urlInput) omniOutClose(); });
       function omniComplete(r) {
         urlInput.value = r.line + (r.arg ? " " : "");
         omniTyped = urlInput.value; omniEditing = true;
@@ -1214,8 +1229,9 @@
         if (r.connect) { omniEnd(); setUrlBar(active); setChat(true); toast("skipped", r.message); return; }
         if (!r.ok) { omniLocal = [{ kind: "notice", text: r.message }, ...omniLocal.filter((x) => x.kind !== "notice")]; omniSel = 0; omniRender(); return; }
         omniEnd(); setUrlBar(active); urlInput.blur();
-        omniShowResult("/" + r.name, r.text, true);
-        if (!r.readOnly) toast("paid", "Done on askrobots: /" + r.name);
+        // Everything goes into the chat, so you can ask about it next. Searches and lists open it; a save just says so.
+        if (r.readOnly) setChat(true);
+        else { const n = toast("paid", r.sentence, r.page ? 8000 : 4000); if (r.page) n.appendChild(openLink(r.page)); }
       }
       function omniPick(r) {
         if (r.kind === "cmd") {
@@ -1255,7 +1271,6 @@
         }
         if (e.key === "Escape") {
           omniConfirm = null;
-          if (omniOut.classList.contains("open")) omniOutClose();
           if (open) { omniClose(); if (urlInput.value !== omniTyped && omniEditing) urlInput.value = omniTyped; }
           else { omniEditing = false; setUrlBar(active); urlInput.select(); }
           return;
@@ -1308,6 +1323,7 @@
         n.textContent = text;
         $("toast").appendChild(n);
         setTimeout(() => n.remove(), ms);
+        return n;
       }
 
       // ---- password manager ------------------------------------------------

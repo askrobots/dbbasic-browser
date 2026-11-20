@@ -615,11 +615,12 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
           { id: "l2", url: `${origin}/free`, title: "Free page", tags: "news", is_public: false, project_id: null, created_at: "2026-11-17T10:00:00Z" },
         ];
         if (t === "wipe") { oauth.wiped = (oauth.wiped || 0) + 1; return ok({ content: [{ type: "text", text: "wiped" }] }); }
-        if (t === "create_note") { (oauth.notes ??= []).push(b.params.arguments); return ok({ content: [{ type: "text", text: JSON.stringify({ id: "n" + oauth.notes.length, created: true }) }] }); }
+        if (t === "create_note") { (oauth.notes ??= []).push(b.params.arguments); return ok({ content: [{ type: "text", text: JSON.stringify({ id: "n" + oauth.notes.length, is_public: false, created: true, page: `${origin}/notes/n${oauth.notes.length}/` }) }] }); }
         if (t === "list_links") {
           const a = b.params.arguments || {};
           const list = oauth.links.filter((l) => !a.search || (l.title + l.url).toLowerCase().includes(String(a.search).toLowerCase())).filter((l) => !a.project_id || l.project_id === a.project_id).slice(0, Math.min(Number(a.limit) || 20, 100));
-          return ok({ content: [{ type: "text", text: JSON.stringify(list) }] });
+          // like askrobots: each link has its own page there (one here claims a page on another site, which is never linked)
+          return ok({ content: [{ type: "text", text: JSON.stringify(list.map((l, i) => ({ ...l, page: i === 1 ? `https://elsewhere.example/links/${l.id}/` : `${origin}/links/${l.id}/` }))) }] });
         }
         if (t === "upload_file") {
           const a = b.params.arguments || {};

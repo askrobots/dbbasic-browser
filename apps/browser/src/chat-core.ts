@@ -181,6 +181,10 @@ export interface RunArgs {
   boundary?: string;
   /** Extra text for the system prompt (for example which tab is open). */
   context?: () => string;
+  /** The conversation has already read private data from the person's accounts (in an earlier message, or a command they ran). */
+  tainted?: boolean;
+  /** Told when this message reads private data, so the next message starts out knowing. */
+  onTainted?(): void;
 }
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 500);
@@ -190,10 +194,14 @@ export async function runChat(a: RunArgs): Promise<void> {
   const { history, emit } = a;
   const specs: ToolSpec[] = a.tools.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
   const byName = new Map(a.tools.map((t) => [t.name, t]));
-  history.push({ role: "user", text: a.userText.slice(0, MAX_USER_CHARS) });
+  // A record of something the person did themselves (a command they ran) may already be waiting as the last turn: this
+  // message joins it, so turns keep alternating.
+  const last = history[history.length - 1];
+  if (last?.role === "user") last.text = `${last.text}\n\n${a.userText.slice(0, MAX_USER_CHARS)}`;
+  else history.push({ role: "user", text: a.userText.slice(0, MAX_USER_CHARS) });
   const max = a.maxSteps ?? MAX_STEPS;
   const boundary = a.boundary ?? newBoundary();
-  let tainted = false; // has this conversation read private data from the person's accounts?
+  let tainted = a.tainted === true; // has this conversation read private data from the person's accounts?
   for (let step = 0; step < max; step++) {
     if (a.signal?.aborted) return emit({ kind: "done", reason: "stopped" });
     let turn: ModelTurn;
@@ -247,7 +255,10 @@ export async function runChat(a: RunArgs): Promise<void> {
     emit({ kind: "tool-start", id: call.id, name: call.name, input: call.input, summary });
     try {
       const out = await tool.run(call.input, a.signal);
-      if (tool.private) tainted = true;
+      if (tool.private && !tainted) {
+        tainted = true;
+        a.onTainted?.();
+      }
       const text = typeof out === "string" ? out : JSON.stringify(out);
       emit({ kind: "tool-end", id: call.id, name: call.name, ok: true, note: `${text.length} characters` });
       return { id: call.id, name: call.name, text: wrapResult(text, boundary, tool.origin ?? "page"), isError: false };

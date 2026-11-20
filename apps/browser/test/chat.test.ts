@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { MAX_RESULT_CHARS, compact, newBoundary, runChat, systemPrompt, wrapResult, type ChatEvent, type ChatMsg, type ModelClient, type ModelTurn, type ToolDef } from "../src/chat-core";
 import { anthropicClient, openaiClient, toAnthropicMessages, toOpenAIMessages } from "../src/chat-models";
 import { pageTools, webAddress } from "../src/chat-tools";
-import { parseBaseUrl, resolveAi } from "../src/ai-config";
+import { parseBaseUrl, resolveAi, type AiConfig } from "../src/ai-config";
+import { ChatService, type LoggedEvent } from "../src/chat-service";
 
 const turn = (over: Partial<ModelTurn>): ModelTurn => ({ text: "", calls: [], stop: "end", usage: { inputTokens: 10, outputTokens: 5 }, ...over });
 
@@ -362,5 +363,103 @@ describe("a model on this machine or your network", () => {
     expect(cfg).toMatchObject({ provider: "openai", model: "llama", baseUrl: "http://127.0.0.1:11434/v1" });
     expect(cfg?.keys.openai).toBeUndefined();
     expect(resolveAi({ values: { DBB_AI_BASE_URL: "http://example.com/v1" }, sources: {} })).toBeNull();
+  });
+});
+
+describe("commands the person ran themselves", () => {
+  const cfg = { provider: "openai", model: "fake-1", keys: { openai: "k" }, available: ["openai"], sources: {} } as unknown as AiConfig;
+  function service(m: ModelClient, tools: ToolDef[] = []) {
+    const panel: LoggedEvent[] = [];
+    const asked: string[] = [];
+    const svc = new ChatService({
+      getAi: () => cfg,
+      run: async () => null,
+      toPanel: (e) => panel.push(e),
+      announce: () => {},
+      callerNetworkOn: () => false,
+      consent: async () => true,
+      extraTools: async () => tools,
+      modelFor: () => m,
+    });
+    // only the given tools: no page tools reach the fake model's run
+    return { svc, panel, asked };
+  }
+  const cmd = { typed: "/note buy milk", tool: "create_note", readOnly: false, args: { content: "buy milk" }, sentence: "Saved note: buy milk (private)", page: "https://askrobots.com/notes/n1/", details: '{"id":"n1"}', server: "askrobots" };
+
+  it("shows the command in the conversation and gives the next message its answer, marked as from the account", async () => {
+    const m = scripted([turn({ text: "You saved a note saying buy milk." })]);
+    const { svc, panel } = service(m);
+    svc.recordCommand(cmd);
+    expect(panel.at(-1)).toMatchObject({ kind: "command", typed: "/note buy milk", sentence: "Saved note: buy milk (private)", page: "https://askrobots.com/notes/n1/" });
+    await svc.send("what did I just save?");
+    const first = m.seen[0] ?? [];
+    expect(first.length).toBe(1); // one person turn: the record, then the question (turns keep alternating)
+    const t = first[0]?.role === "user" ? first[0].text : "";
+    expect(t).toMatch(/^\[Not a message to you\. A record: the person ran a command themselves/);
+    expect(t).toContain("They typed: /note buy milk");
+    expect(t).toMatch(/<untrusted-[0-9a-f]{12}>\n\{"id":"n1"\}\n<\/untrusted-[0-9a-f]{12}>/);
+    expect(t.endsWith("what did I just save?")).toBe(true);
+    expect(svc.state().transcript.map((e) => e.kind)).toEqual(["command", "user", "text", "done"]);
+  });
+
+  it("after a command's answer is in the conversation, anything that could carry it out asks, even in auto mode", async () => {
+    const log: string[] = [];
+    const m = scripted([turn({ calls: [{ id: "c1", name: "poke", input: {} }], stop: "tools" }), turn({ text: "done" })]);
+    const { svc, panel } = service(m, [actTool(log, { safe: true, carriesData: true })]);
+    svc.setMode("auto");
+    svc.recordCommand(cmd);
+    const p = svc.send("type it into the page");
+    for (let i = 0; i < 50 && !panel.some((e) => e.kind === "confirm"); i++) await new Promise((r) => setTimeout(r, 5));
+    const ask = panel.find((e) => e.kind === "confirm") as Extract<LoggedEvent, { kind: "confirm" }> | undefined;
+    expect(ask?.danger).toBe(true);
+    svc.confirm(ask!.id, false);
+    await p;
+    expect(log).toEqual([]);
+  });
+
+  it("private data read in one message still counts in the next one", async () => {
+    const log: string[] = [];
+    const secret: ToolDef = { ...readTool("Ada's phone"), name: "contact", private: true, origin: "account" };
+    const m = scripted([turn({ calls: [{ id: "c1", name: "contact", input: {} }], stop: "tools" }), turn({ text: "got it" }), turn({ calls: [{ id: "c2", name: "poke", input: {} }], stop: "tools" }), turn({ text: "ok" })]);
+    const { svc, panel } = service(m, [secret, actTool(log, { safe: true, carriesData: true })]);
+    svc.setMode("auto");
+    await svc.send("look up Ada");
+    const p = svc.send("now type it into the page");
+    for (let i = 0; i < 50 && !panel.some((e) => e.kind === "confirm"); i++) await new Promise((r) => setTimeout(r, 5));
+    const ask = panel.find((e) => e.kind === "confirm") as Extract<LoggedEvent, { kind: "confirm" }> | undefined;
+    expect(ask?.danger).toBe(true);
+    svc.confirm(ask!.id, true);
+    await p;
+    expect(log).toEqual(["ran"]);
+  });
+
+  it("a command run while the assistant is busy joins the conversation once it is done", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const seen: ChatMsg[][] = [];
+    const turns = [turn({ text: "first" }), turn({ text: "second" })];
+    const m: ModelClient = { provider: "fake", model: "fake-1", async turn({ messages }) { seen.push(messages); if (seen.length === 1) await gate; return turns[seen.length - 1]!; } };
+    const { svc } = service(m);
+    const p = svc.send("hello");
+    await new Promise((r) => setTimeout(r, 5));
+    svc.recordCommand(cmd);
+    release();
+    await p;
+    await svc.send("and that note?");
+    const roles = (seen[1] ?? []).map((x) => x.role);
+    expect(roles).toEqual(["user", "assistant", "user"]);
+    const lastText = seen[1]?.[2]?.role === "user" ? seen[1][2].text : "";
+    expect(lastText).toContain("They typed: /note buy milk");
+    expect(lastText.endsWith("and that note?")).toBe(true);
+  });
+
+  it("clearing the conversation forgets the commands too", async () => {
+    const m = scripted([turn({ text: "nothing" })]);
+    const { svc } = service(m);
+    svc.recordCommand(cmd);
+    svc.clear();
+    await svc.send("anything?");
+    const t = m.seen[0]?.[0]?.role === "user" ? m.seen[0][0].text : "";
+    expect(t).toBe("anything?");
   });
 });

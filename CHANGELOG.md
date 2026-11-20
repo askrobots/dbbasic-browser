@@ -12,7 +12,9 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   without cookies, and can be switched off. A page loading while you type no longer overwrites what you typed, and ⌘K
   reaches the page even when the address bar has the focus. With askrobots connected, `/` lists the askrobots tools your
   sign-in may use (and the site's short names, `/note`, `/task`, `/search`, `/websearch`); Enter runs one with the rest
-  of the line as its argument and shows the answer. Destructive tools ask first; nothing is sent without a sign-in.
+  of the line as its argument. The command and its answer go into the chat, so you can ask about them next: a save
+  says what was saved, with Open for its askrobots page; a search or list opens the chat with each thing found linked.
+  Destructive tools ask first; nothing is sent without a sign-in.
 - **Keep** (📥 next to the address). One click keeps a copy of the page you are on (a picture of what is on screen, and its
   text), saves it as a bookmark when askrobots is connected and puts the picture and the text in your askrobots Files (private, named
   "<title> (<site>, <date>)"; saving files is its own permission on the consent page, and a server without it still signs
@@ -140,6 +142,9 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   automation API, plus 94 unit tests and a test that fails if an API key is ever committed.
 
 ### Changed
+- **The assistant remembers having read your private data.** Once a message (or a command you ran) has brought in something
+  from your accounts, later messages in the same conversation still ask before anything that could carry it out of the
+  browser, in any mode, until you clear the conversation. Before, each message started fresh.
 - **Electron 33.4.11 → 45.4.1** (Chromium 130 → 156). The old line was out of support and flagged high-severity by
   `npm audit`.
 - The User-Agent is now Chromium-compatible, without the `Electron/` token, and ends with

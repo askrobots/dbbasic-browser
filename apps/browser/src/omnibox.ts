@@ -263,3 +263,78 @@ export function commandRows(text: string, cmds: CommandInfo[], max = 8): OmniRow
   const contains = t ? cmds.filter((c) => !starts.includes(c) && c.name.includes(t)) : [];
   return [...starts, ...contains].slice(0, max).map((c) => row(c, `/${c.name}`, c.argRequired ? null : ""));
 }
+
+/** What a command's answer means, in words: the browser writes the sentence (the server answers in data, in no language). */
+export interface CommandResult {
+  sentence: string;
+  /** The page of the thing made, on the service's own site (only an address on the service's own origin is kept). */
+  page?: string;
+  /** For lists and searches: the things found, with their pages when the service gives them. */
+  items?: Array<{ title: string; page?: string }>;
+  /** The answer as data, laid out to read (or the text as it came). */
+  details: string;
+}
+
+const VERBS: Record<string, string> = { note: "Saved note", link: "Saved link", contact: "Added contact", organization: "Added organization", file: "Uploaded file" };
+const clip = (s: string, n = 90) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+const titleOf = (o: Record<string, unknown>): string => {
+  for (const k of ["title", "name", "filename", "subject", "content", "text", "url"]) {
+    const v = o[k];
+    if (typeof v === "string" && v.trim()) return v.trim().replace(/\s+/g, " ");
+  }
+  const fn = [o.first_name, o.last_name].filter((x) => typeof x === "string" && x).join(" ");
+  return fn;
+};
+
+/**
+ * Describe the answer to "/tool args". `origin` is the service's own origin: a "page" elsewhere is not shown as a link.
+ * Writes: "Saved note: buy milk (private)". Lists and searches: how many were found, and each one's title and page.
+ * Anything else: "Done" (or the answer itself, when it is short plain text).
+ */
+export function describeResult(tool: string, args: Record<string, unknown>, text: string, origin: string, readOnly: boolean): CommandResult {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = undefined;
+  }
+  const details = data === undefined ? text : JSON.stringify(data, null, 2);
+  const pageOf = (o: unknown): string | undefined => {
+    if (!o || typeof o !== "object") return undefined;
+    const p = (o as Record<string, unknown>).page;
+    if (typeof p !== "string") return undefined;
+    try {
+      const u = new URL(p);
+      return u.origin === origin && /^https?:$/.test(u.protocol) ? u.href : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const obj = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : null;
+  // a list: the answer itself, or the first list of things in it
+  const list = Array.isArray(data) ? data : obj ? Object.values(obj).find((v) => Array.isArray(v) && v.some((x) => x && typeof x === "object")) : undefined;
+  if (readOnly && Array.isArray(list)) {
+    const items = list
+      .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+      .slice(0, 50)
+      .map((x) => {
+        const page = pageOf(x);
+        return { title: clip(titleOf(x) || "(untitled)", 120), ...(page ? { page } : {}) };
+      });
+    const what = typeof args.query === "string" ? ` for “${clip(args.query, 60)}”` : "";
+    return { sentence: `/${tool}: ${list.length === 0 ? "nothing found" : list.length === 1 ? "1 found" : `${list.length} found`}${what}`, items, details };
+  }
+  const typed = Object.values(args).find((v): v is string => typeof v === "string" && !!v.trim());
+  const m = /^(create|add|upload|save)_(.+)$/.exec(tool);
+  if (!readOnly && m && obj) {
+    const noun = (m[2] as string).replace(/_/g, " ");
+    const verb = VERBS[m[2] as string] ?? `${m[1] === "upload" ? "Uploaded" : "Created"} ${noun}`;
+    const what = clip(typed?.replace(/\s+/g, " ") || titleOf(obj));
+    const page = pageOf(obj);
+    return { sentence: `${verb}${what ? `: ${what}` : ""}${obj.is_public === false ? " (private)" : ""}`, ...(page ? { page } : {}), details };
+  }
+  if (readOnly) return { sentence: `/${tool}: the answer is below`, details };
+  if (data === undefined && text.trim() && text.length <= 120) return { sentence: `/${tool}: ${text.trim().replace(/\s+/g, " ")}`, details };
+  const page = pageOf(obj);
+  return { sentence: `Done: /${tool}`, ...(page ? { page } : {}), details };
+}

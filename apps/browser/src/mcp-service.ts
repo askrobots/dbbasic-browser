@@ -302,6 +302,11 @@ export class McpService {
   }
 
   /** The entry's extra permissions the current sign-in lacks. Unknown (the server did not say what it granted) counts as none missing. */
+  /** The service's own origin (where the pages of the things it makes live). */
+  origin(id: string): string {
+    return new URL(this.cfg(id).url).origin;
+  }
+
   missingScopes(id: string): string[] {
     const c = this.d.servers.find((s) => s.id === id);
     const granted = this.saved.servers[id]?.tokens?.scope;

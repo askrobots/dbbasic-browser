@@ -14,7 +14,7 @@
 
 import { estimateCostUsd } from "./ai.js";
 import { describeAi, redact, type AiConfig } from "./ai-config.js";
-import { newBoundary, runChat, type ChatEvent, type ChatMsg, type ModelClient, type Policy, type ToolDef } from "./chat-core.js";
+import { MAX_RESULT_CHARS, newBoundary, runChat, wrapResult, type ChatEvent, type ChatMsg, type ModelClient, type Policy, type ToolDef } from "./chat-core.js";
 import { chatModel } from "./chat-models.js";
 import { pageTools, type Runner } from "./chat-tools.js";
 
@@ -23,7 +23,9 @@ export type PanelEvent =
   | { kind: "user"; text: string }
   | { kind: "confirm"; id: string; name: string; summary: string; danger: boolean }
   | { kind: "confirm-settled"; id: string; ok: boolean }
-  | { kind: "cleared" };
+  | { kind: "cleared" }
+  /** A command the person ran themselves (from the address bar), and what came back. */
+  | { kind: "command"; typed: string; tool: string; readOnly: boolean; sentence: string; page?: string; items?: Array<{ title: string; page?: string }>; details: string };
 export type LoggedEvent = PanelEvent & { seq: number };
 
 export interface ChatDeps {
@@ -65,6 +67,10 @@ export class ChatService {
   /** A random word for this conversation's untrusted tags; a new conversation gets a new one. */
   private boundary = newBoundary();
   mode: Policy["mode"] = "ask";
+  /** The conversation has read private data from the person's accounts, so actions that could carry it out always ask. */
+  private tainted = false;
+  /** Records of commands run while the assistant was busy, added to the conversation when it is done. */
+  private queued: string[] = [];
 
   constructor(private deps: ChatDeps) {}
 
@@ -104,6 +110,8 @@ export class ChatService {
   clear(): void {
     this.stop();
     this.history = [];
+    this.queued = [];
+    this.tainted = false;
     this.boundary = newBoundary();
     this.log = [];
     this.push({ kind: "cleared" });
@@ -125,6 +133,29 @@ export class ChatService {
     this.push({ kind: "confirm-settled", id, ok });
     r(ok);
     return true;
+  }
+
+  /**
+   * Something the person ran themselves from the address bar: shown in the conversation, and kept in it so the next
+   * message can ask about it ("open the second one"). What came back is marked as from the person's account, never as
+   * instructions, like any tool result; and from here on, actions that could carry it out of the browser ask first.
+   */
+  recordCommand(c: { typed: string; tool: string; readOnly: boolean; args: Record<string, unknown>; sentence: string; page?: string; items?: Array<{ title: string; page?: string }>; details: string; server: string }): void {
+    const details = c.details.slice(0, MAX_RESULT_CHARS);
+    this.push({ kind: "command", typed: c.typed.slice(0, 2000), tool: c.tool, readOnly: c.readOnly, sentence: c.sentence, ...(c.page ? { page: c.page } : {}), ...(c.items ? { items: c.items } : {}), details });
+    const record =
+      `[Not a message to you. A record: the person ran a command themselves, from the browser's address bar. It already ran; do not run it again unless asked. It is here so you can answer questions about it.]\n` +
+      `They typed: ${c.typed.slice(0, 2000)}\n` +
+      `It called ${c.server}__${c.tool} with ${JSON.stringify(c.args).slice(0, 2000)}${c.page ? `; the thing made is at ${c.page}` : ""}. The answer:\n` +
+      wrapResult(c.details.slice(0, 8000), this.boundary, "account");
+    this.tainted = true;
+    if (this.running) this.queued.push(record);
+    else this.addRecord(record);
+  }
+  private addRecord(record: string) {
+    const last = this.history[this.history.length - 1];
+    if (last?.role === "user") last.text = `${last.text}\n\n${record}`;
+    else this.history.push({ role: "user", text: record });
   }
 
   /** One message from the person; resolves when the assistant is done. */
@@ -181,10 +212,15 @@ export class ChatService {
           this.push(e.kind === "done" && e.message ? { ...e, message: redact(e.message, cfg) } : e.kind === "text" ? { ...e, text: redact(e.text, cfg) } : e);
         },
         context: () => "The person is looking at one tab at a time; tools act on the active tab unless you pass a tab id.",
+        tainted: this.tainted,
+        onTainted: () => {
+          this.tainted = true;
+        },
       });
     } finally {
       this.running = null;
       this.stop();
+      for (const r of this.queued.splice(0)) this.addRecord(r);
     }
     const cost = cfg.provider === "anthropic" ? estimateCostUsd(model.model, { inputTokens: inTok, outputTokens: outTok }) : null;
     this.deps.announce({ kind: "ai-chat", provider: model.provider, model: model.model, where, modelCalls: steps, inputTokens: inTok, outputTokens: outTok, costUsd: cost, ended });

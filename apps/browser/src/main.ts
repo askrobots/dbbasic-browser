@@ -37,7 +37,7 @@ import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 import { BookmarksService } from "./bookmarks-service.js";
 import { KEPT_SCHEME, KeepStore, keptFilename, keptPageHtml, keptUrl, parseKeptUrl, type KeptRecord } from "./keep-store.js";
 import { diskUsage, type DiskUsage } from "./disk-usage.js";
-import { commandArgs, commandRows, parseCommand, parseSuggestions, remoteAllowed, suggest, toCommand, type OmniTab } from "./omnibox.js";
+import { commandArgs, commandRows, describeResult, parseCommand, parseSuggestions, remoteAllowed, suggest, toCommand, type OmniTab } from "./omnibox.js";
 import { macFootprints } from "./process-memory.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1091,7 +1091,10 @@ app.whenReady().then(async () => {
       if (c.destructive && q.confirmed !== true) return { ok: false, confirm: true, message: `/${c.name} may change or remove things on askrobots. Press Enter again to run it.` };
       const text = await mcp.runCommand(BOOKMARK_SERVER, c.name, a.args);
       emit({ kind: "command", server: BOOKMARK_SERVER, tool: c.name });
-      return { ok: true, name: c.name, readOnly: c.readOnly, text: text.slice(0, 100_000) };
+      // The answer goes into the chat, where it can be asked about next; the window shows the sentence.
+      const d = describeResult(c.name, a.args, text, mcp.origin(BOOKMARK_SERVER), c.readOnly);
+      chat.recordCommand({ typed: String(q.text ?? "").trim(), tool: c.name, readOnly: c.readOnly, args: a.args, server: BOOKMARK_SERVER, ...d });
+      return { ok: true, name: c.name, readOnly: c.readOnly, sentence: d.sentence, ...(d.page ? { page: d.page } : {}) };
     } catch (e) {
       return { ok: false, message: (e instanceof Error ? e.message : String(e)).slice(0, 500) };
     }

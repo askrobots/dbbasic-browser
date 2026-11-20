@@ -100,7 +100,9 @@ export default async function (ctx) {
   await T("tabs.new", { url: base + "/free" });
   await sleep(300);
   const notes = async () => (await fetch(base + "/o/_notes")).json();
-  const out = () => q(`const o = document.getElementById('omniOut'); return o.classList.contains('open') ? o.textContent : ''`);
+  const cards = () => q(`return [...document.querySelectorAll('#chatLog .cmd')].map((c) => ({ typed: c.querySelector('.typed').textContent, s: c.querySelector('.s').textContent, links: [...c.querySelectorAll('a')].map((a) => a.title), items: [...c.querySelectorAll('li')].map((l) => l.textContent), details: (c.querySelector('pre') || {}).textContent || '', open: !!(c.querySelector('details') || {}).open }))`);
+  const toasts = () => q(`return [...document.querySelectorAll('#toast .note')].map((n) => n.textContent)`);
+  const chatOpen = () => q(`return document.getElementById('chat').classList.contains('open')`);
   await type("/no");
   await waitFor(async () => (await rows()).length, "rows for a command before signing in");
   check((await rows()).join("|") === "notice:Connect askrobots to use / commands", "before connecting, / offers to connect and lists nothing", JSON.stringify(await rows()));
@@ -122,14 +124,31 @@ export default async function (ctx) {
   await waitFor(async () => (await rows())[0] === "cmd:/note buy milk", "the command row");
   check(/content: buy milk/.test(await q(`return document.querySelector('#omni .or').textContent`)), "the row shows what will be saved before Enter");
   await key("Enter");
-  await waitFor(async () => /created/.test(await out()), "the answer");
-  check((await notes()).notes.some((n) => n.content === "buy milk"), "Enter runs it on the service, and the answer is shown", await out());
+  await waitFor(async () => (await toasts()).some((t) => /Saved note: buy milk \(private\)/.test(t)), "the saved note's toast");
+  check((await notes()).notes.some((n) => n.content === "buy milk"), "Enter runs it on the service, and a save says what was saved, in words", JSON.stringify(await toasts()));
+  check(!(await chatOpen()), "a save does not open the chat");
+  const pageUrl = `${base}/notes/n1/`;
+  await q(`[...document.querySelectorAll('#toast .note a')].find((a) => a.title === ${JSON.stringify(pageUrl)}).click(); return true`);
+  await waitFor(async () => (await active()).url === pageUrl, "the note's page to open");
+  check(true, "Open on the toast opens the note's own page on the service, in a new tab");
 
   await type("/lookup marmalade");
   await waitFor(async () => (await rows())[0] === "cmd:/lookup marmalade", "the lookup row");
   await key("Enter");
-  await waitFor(async () => /Found 2 notes about marmalade/.test(await out()), "the lookup answer");
-  check(!(await q(`return !!document.querySelector('#omniOut script, #omniOut img')`)), "an answer is shown as text, whatever it says");
+  await waitFor(chatOpen, "the chat to open for an answer to read");
+  const c1 = await waitFor(async () => (await cards()).length >= 2 && await cards(), "the commands in the chat");
+  check(c1[0].typed === "/note buy milk" && /Saved note: buy milk \(private\)Open/.test(c1[0].s) && c1[0].links[0] === pageUrl, "the save is in the chat too, with its page", JSON.stringify(c1[0]));
+  check(c1[1].typed === "/lookup marmalade" && /Found 2 notes about marmalade/.test(c1[1].details) && c1[1].open, "a lookup opens the chat, with the answer shown", JSON.stringify(c1[1]));
+  check(!(await q(`return !!document.querySelector('#chatLog .cmd script, #chatLog .cmd img')`)), "an answer is shown as text, whatever it says");
+  await cdp.ev(`setChat(false)`);
+
+  await type("/list_links");
+  await waitFor(async () => (await rows())[0] === "cmd:/list_links", "the list row");
+  await key("Enter");
+  await waitFor(async () => (await cards()).length >= 3, "the list in the chat");
+  const c2 = (await cards())[2];
+  check(/2 found/.test(c2.s) && c2.items.length === 2 && c2.links.length === 1 && c2.links[0] === `${base}/links/l1/`, "a list shows each thing found, linked to its page only when that page is on the service's own site", JSON.stringify(c2));
+  await cdp.ev(`setChat(false)`);
 
   await type("/wipe");
   await waitFor(async () => (await rows())[0] === "cmd:/wipe", "the wipe row");
