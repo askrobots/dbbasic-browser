@@ -13,7 +13,7 @@ export default async function (ctx) {
 
   // before signing in
   let st = await T("mcp.state");
-  check(st.some((x) => x.id === "askrobots") && st.find((x) => x.id === "demo")?.signedIn === false && st.find((x) => x.id === "demo").persistent === false, "the built-in askrobots entry and the server from the servers file are listed, not signed in, and sign-ins are in memory only (DBB_MCP_STORE=memory)", JSON.stringify(st.map((x) => x.id)));
+  check(st.some((x) => x.id === "askrobots") && st.find((x) => x.id === "demo")?.signedIn === false, "the built-in askrobots entry and the server from the servers file are listed, and not signed in", JSON.stringify(st.map((x) => x.id)));
   check((await T("mcp.tools")).length === 0, "a server you are not signed in to adds no tools");
   const none = await T("chat.send", { text: "lookup cats" });
   check(none.reply === "Result: no such tool", "so the assistant cannot use it");
@@ -43,6 +43,7 @@ export default async function (ctx) {
   await waitFor(async () => (await demo()).signedIn, "the sign-in to finish");
   st = await T("mcp.state");
   check((await demo()).signedIn && !(await demo()).connecting && !JSON.stringify(st).match(/AT-|RT-|code-/), "signed in, and nothing secret is in the state");
+  check((await demo()).persistent === false, "and with DBB_MCP_STORE=memory the sign-in is reported as lasting only until the browser closes");
   const s1 = await stats();
   check(s1.registered === 1 && s1.issued === 1, "the code was traded for a token, and the second try reused the first one's registration", JSON.stringify({ registered: s1.registered, issued: s1.issued }));
   check(!JSON.stringify(await T("status")).match(/AT-|RT-/), "tokens do not appear in the browser's status either");
