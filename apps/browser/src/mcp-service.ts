@@ -15,7 +15,7 @@
 import { readFileSync } from "node:fs";
 import type { ToolDef } from "./chat-core.js";
 import { McpAuthError, McpClient, type McpTool } from "./mcp-client.js";
-import { OAuthError, authorizeUrl, discover, exchangeCode, listenForCode, newPkce, newState, refreshTokens, register, revoke, type Fetch, type ServerMeta, type Tokens } from "./mcp-oauth.js";
+import { DONE_PAGE, OAuthError, REDIRECT_PORTS, authorizeUrl, discover, exchangeCode, listenForCode, newPkce, newState, redirectUri, refreshTokens, register, revoke, type Fetch, type ServerMeta, type Tokens } from "./mcp-oauth.js";
 
 export interface McpServerConfig {
   id: string;
@@ -157,8 +157,11 @@ export interface McpDeps {
   fetch: Fetch;
   store: Store;
   servers: McpServerConfig[];
-  /** Open the person's own browser on the consent page. */
+  /** Open the person's own browser on the consent page (the fallback, and for scripts). */
   openExternal(url: string): void | Promise<void>;
+  /** Open the consent page in a tab of this browser and return the tab's id. The redirect back is caught inside the browser (see captureRedirect), so nothing listens on a port. */
+  openTab?(url: string): Promise<number | null>;
+  closeTab?(id: number): Promise<void>;
   callerNetworkOn(): boolean;
   announce(payload: Record<string, unknown>): void;
   now?(): number;
@@ -211,6 +214,8 @@ export class McpService {
   private refreshing = new Map<string, Promise<string>>();
   private clients = new Map<string, McpClient>();
   private toolCache = new Map<string, { at: number; tools: McpTool[] }>();
+  /** Sign-ins waiting for the redirect to arrive inside this browser, by their secret state. */
+  private expecting = new Map<string, { redirect: string; resolve(code: string): void; reject(e: Error): void; timer: NodeJS.Timeout }>();
 
   constructor(private d: McpDeps) {
     let s: Saved = { servers: {} };
@@ -261,10 +266,66 @@ export class McpService {
     return m;
   }
 
-  /** Start signing in. Returns the consent address at once; `done` settles when the person has approved (or not). */
-  async connect(id: string, opts: { open?: boolean } = {}): Promise<{ authorizeUrl: string; done: Promise<void> }> {
+  /**
+   * The redirect back from the consent page, if it belongs to a sign-in waiting for it: the browser's request layer hands every
+   * request here first. The code is taken and a short "you are signed in" page is shown; no request is made, so nothing needs to
+   * listen on a port. Only the exact redirect address with the right secret state counts; anything else returns null and is
+   * treated as the ordinary request it is.
+   */
+  captureRedirect(rawUrl: string): { status: number; html: string } | null {
+    if (this.expecting.size === 0) return null;
+    let u: URL;
+    try {
+      u = new URL(rawUrl);
+    } catch {
+      return null;
+    }
+    const state = u.searchParams.get("state");
+    const e = state ? this.expecting.get(state) : undefined;
+    if (!e || `${u.origin}${u.pathname}` !== e.redirect) return null;
+    clearTimeout(e.timer);
+    this.expecting.delete(state as string);
+    const err = u.searchParams.get("error");
+    const code = u.searchParams.get("code");
+    if (err) e.reject(new OAuthError("denied", err === "access_denied" ? "sign-in was declined" : `the server refused the sign-in (${err.slice(0, 60)})`));
+    else if (code) e.resolve(code);
+    else e.reject(new OAuthError("denied", "the server sent no code"));
+    return { status: err || !code ? 400 : 200, html: DONE_PAGE(!err && !!code) };
+  }
+
+  private expectRedirect(state: string, redirect: string, timeoutMs: number): { code: Promise<string>; cancel(): void } {
+    let resolve!: (c: string) => void;
+    let reject!: (e: Error) => void;
+    const code = new Promise<string>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    code.catch(() => {});
+    const timer = setTimeout(() => {
+      this.expecting.delete(state);
+      reject(new OAuthError("timeout", "nobody approved the sign-in in time"));
+    }, timeoutMs);
+    this.expecting.set(state, { redirect, resolve, reject, timer });
+    return {
+      code,
+      cancel: () => {
+        clearTimeout(timer);
+        this.expecting.delete(state);
+        reject(new OAuthError("denied", "sign-in was cancelled"));
+      },
+    };
+  }
+
+  /**
+   * Start signing in. Returns the consent address at once; `done` settles when the person has approved (or not).
+   * `via`: "tab" (the default when the browser can open one) shows the consent page in a tab of this browser and catches the
+   * redirect itself; "system" opens the person's own browser and listens for the redirect on 127.0.0.1; "none" only returns the
+   * address and listens, so a script can do what the person's browser would.
+   */
+  async connect(id: string, opts: { open?: boolean; via?: "tab" | "system" | "none" } = {}): Promise<{ authorizeUrl: string; done: Promise<void> }> {
     this.refuseInCallerMode();
     const c = this.cfg(id);
+    const via = opts.via ?? (opts.open === false ? "none" : this.d.openTab ? "tab" : "system");
     this.flows.get(id)?.cancel();
     this.errors.delete(id);
     const meta = await this.metaFor(c);
@@ -276,13 +337,24 @@ export class McpService {
     const clientId = entry.clientId as string;
     const { verifier, challenge } = newPkce();
     const state = newState();
-    const cb = await listenForCode(state, this.d.timeoutMs ? { timeoutMs: this.d.timeoutMs } : {});
-    const url = authorizeUrl(meta, clientId, cb.redirectUri, challenge, state);
-    this.flows.set(id, { cancel: cb.cancel });
+    const timeoutMs = this.d.timeoutMs ?? 300_000;
+    let redirect: string;
+    let waiter: { code: Promise<string>; cancel(): void };
+    if (via === "tab") {
+      redirect = redirectUri(REDIRECT_PORTS[0] as number); // a registered address; it is never connected to, only recognised
+      waiter = this.expectRedirect(state, redirect, timeoutMs);
+    } else {
+      const cb = await listenForCode(state, { timeoutMs });
+      redirect = cb.redirectUri;
+      waiter = { code: cb.code, cancel: cb.cancel };
+    }
+    const url = authorizeUrl(meta, clientId, redirect, challenge, state);
+    let tabId: number | null = null;
+    this.flows.set(id, { cancel: waiter.cancel });
     const done = (async () => {
       try {
-        const code = await cb.code;
-        const tokens = await exchangeCode(meta, this.d.fetch, { clientId, code, verifier, redirect: cb.redirectUri }, this.now());
+        const code = await waiter.code;
+        const tokens = await exchangeCode(meta, this.d.fetch, { clientId, code, verifier, redirect }, this.now());
         this.saved.servers[id] = { ...entry, clientId, tokens };
         this.persist();
         this.toolCache.delete(id);
@@ -292,10 +364,17 @@ export class McpService {
         throw e;
       } finally {
         this.flows.delete(id);
+        if (tabId != null) await this.d.closeTab?.(tabId).catch(() => {});
       }
     })();
     done.catch(() => {}); // the caller decides whether to look; the error is also kept in state()
-    if (opts.open !== false) await this.d.openExternal(url);
+    try {
+      if (via === "tab") tabId = (await this.d.openTab?.(url)) ?? null;
+      else if (via === "system") await this.d.openExternal(url);
+    } catch (e) {
+      waiter.cancel();
+      throw e;
+    }
     return { authorizeUrl: url, done };
   }
 

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { connect as tcpConnect } from "node:net";
 import { request } from "node:http";
 import { describe, expect, it } from "vitest";
 import { McpAuthError, McpClient, parseEventStream } from "../src/mcp-client";
@@ -357,6 +358,94 @@ describe("signing in and using a server's tools", () => {
     svc.cancelConnect("demo");
     await expect(r.done).rejects.toBeInstanceOf(OAuthError);
     expect(svc.state()[0]).toMatchObject({ connecting: false, signedIn: false, error: "sign-in was cancelled" });
+  });
+});
+
+describe("signing in inside the browser's own tab", () => {
+  /** A browser that, given the consent address, "approves" and lets the redirect arrive at the service, as the browser's request layer does. */
+  function inTab(over: { approve?: boolean; error?: string } = {}) {
+    const { f, st } = fakeServer();
+    const opened: string[] = [];
+    const closed: number[] = [];
+    let svc!: McpService;
+    svc = new McpService({
+      fetch: f, store: memStore(), servers: [SERVER], callerNetworkOn: () => false, announce: () => {}, now: () => st.clock,
+      openExternal: () => { throw new Error("the system browser must not be used"); },
+      openTab: async (url) => {
+        opened.push(url);
+        if (over.approve === false) return 7;
+        const u = new URL(url);
+        const back = new URL(u.searchParams.get("redirect_uri") as string);
+        if (over.error) back.searchParams.set("error", over.error);
+        else back.searchParams.set("code", "CODE");
+        back.searchParams.set("state", u.searchParams.get("state") as string);
+        queueMicrotask(() => { caught = svc.captureRedirect(back.href); });
+        return 7;
+      },
+      closeTab: async (id) => void closed.push(id),
+    });
+    let caught: ReturnType<McpService["captureRedirect"]> = null;
+    return { svc, st, opened, closed, caught: () => caught };
+  }
+  const portOpen = (port: number) => new Promise<boolean>((resolve) => { const s = tcpConnect({ host: "127.0.0.1", port }, () => (s.destroy(), resolve(true))); s.on("error", () => resolve(false)); });
+
+  it("opens the consent page in a tab, catches the redirect itself, closes the tab, and never listens on a port", async () => {
+    const t = inTab();
+    const r = await t.svc.connect("demo");
+    expect(t.opened).toHaveLength(1);
+    expect(new URL(t.opened[0] as string).searchParams.get("redirect_uri")).toBe("http://127.0.0.1:53682/callback");
+    expect(await portOpen(53682)).toBe(false); // nothing is listening: the redirect is recognised, not received
+    await r.done;
+    expect(t.svc.state()[0]).toMatchObject({ signedIn: true, connecting: false });
+    expect(t.closed).toEqual([7]);
+    expect(t.caught()).toMatchObject({ status: 200 });
+    expect(t.caught()?.html).toMatch(/signed in/i);
+    expect(await t.svc.token("demo")).toMatch(/^AT-/);
+  });
+
+  it("only the exact redirect with the right secret state is taken; anything else is an ordinary request", async () => {
+    const t = inTab({ approve: false });
+    const r = await t.svc.connect("demo");
+    const u = new URL(t.opened[0] as string);
+    const state = u.searchParams.get("state") as string;
+    expect(t.svc.captureRedirect(`http://127.0.0.1:53682/callback?code=x&state=wrong`)).toBeNull();
+    expect(t.svc.captureRedirect(`http://127.0.0.1:53682/other?code=x&state=${state}`)).toBeNull();
+    expect(t.svc.captureRedirect(`http://evil.example:53682/callback?code=x&state=${state}`)).toBeNull();
+    expect(t.svc.captureRedirect(`http://127.0.0.1:53683/callback?code=x&state=${state}`)).toBeNull();
+    expect(t.svc.state()[0]?.connecting).toBe(true);
+    expect(t.svc.captureRedirect(`http://127.0.0.1:53682/callback?code=ok&state=${state}`)).toMatchObject({ status: 200 });
+    await r.done;
+    expect(t.svc.captureRedirect(`http://127.0.0.1:53682/callback?code=again&state=${state}`)).toBeNull(); // single use
+  });
+
+  it("a declined approval, a cancel and a timeout all end the sign-in, close the tab, and say why", async () => {
+    const declined = inTab({ error: "access_denied" });
+    const r = await declined.svc.connect("demo");
+    await expect(r.done).rejects.toMatchObject({ code: "denied", message: "sign-in was declined" });
+    expect(declined.closed).toEqual([7]);
+    expect(declined.caught()).toMatchObject({ status: 400 });
+
+    const cancelled = inTab({ approve: false });
+    const c = await cancelled.svc.connect("demo");
+    cancelled.svc.cancelConnect("demo");
+    await expect(c.done).rejects.toMatchObject({ message: "sign-in was cancelled" });
+    expect(cancelled.closed).toEqual([7]);
+
+    const { f, st } = fakeServer();
+    const slow = new McpService({ fetch: f, store: memStore(), servers: [SERVER], callerNetworkOn: () => false, announce: () => {}, now: () => st.clock, openExternal: () => {}, openTab: async () => 9, closeTab: async () => {}, timeoutMs: 30 });
+    const t = await slow.connect("demo");
+    await expect(t.done).rejects.toMatchObject({ code: "timeout" });
+    expect(slow.captureRedirect("http://127.0.0.1:53682/callback?code=late&state=x")).toBeNull();
+  });
+
+  it("nothing is expected when no sign-in is waiting, and scripts can still ask for the address only", async () => {
+    const t = inTab();
+    expect(t.svc.captureRedirect("http://127.0.0.1:53682/callback?code=a&state=b")).toBeNull();
+    const r = await t.svc.connect("demo", { open: false }); // "none": the listener, not a tab
+    expect(t.opened).toHaveLength(0);
+    expect(new URL(r.authorizeUrl).searchParams.get("redirect_uri")).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
+    t.svc.cancelConnect("demo");
+    await expect(r.done).rejects.toBeInstanceOf(OAuthError);
   });
 });
 

@@ -203,6 +203,8 @@ function askChrome(op: string, args: Record<string, unknown>): Promise<unknown> 
 }
 
 let control: ControlHandle | null = null;
+/** Set once the MCP service exists: answers the redirect of a sign-in that is waiting for it inside this browser. */
+let mcpCapture: (url: string) => { status: number; html: string } | null = () => null;
 
 /**
  * Network policy that is not about a single request. WebSockets bypass our network layer (Chromium opens them
@@ -723,8 +725,13 @@ app.whenReady().then(async () => {
   if (process.env.DBB_NATIVE_NETWORK === "1") {
     console.error("[net] DBB_NATIVE_NETWORK=1 — request interception (and x402 payments) disabled");
   } else {
-    protocol.handle("https", payHandler);
-    protocol.handle("http", payHandler);
+    // A sign-in that is waiting for its redirect inside this browser (see mcp-service.ts) is answered here, without any request.
+    const withSignInRedirect = (h: (r: Request) => Promise<Response>) => async (request: Request): Promise<Response> => {
+      const caught = request.method === "GET" ? mcpCapture(request.url) : null;
+      return caught ? new Response(caught.html, { status: caught.status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } }) : h(request);
+    };
+    protocol.handle("https", withSignInRedirect(payHandler));
+    protocol.handle("http", withSignInRedirect(payHandler));
   }
 
   ipcMain.handle("x402:receipts", () => engine.ledger.all());
@@ -833,9 +840,17 @@ app.whenReady().then(async () => {
       const safe = safeExternalUrl(url);
       if (safe) void shell.openExternal(safe);
     },
+    openTab: async (url) => {
+      const r = (await askChrome("tab.new", { url, activate: true, wait: false })) as { id?: number } | undefined;
+      return typeof r?.id === "number" ? r.id : null;
+    },
+    closeTab: async (id) => {
+      await askChrome("tab.close", { id }).catch(() => {});
+    },
     callerNetworkOn: () => callerNet.enabled,
     announce: (e) => emit(e),
   });
+  mcpCapture = (url) => mcp.captureRedirect(url);
   ipcMain.handle("mcp:state", () => mcp.state());
   ipcMain.handle("mcp:connect", async (_e, id: unknown) => {
     try {

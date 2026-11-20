@@ -198,7 +198,7 @@ export function authorizeUrl(meta: ServerMeta, clientId: string, redirect: strin
 
 // ---- the redirect listener ---------------------------------------------------------------------------------------
 
-const DONE_PAGE = (ok: boolean) =>
+export const DONE_PAGE = (ok: boolean) =>
   `<!doctype html><meta charset="utf-8"><title>${ok ? "Signed in" : "Not signed in"}</title><body style="font:16px system-ui;padding:48px;max-width:32em;margin:auto"><h2>${ok ? "You are signed in." : "Sign-in did not finish."}</h2><p>${ok ? "You can close this tab and go back to the browser." : "Go back to the browser and try again."}</p>`;
 
 export interface Callback {

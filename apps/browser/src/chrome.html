@@ -749,7 +749,7 @@
           row.className = "cn" + (sv.signedIn ? " on" : sv.connecting ? " wait" : "");
           const dot = document.createElement("span"); dot.className = "dot";
           const nm = document.createElement("span"); nm.className = "nm";
-          nm.textContent = sv.name + (sv.connecting ? " — waiting for you to approve in your browser…" : sv.signedIn ? " — connected" + (sv.persistent ? "" : " (until you close the browser)") : "");
+          nm.textContent = sv.name + (sv.connecting ? " — waiting for you to approve in the tab that opened…" : sv.signedIn ? " — connected" + (sv.persistent ? "" : " (until you close the browser)") : "");
           const btn = document.createElement("button"); btn.className = "sbtn" + (sv.signedIn ? " quiet" : "");
           btn.textContent = sv.connecting ? "Cancel" : sv.signedIn ? "Disconnect" : "Connect";
           btn.onclick = async () => {

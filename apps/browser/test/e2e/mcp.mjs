@@ -101,6 +101,19 @@ export default async function (ctx) {
   check(again.reply.startsWith("Result: Found 2 notes about cats.") && (await stats()).refreshed > r0, "when the access token is about to expire it is refreshed quietly and the call works", `refreshes ${(await stats()).refreshed - r0}`);
   await fetch(base + "/o/_short?on=0");
 
+  // signing in inside the browser's own tab: no system browser, no listener, the redirect is caught inside the browser
+  await T("mcp.disconnect", { id: "demo" });
+  const tabsBefore = (await T("tabs.list")).length;
+  const issuedBefore = (await stats()).issued;
+  const net = await import("node:net");
+  const portOpen = (port) => new Promise((resolve) => { const sk = net.connect({ host: "127.0.0.1", port }, () => (sk.destroy(), resolve(true))); sk.on("error", () => resolve(false)); });
+  const viaTab = await T("mcp.connect", { id: "demo", wait: true }); // the default: a tab of this browser (the stand-in server approves at once)
+  check(new URL(viaTab.authorizeUrl).searchParams.get("redirect_uri") === "http://127.0.0.1:53682/callback", "by default the consent page opens in a tab of this browser, with the first registered loopback address as the redirect", viaTab.authorizeUrl);
+  check((await demo()).signedIn && (await stats()).issued === issuedBefore + 1, "the redirect was caught inside the browser and the code traded for a token");
+  check(!(await portOpen(53682)) && !(await portOpen(53683)), "and nothing is listening on a port, so there is nothing to be down when you click");
+  check((await T("tabs.list")).length === tabsBefore, "the consent tab closes itself afterwards (the number of tabs is what it was)", `${tabsBefore} → ${(await T("tabs.list")).length}`);
+  check((await T("chat.send", { text: "lookup cats" })).reply.startsWith("Result: Found 2 notes about cats."), "and the new sign-in works for the assistant");
+
   // the panel
   const cdp = await ctx.chrome();
   const q = (js) => cdp.ev(`(() => { ${js} })()`);

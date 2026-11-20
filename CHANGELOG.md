@@ -12,7 +12,7 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   system has compressed) rather than resident size, which can hide a tab's real cost. The finished-loading report also names
   which requests failed and which got an error status (addresses without their queries). Scriptable as `resources.*`.
 - **Connections to other services (MCP).** Sign in to an MCP server with OAuth (discovery, registration as a public client,
-  PKCE, a loopback redirect, quiet refresh, revocation on disconnect) and its tools join the assistant chat. A server adds
+  PKCE, the consent page in a tab of this browser with the redirect caught inside it, quiet refresh, revocation on disconnect) and its tools join the assistant chat. A server adds
   only the tools its entry lists; reads run, everything else asks every time; entries can force arguments and drop result
   fields. Tokens stay in the main process, encrypted by the OS keychain (or in memory with `DBB_MCP_STORE=memory`).
   askrobots.com is built in; more servers go in `mcp-servers.json`. Scriptable as `mcp.*`.

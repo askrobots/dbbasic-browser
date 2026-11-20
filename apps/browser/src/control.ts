@@ -368,8 +368,10 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
     case "mcp.state":
       return d.mcp.state();
     case "mcp.connect": {
-      // open:false returns the consent address instead of opening the person's browser, so a script can drive it.
-      const r = await d.mcp.connect(str(p.id, "id"), { open: p.open !== false });
+      // By default the consent page opens in a tab of this browser (the redirect back is caught inside it). open:false returns the
+      // consent address instead and listens on 127.0.0.1, so a script can do what the person's browser would; via:"system" opens the person's own browser.
+      const via = p.via === "tab" || p.via === "system" || p.via === "none" ? p.via : undefined;
+      const r = await d.mcp.connect(str(p.id, "id"), { open: p.open !== false, ...(via ? { via } : {}) });
       if (p.wait === true) await r.done;
       return { authorizeUrl: r.authorizeUrl };
     }
