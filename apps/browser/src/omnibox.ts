@@ -270,7 +270,7 @@ export interface CommandResult {
   /** The page of the thing made, on the service's own site (only an address on the service's own origin is kept). */
   page?: string;
   /** For lists and searches: the things found, with their pages when the service gives them. */
-  items?: Array<{ title: string; page?: string }>;
+  items?: Array<{ title: string; page?: string; group?: string }>;
   /** The answer as data, laid out to read (or the text as it came). */
   details: string;
 }
@@ -278,7 +278,7 @@ export interface CommandResult {
 const VERBS: Record<string, string> = { note: "Saved note", link: "Saved link", contact: "Added contact", organization: "Added organization", file: "Uploaded file" };
 const clip = (s: string, n = 90) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const titleOf = (o: Record<string, unknown>): string => {
-  for (const k of ["title", "name", "filename", "subject", "content", "text", "url"]) {
+  for (const k of ["title", "name", "filename", "original_file_name", "subject", "content", "content_preview", "text", "url"]) {
     const v = o[k];
     if (typeof v === "string" && v.trim()) return v.trim().replace(/\s+/g, " ");
   }
@@ -311,18 +311,26 @@ export function describeResult(tool: string, args: Record<string, unknown>, text
     }
   };
   const obj = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : null;
-  // a list: the answer itself, or the first list of things in it
-  const list = Array.isArray(data) ? data : obj ? Object.values(obj).find((v) => Array.isArray(v) && v.some((x) => x && typeof x === "object")) : undefined;
-  if (readOnly && Array.isArray(list)) {
-    const items = list
-      .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
-      .slice(0, 50)
-      .map((x) => {
-        const page = pageOf(x);
-        return { title: clip(titleOf(x) || "(untitled)", 120), ...(page ? { page } : {}) };
-      });
+  // a list: the answer itself, or every list of things in it, each named by its group (a search answers in groups:
+  // projects, tasks, notes…)
+  const isList = (v: unknown): v is unknown[] => Array.isArray(v) && (v.length === 0 || v.some((x) => x && typeof x === "object"));
+  const groups: Array<[string | undefined, unknown[]]> = Array.isArray(data) ? [[undefined, data]] : obj ? Object.entries(obj).filter((e): e is [string, unknown[]] => isList(e[1])) : [];
+  // a single thing with an empty list in it (tags: []) is not a list; a search whose groups are all empty is
+  const listy = Array.isArray(data) || groups.some(([, l]) => l.length) || (!!obj && Object.values(obj).every((v) => Array.isArray(v) || typeof v === "number"));
+  if (readOnly && groups.length && listy) {
+    const named = groups.length > 1;
+    const rows = groups.flatMap(([g, list]) =>
+      list
+        .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+        .map((x) => {
+          const page = pageOf(x);
+          return { title: clip(titleOf(x) || "(untitled)", 120), ...(page ? { page } : {}), ...(named && g ? { group: g.replace(/_/g, " ") } : {}) };
+        }),
+    );
+    const items = rows.slice(0, 50);
     const what = typeof args.query === "string" ? ` for “${clip(args.query, 60)}”` : "";
-    return { sentence: `/${tool}: ${list.length === 0 ? "nothing found" : list.length === 1 ? "1 found" : `${list.length} found`}${what}`, items, details };
+    const n = rows.length;
+    return { sentence: `/${tool}: ${n === 0 ? "nothing found" : n === 1 ? "1 found" : `${n} found`}${what}`, items, details };
   }
   const typed = Object.values(args).find((v): v is string => typeof v === "string" && !!v.trim());
   const m = /^(create|add|upload|save)_(.+)$/.exec(tool);

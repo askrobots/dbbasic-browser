@@ -149,6 +149,30 @@ describe("what a command's answer says", () => {
     expect(r.items).toEqual([{ title: "Keep button", page: `${O}/notes/1/` }, { title: "Other" }, { title: "a note with lines" }]);
     expect(describeResult("list_notes", {}, "[]", O, true).sentence).toBe("/list_notes: nothing found");
   });
+  it("a search that answers in groups: every group, in order, each row labelled with its group", () => {
+    const answer = {
+      projects: [],
+      tasks: [{ title: "Ship keep", page: `${O}/tasks/1/` }],
+      notes: [{ content: "keep button works", page: `${O}/notes/2/` }],
+      contacts: [{ first_name: "Ada", last_name: "L", page: `${O}/contacts/3/` }],
+      files: [{ original_file_name: "page.png", page: `${O}/files/4/` }],
+      links: [{ title: "Keep docs", url: "https://docs.example/", page: `${O}/links/5/` }],
+      articles: [],
+      total_count: 5,
+    };
+    const r = describeResult("global_search", { query: "keep" }, JSON.stringify(answer), O, true);
+    expect(r.sentence).toBe("/global_search: 5 found for “keep”");
+    expect(r.items).toEqual([
+      { title: "Ship keep", page: `${O}/tasks/1/`, group: "tasks" },
+      { title: "keep button works", page: `${O}/notes/2/`, group: "notes" },
+      { title: "Ada L", page: `${O}/contacts/3/`, group: "contacts" },
+      { title: "page.png", page: `${O}/files/4/`, group: "files" },
+      { title: "Keep docs", page: `${O}/links/5/`, group: "links" },
+    ]);
+    expect(describeResult("global_search", { query: "zz" }, JSON.stringify({ projects: [], tasks: [], total_count: 0 }), O, true).sentence).toBe("/global_search: nothing found for “zz”");
+    expect(describeResult("get_task", { id: 1 }, JSON.stringify({ id: 1, title: "x", tags: [] }), O, true).sentence).toBe("/get_task: the answer is below");
+    expect(describeResult("list_notes", {}, JSON.stringify([{ content_preview: "a preview", page: `${O}/notes/9/` }]), O, true).items).toEqual([{ title: "a preview", page: `${O}/notes/9/` }]);
+  });
   it("anything else: plain words for writes, and reads are shown below", () => {
     expect(describeResult("wipe", {}, "wiped", O, false).sentence).toBe("/wipe: wiped");
     expect(describeResult("set_thing", {}, JSON.stringify({ ok: true }), O, false).sentence).toBe("Done: /set_thing");

@@ -103,7 +103,7 @@
       #chatLog .cmd .s { color: #e8e8ea; margin-top: 3px; word-break: break-word; }
       #chatLog .cmd a, .note a { color: #9cc3ff; cursor: pointer; text-decoration: underline; margin-left: 6px; }
       #chatLog .cmd ol { margin: 6px 0 0; padding-left: 20px; } #chatLog .cmd li { margin: 2px 0; word-break: break-word; }
-      #chatLog .cmd li a { margin-left: 0; }
+      #chatLog .cmd li a { margin-left: 0; } #chatLog .cmd li .g { color: #8a8a90; font-size: 10.5px; text-transform: uppercase; letter-spacing: .03em; margin-right: 6px; }
       #chatLog .cmd details { margin-top: 6px; } #chatLog .cmd summary { color: #8a8a90; cursor: pointer; font-size: 11.5px; }
       #chatLog .cmd pre { margin: 4px 0 0; max-height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: #c8c8cc; font: 11.5px/1.45 ui-monospace, Menlo, monospace; }
       #bmPanel { position: fixed; top: 84px; right: 10px; width: 420px; max-height: calc(100vh - 100px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12.5px; }
@@ -783,7 +783,8 @@
           const ol = document.createElement("ol");
           for (const it of e.items) {
             const li = document.createElement("li");
-            if (it.page) li.appendChild(openLink(it.page, it.title)); else li.textContent = it.title;
+            if (it.group) { const g = document.createElement("span"); g.className = "g"; g.textContent = it.group; li.appendChild(g); }
+            if (it.page) li.appendChild(openLink(it.page, it.title)); else li.appendChild(document.createTextNode(it.title));
             ol.appendChild(li);
           }
           card.appendChild(ol);
