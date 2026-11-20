@@ -600,6 +600,7 @@ function buildMenu(): void {
         },
         { type: "separator" },
         { label: "AI Reader", accelerator: "CmdOrCtrl+Shift+R", click: tabCmd("reader") },
+        { label: "Assistant chat", accelerator: "CmdOrCtrl+J", click: tabCmd("chat") },
         {
           label: "AI Provider",
           enabled: !!aiCfg,

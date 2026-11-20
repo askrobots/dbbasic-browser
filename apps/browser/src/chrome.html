@@ -81,6 +81,30 @@
       .cred .who { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
       .cred .who small { display: block; color: #7a7a82; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; }
       .cred .x { cursor: pointer; opacity: .5; padding: 0 4px; } .cred .x:hover { opacity: 1; color: #ff9a9a; }
+      /* ---- assistant chat panel ---- */
+      #chat { width: 380px; flex: none; background: #17171b; border-left: 1px solid #000; display: none; flex-direction: column; min-height: 0; }
+      #chat.open { display: flex; }
+      #chatHead { display: flex; align-items: center; gap: 6px; padding: 9px 12px; border-bottom: 1px solid #2a2a30; font-weight: 600; }
+      #chatHead .sub { color: #8a8a90; font-weight: 400; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+      #chatHead select { background: #131316; color: #c8c8ce; border: 1px solid #2a2a30; border-radius: 6px; font-size: 11px; padding: 2px 4px; }
+      #chatLog { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+      #chatLog .m { padding: 8px 10px; border-radius: 9px; white-space: pre-wrap; word-break: break-word; line-height: 1.45; font-size: 13px; }
+      #chatLog .u { background: #23324e; color: #e8f0ff; align-self: flex-end; max-width: 92%; }
+      #chatLog .a { background: #1e1e24; border: 1px solid #2a2a30; color: #e8e8ea; max-width: 96%; }
+      #chatLog .step { color: #8a8a90; font-size: 11.5px; padding: 0 4px; font-family: ui-monospace, Menlo, monospace; word-break: break-word; }
+      #chatLog .step.ok { color: #7ee787; } #chatLog .step.bad { color: #ff9a9a; }
+      #chatLog .note { color: #8a8a90; font-size: 11.5px; text-align: center; padding: 2px 6px; }
+      #chatLog .ask { background: #1a2033; border: 1px solid #3a5a9a; border-radius: 9px; padding: 9px 10px; font-size: 12.5px; color: #cde0ff; }
+      #chatLog .ask.danger { background: #2a1f0a; border-color: #8a6a1a; color: #f4dca0; }
+      #chatLog .ask .what { margin: 4px 0 8px; color: #fff; word-break: break-word; }
+      #chatLog .ask .tag { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; opacity: .85; }
+      #chatLog .ask .row2 { display: flex; gap: 6px; }
+      #chatLog .ask.done { opacity: .6; } #chatLog .ask.done .row2 { display: none; }
+      #chatEmpty { color: #6a6a72; padding: 22px 12px; text-align: center; font-size: 12px; line-height: 1.7; }
+      #chatForm { display: flex; gap: 6px; padding: 8px 10px 4px; border-top: 1px solid #2a2a30; }
+      #chatIn { flex: 1; resize: none; height: 54px; padding: 7px 9px; border-radius: 8px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; font: inherit; font-size: 13px; }
+      #chatIn:focus { outline: none; border-color: #5b8cff; }
+      #chatPriv { color: #6a6a72; font-size: 10.5px; padding: 0 12px 8px; line-height: 1.4; }
       #inspector { width: 400px; flex: none; background: #17171b; border-left: 1px solid #000; display: none; flex-direction: column; }
       #inspector.open { display: flex; }
       #insHead { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid #2a2a30; font-weight: 600; }
@@ -130,6 +154,7 @@
       <button class="btn" id="galleryBtn" title="Open the local x402 test gallery (http://127.0.0.1:8899/) — start it with: node apps/browser/demo/x402-demo-server.mjs">🧪 x402 tests</button>
       <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
       <div id="ctlChip" style="display:none"></div>
+      <button class="btn" id="chatBtn" title="Assistant chat (⌘J)">💬 Chat</button>
       <button class="btn" id="readerBtn" title="AI Reader — a clean reading view with a TL;DR (⌘⇧R)">📖 Reader</button>
       <button class="btn" id="keyBtn" title="Passwords"><span>🔑</span><span id="keyDot"></span></button>
       <button class="btn" id="inspectBtn" title="x402 inspector">⚡ x402<span id="inspectCount">0</span></button>
@@ -143,6 +168,24 @@
     <div id="vaultPanel"></div>
     <div id="main">
       <div id="pages"></div>
+      <div id="chat">
+        <div id="chatHead">
+          <span>Assistant</span>
+          <span class="sub" id="chatSub"></span>
+          <select id="chatMode" title="Ask: every action waits for your OK. Auto: only risky ones do (submitting, pressing Enter, opening a site that is not open).">
+            <option value="ask">Ask first</option>
+            <option value="auto">Auto (risky asks)</option>
+          </select>
+          <button class="sbtn quiet" id="chatClear" title="Start a new conversation">New</button>
+          <button class="sbtn quiet" id="chatClose" title="Close (⌘J)">✕</button>
+        </div>
+        <div id="chatLog"></div>
+        <div id="chatForm">
+          <textarea id="chatIn" placeholder="Ask about this page, or tell me what to do…" spellcheck="true"></textarea>
+          <button class="sbtn" id="chatSend">Send</button>
+        </div>
+        <div id="chatPriv"></div>
+      </div>
       <div id="inspector">
         <div id="insHead">
           <span>x402</span>
@@ -588,6 +631,107 @@
         return t;
       }
 
+
+      // ---- assistant chat ------------------------------------------------------------------------------
+      // Everything shown here that came from a model or a page is put in with textContent, never as HTML.
+      const chatEl = $("chat"), chatLog = $("chatLog"), chatIn = $("chatIn");
+      let chatOpen = false, chatBusy = false, chatSeen = 0, chatInfo = null;
+      const askCards = new Map();
+      const chatPush = (cls, text, parent = chatLog) => {
+        const d = document.createElement("div");
+        d.className = cls;
+        d.textContent = text;
+        parent.appendChild(d);
+        chatLog.scrollTop = chatLog.scrollHeight;
+        return d;
+      };
+      function chatSetBusy(b) {
+        chatBusy = b;
+        $("chatSend").textContent = b ? "Stop" : "Send";
+        $("chatSend").className = b ? "sbtn quiet" : "sbtn";
+      }
+      function chatEmptyState() {
+        chatLog.textContent = "";
+        const e = document.createElement("div");
+        e.id = "chatEmpty";
+        e.textContent = !chatInfo || !chatInfo.available
+          ? (chatInfo && chatInfo.callerNetworkOn ? "The assistant is switched off while the caller network is on." : "No AI is set up yet. Put ANTHROPIC_API_KEY or OPENAI_API_KEY in ~/.dbbasic/env, or set DBB_AI_BASE_URL to a model on this machine or your network, then restart.")
+          : "Ask about the page you are on, or tell me what to do: find something, fill in a form, open a page. You approve each action before it happens.";
+        chatLog.appendChild(e);
+      }
+      function chatRender(e) {
+        if (e.seq <= chatSeen) return;
+        chatSeen = e.seq;
+        const empty = $("chatEmpty"); if (empty) empty.remove();
+        if (e.kind === "user") chatPush("m u", e.text);
+        else if (e.kind === "text") chatPush("m a", e.text);
+        else if (e.kind === "tool-start") { const d = chatPush("step", "▸ " + e.summary); d.dataset.id = e.id; }
+        else if (e.kind === "tool-end") chatPush("step " + (e.ok ? "ok" : "bad"), (e.ok ? "  ✓ " : "  ✗ ") + e.name + " — " + e.note);
+        else if (e.kind === "tool-denied") chatPush("step bad", "  ✗ not done — " + e.reason);
+        else if (e.kind === "confirm") {
+          if (!chatOpen) setChat(true);
+          const card = document.createElement("div");
+          card.className = "ask" + (e.danger ? " danger" : "");
+          const tag = document.createElement("div"); tag.className = "tag"; tag.textContent = e.danger ? "Needs your OK — risky" : "Needs your OK";
+          const what = document.createElement("div"); what.className = "what"; what.textContent = e.summary;
+          const row = document.createElement("div"); row.className = "row2";
+          const yes = document.createElement("button"); yes.className = "sbtn"; yes.textContent = "Do it";
+          const no = document.createElement("button"); no.className = "sbtn quiet"; no.textContent = "Skip";
+          yes.onclick = () => window.x402.chat.confirm(e.id, true);
+          no.onclick = () => window.x402.chat.confirm(e.id, false);
+          row.append(yes, no); card.append(tag, what, row);
+          chatLog.appendChild(card); chatLog.scrollTop = chatLog.scrollHeight;
+          askCards.set(e.id, card);
+        }
+        else if (e.kind === "confirm-settled") { const c = askCards.get(e.id); if (c) { c.classList.add("done"); const t = c.querySelector(".tag"); if (t) t.textContent = e.ok ? "Approved" : "Skipped"; askCards.delete(e.id); } }
+        else if (e.kind === "done") {
+          chatSetBusy(false);
+          const why = { answered: "", stopped: "Stopped.", "max-steps": "I stopped after too many steps. Ask me to continue if you want.", length: "The answer was cut off (too long).", refused: "The model declined to help with that.", error: "Something went wrong: " + (e.message || "unknown error") }[e.reason];
+          if (why) chatPush("note", why);
+        }
+        else if (e.kind === "cleared") chatEmptyState();
+      }
+      async function chatRefresh() {
+        chatInfo = await window.x402.chat.state();
+        $("chatSub").textContent = chatInfo.available ? chatInfo.model + (chatInfo.endpoint ? " @ " + chatInfo.endpoint : "") : "off";
+        $("chatMode").value = chatInfo.mode;
+        $("chatPriv").textContent = chatInfo.available
+          ? "Your messages and what the assistant reads from your pages go to " + (chatInfo.endpoint || (chatInfo.provider === "anthropic" ? "Anthropic" : "OpenAI")) + ". Passwords, card and code fields are never filled."
+          : "";
+        chatLog.textContent = "";
+        chatSeen = 0;
+        askCards.clear();
+        if (!chatInfo.transcript.length) chatEmptyState();
+        for (const e of chatInfo.transcript) chatRender(e);
+        chatSetBusy(chatInfo.running);
+      }
+      function setChat(open) {
+        chatOpen = open;
+        chatEl.classList.toggle("open", open);
+        if (open) { chatRefresh().then(() => chatIn.focus()); }
+      }
+      function toggleChat() { setChat(!chatOpen); }
+      async function chatSend() {
+        if (chatBusy) { await window.x402.chat.stop(); return; }
+        const text = chatIn.value.trim();
+        if (!text) return;
+        chatIn.value = "";
+        chatSetBusy(true);
+        const r = await window.x402.chat.send(text);
+        if (!r.ok) { chatSetBusy(false); if (r.reason === "empty") return; chatPush("note", r.message || "Could not send."); if (r.reason === "declined") chatIn.value = text; }
+      }
+      $("chatBtn").onclick = toggleChat;
+      $("chatClose").onclick = () => setChat(false);
+      $("chatClear").onclick = () => window.x402.chat.clear();
+      $("chatSend").onclick = chatSend;
+      $("chatMode").onchange = (e) => window.x402.chat.setMode(e.target.value);
+      chatIn.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend(); } });
+      window.x402.chat.onEvent((e) => {
+        if (e.kind === "confirm" && !chatOpen) { setChat(true); return; } // opening it redraws the whole conversation, this question included
+        if (chatOpen) chatRender(e);
+        if (e.kind === "user") chatSetBusy(true);
+      });
+
       // Native menu accelerators (⌘T / ⌘W / ⌘L …) arrive here — they work even when
       // focus is inside a page, which a document-level keydown would never see.
       window.x402.onTabCommand((cmd) => {
@@ -599,6 +743,7 @@
         else if (cmd === "reload") { try { active.wv.reload(); } catch {} }
         else if (cmd.startsWith("motion:")) setMotionMode(cmd.slice(7));
         else if (cmd === "reader") openReader();
+        else if (cmd === "chat") toggleChat();
         else if (cmd === "open-external") {
           if (active && /^https?:\/\//i.test(active.url)) window.x402.openExternal(active.url);
           else toast("skipped", "Only web pages can be opened in the default browser");

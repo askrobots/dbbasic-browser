@@ -150,6 +150,7 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><td>page.press</td><td><code>{key}</code> — <code>Enter</code>, <code>Tab</code>, <code>Escape</code>, arrows, or a character</td></tr>
     <tr><td>page.waitFor</td><td><code>{selector?, text?, url?, timeoutMs?}</code> — all given conditions must hold</td></tr>
     <tr><td>page.screenshot</td><td>→ <code>{png (base64), width, height}</code></td></tr>
+    <tr><td>chat.send / events / confirm / stop / clear / mode / state</td><td>the <a href="#chat">assistant chat</a>. <code>chat.send {text, mode?, wait?}</code> sends one message and waits until the assistant is done (<code>wait:false</code> returns at once; follow with <code>chat.events {since}</code>). An action that needs an answer shows up as a <code>confirm</code> event with an <code>id</code>; answer it with <code>chat.confirm {id, ok}</code>. <code>mode</code> is <code>ask</code> (every action asks) or <code>auto</code> (only risky ones). Off while the caller network is on</td></tr>
     <tr><td>vault.state / unlock</td><td><code>unlock</code>: <code>{master}</code></td></tr>
     <tr><td>login</td><td><code>{id?, submit?, wait?}</code> — fill (and submit) the saved login for the tab's exact origin</td></tr>
     <tr><td>x402.spent / receipts</td><td>session spend; full ledger</td></tr>
@@ -167,6 +168,15 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><td>reader.open / ai.status / ai.provider</td><td>the AI Reader — see <a href="#reader">above</a></td></tr>
     <tr><td>x402.approval</td><td><code>{mode: "ask"|"auto"|"deny", maxUsd}</code> — who answers payment prompts; call with no params to read</td></tr>
   </table>
+  <h3 id="chat">Assistant chat</h3>
+  <p>Press <b>⌘J</b> (or <b>💬 Chat</b>) for a side panel where you can talk to an assistant about the page you are on, and ask it to do things: find something, read a page, fill in a form, open a page. It uses the same tools as the automation API (<code>page.forms</code>, <code>page.find</code>, click, type…), run inside the browser.</p>
+  <ul>
+    <li><b>You approve what it does.</b> In <i>Ask first</i> mode every action (open, go to, click, type, choose, press a key) waits for <b>Do it</b> or <b>Skip</b>. In <i>Auto</i> mode only risky ones ask: a click that submits a form or is about buying, paying, deleting or sending; pressing Enter; and opening a site that is not already open (a page could try to hide what it read in an address).</li>
+    <li><b>It never fills password, card number or one-time-code fields</b>, and their values are never put in the field lists it reads.</li>
+    <li><b>Pages are untrusted.</b> Whatever a page says arrives as data, tagged as such; text in a page that tries to give the assistant orders is ignored. Only what you type is an instruction.</li>
+    <li><b>What leaves your machine:</b> your messages and what the assistant reads from your open pages go to the model, and the first message per model each session asks first, naming where. Every finished run is written to the event log with the model and the tokens used.</li>
+    <li><b>Which model:</b> the same keys as the AI Reader (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> in the environment or <code>~/.dbbasic/env</code>). To use a model on this machine or your network, set <code>DBB_AI_BASE_URL</code> to an OpenAI-compatible endpoint (https, or http to this machine or a private network only). Switched off while the caller network is on.</li>
+  </ul>
   <h3 id="settled">Knowing when a page has finished loading</h3>
   <p>Waiting for "loaded", or for the network to be quiet for half a second, or sleeping a fixed time, is a guess: pages that stream, poll or build themselves late fool it, and when it gives up all you learn is that time passed. <code>page.settle</code> (or the <code>settle</code> option of <code>page.goto</code>) decides from what the browser actually observes, and answers <b>two separate questions</b>:</p>
   <ul>

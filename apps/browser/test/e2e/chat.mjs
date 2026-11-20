@@ -97,6 +97,40 @@ export default async function (ctx) {
   const lastLog = (await (await fetch(base + "/v1/_log")).json()).at(-1);
   check(afterClear.ok && lastLog.messages.filter((m) => m.role === "user").length === 1, "after clearing, the model sees a fresh conversation");
 
+
+  // the panel (the chrome UI): open it, type, approve with a click, see the answer
+  const c = await ctx.chrome();
+  const q = (js) => c.ev(`(() => { ${js} })()`);
+  await T("chat.clear");
+  await T("page.goto", { url: base + "/forms" });
+  await c.ev(`setChat(false)`); // earlier questions from the scripts opened it by themselves
+  await c.ev(`toggleChat()`);
+  await sleep(300);
+  check(await q(`return document.getElementById('chat').classList.contains('open') && /@/.test(document.getElementById('chatSub').textContent) && /go to/.test(document.getElementById('chatPriv').textContent)`), "the panel opens and names the model and where your words go", await q(`return JSON.stringify([document.getElementById('chat').className, document.getElementById('chatSub').textContent, document.getElementById('chatPriv').textContent])`));
+  check(await q(`return !!document.getElementById('chatEmpty')`), "an empty conversation shows a short hint");
+  await c.ev(`(() => { const i = document.getElementById('chatIn'); i.value = 'fill the form'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); })()`);
+  const waitDom = async (js, what) => { for (let i = 0; i < 150; i++) { if (await q(js)) return true; await sleep(50); } throw new Error("timed out waiting for " + what); };
+  await waitDom(`return document.querySelectorAll('#chatLog .ask:not(.done)').length === 1`, "an approval card");
+  check(await q(`const a = document.querySelector('#chatLog .ask'); return /Type “Grace” into “First name”/.test(a.querySelector('.what').textContent) && !a.classList.contains('danger') && document.getElementById('chatSend').textContent === 'Stop'`), "typing a message shows the action as a card with Do it / Skip, and the button becomes Stop");
+  await q(`document.querySelector('#chatLog .ask:not(.done) .sbtn').click()`);
+  await waitDom(`return document.querySelectorAll('#chatLog .ask:not(.done)').length === 1 && /Choose/.test(document.querySelector('#chatLog .ask:not(.done) .what').textContent)`, "the second card");
+  await q(`document.querySelector('#chatLog .ask:not(.done) .sbtn.quiet').click()`); // Skip
+  await waitDom(`return document.getElementById('chatSend').textContent === 'Send' && [...document.querySelectorAll('#chatLog .m.a')].some((m) => /Filled in/.test(m.textContent))`, "the answer");
+  check(await q(`return [...document.querySelectorAll('#chatLog .ask')].map((a) => a.querySelector('.tag').textContent).join('|') === 'Approved|Skipped'`), "the cards end up marked Approved and Skipped");
+  check((await value("first")) === "Grace" && (await value("country")) === "ca", "a click on Do it ran the action; a click on Skip did not (the country is still Canada)");
+  check(await q(`return !document.getElementById('chatLog').innerHTML.includes('<script')`), "text from the model is shown as text, not as markup");
+  await c.ev(`toggleChat()`);
+  check(await q(`return !document.getElementById('chat').classList.contains('open')`), "the panel closes");
+
+  // a question from a script opens the panel by itself, so the person sees it
+  since = (await ev(0)).next;
+  const run8 = T("chat.send", { text: "submit it" });
+  await waitEvent(since, (e) => e.kind === "confirm", "the approval for the panel check");
+  await waitDom(`return document.getElementById('chat').classList.contains('open') && document.querySelectorAll('#chatLog .ask.danger:not(.done)').length === 1`, "the panel to open itself");
+  check(true, "a question that needs an answer opens the panel by itself, marked risky");
+  await q(`document.querySelector('#chatLog .ask.danger .sbtn.quiet').click()`);
+  await run8;
+
   // off while the caller network is on
   await T("net.provider", { enabled: true, userAgent: "E2E-Chat/1.0 (+https://example.invalid/about)" });
   const off = await T("chat.send", { text: "read this page" });

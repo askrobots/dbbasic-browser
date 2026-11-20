@@ -45,6 +45,16 @@ contextBridge.exposeInMainWorld("x402", {
     ai: () => ipcRenderer.invoke("reader:ai"),
     setProvider: (p) => ipcRenderer.invoke("reader:provider", p),
   },
+  /** The assistant chat. Keys never cross this bridge: only provider and model names. */
+  chat: {
+    state: () => ipcRenderer.invoke("chat:state"),
+    send: (text) => ipcRenderer.invoke("chat:send", text),
+    stop: () => ipcRenderer.invoke("chat:stop"),
+    confirm: (id, ok) => ipcRenderer.invoke("chat:confirm", id, ok),
+    clear: () => ipcRenderer.invoke("chat:clear"),
+    setMode: (m) => ipcRenderer.invoke("chat:mode", m),
+    onEvent: sub("chat:event"),
+  },
   /** Tell the main process the loading-animation preference (always|system|never) so the menu can show it. */
   reportMotion(mode) {
     ipcRenderer.send("pref:motion", mode);
