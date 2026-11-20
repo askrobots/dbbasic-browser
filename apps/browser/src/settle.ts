@@ -117,7 +117,9 @@ export interface ResourceStats {
   answered: number;
   errorStatus: number;
   cancelled: number;
-  failures: Array<{ kind: string | null; error: string }>;
+  failures: Array<{ kind: string | null; error: string; /** Without its query or fragment. */ url?: string }>;
+  /** Up to ten responses with an error status, as addresses without queries. */
+  statusExamples?: Array<{ url: string; status: number }>;
 }
 
 /** How much of a page arrived. "ok" says the main document settled; this says what happened to everything else it asked for. */
@@ -136,6 +138,9 @@ export interface Resources {
   waiting: number;
   /** The page itself: "answered" once its response status is known, "failed" if the load failed, else "pending". */
   mainDocument: "answered" | "failed" | "pending";
+  /** Which requests failed, and which got an error status (up to ten each, addresses without their query), when known: what to look at first. */
+  failedExamples?: Array<{ url: string; error: string }>;
+  errorStatusExamples?: Array<{ url: string; status: number }>;
 }
 
 export function summarizeResources(stats: ResourceStats, main: { failed: boolean; status: number | null }): Resources {
@@ -145,6 +150,8 @@ export function summarizeResources(stats: ResourceStats, main: { failed: boolean
     failedByKind[kind] = (failedByKind[kind] ?? 0) + 1;
   }
   const failed = stats.failures.length;
+  const failedExamples = stats.failures.filter((f) => f.url).slice(0, 10).map((f) => ({ url: f.url as string, error: f.error }));
+  const errorStatusExamples = (stats.statusExamples ?? []).slice(0, 10);
   return {
     requested: stats.requests,
     answered: stats.answered,
@@ -154,6 +161,8 @@ export function summarizeResources(stats: ResourceStats, main: { failed: boolean
     cancelled: stats.cancelled,
     waiting: Math.max(0, stats.requests - stats.answered - failed - stats.cancelled),
     mainDocument: main.failed ? "failed" : main.status !== null ? "answered" : "pending",
+    ...(failedExamples.length ? { failedExamples } : {}),
+    ...(errorStatusExamples.length ? { errorStatusExamples } : {}),
   };
 }
 

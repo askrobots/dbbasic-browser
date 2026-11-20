@@ -666,6 +666,13 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
   }
   if (path === "/v1/_log") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(fakeModelLog)); return; }
 
+  // A page that holds a lot of memory, for the resource status ("which tab is hogging the machine?").
+  if (path === "/hog") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>hog</title><body style="font:18px system-ui;padding:40px"><h1>Holding about 400 MB</h1><script>window.held = []; for (let i = 0; i < 8; i++) { const a = new Uint8Array(50 * 1024 * 1024); for (let o = 0; o < a.length; o += 65536) crypto.getRandomValues(a.subarray(o, o + 65536)); held.push(a); } /* random bytes: the operating system cannot squeeze them, as it does with a block of one repeated value */</script>`);
+    return;
+  }
+
   // A form with every kind of field the form tools have to understand, including ones that must never be reported.
   if (path === "/forms") {
     res.writeHead(200, { "content-type": "text/html" });

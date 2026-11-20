@@ -55,6 +55,11 @@ contextBridge.exposeInMainWorld("x402", {
     setMode: (m) => ipcRenderer.invoke("chat:mode", m),
     onEvent: sub("chat:event"),
   },
+  /** What the browser is using (memory and CPU per tab, cache, disk). */
+  resources: {
+    state: () => ipcRenderer.invoke("resources:state"),
+    clearCache: () => ipcRenderer.invoke("resources:clear-cache"),
+  },
   /** Connections to other services (MCP). Tokens never cross this bridge. */
   mcp: {
     state: () => ipcRenderer.invoke("mcp:state"),

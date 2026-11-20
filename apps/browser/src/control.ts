@@ -69,6 +69,8 @@ export interface ControlDeps {
   chat: ChatService;
   /** MCP connections (see mcp-service.ts). */
   mcp: McpService;
+  /** What the browser is using: memory and CPU per tab, cache and disk. */
+  resources: { state(): Promise<unknown>; clearCache(): Promise<unknown> };
   downloads(): unknown;
   getNetPolicy(): { blockWebSockets: boolean };
   /** Methods added by local extensions (see extensions.ts), reached as ext.<name>. */
@@ -113,6 +115,7 @@ class RpcError extends Error {
 
 let tabs: TabInfo[] = [];
 export const setTabs = (t: TabInfo[]) => void (tabs = t);
+export const getTabs = (): TabInfo[] => tabs;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const str = (v: unknown, name: string): string => {
@@ -354,6 +357,12 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       return { cleared: true };
     case "chat.mode":
       return { mode: d.chat.setMode(p.mode) };
+
+    // ---- resources ------------------------------------------------------------------
+    case "resources.state":
+      return d.resources.state();
+    case "resources.clearCache":
+      return d.resources.clearCache();
 
     // ---- MCP connections ----------------------------------------------------------
     case "mcp.state":

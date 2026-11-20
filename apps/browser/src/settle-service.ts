@@ -289,7 +289,7 @@ export async function runSettle(ctx: SettleContext, input: unknown): Promise<Set
     waitedOnCallerMs: Math.round(callerWaitMs),
     moves: [...lifecycleOf(ctx.wcId).moves],
     console: structuredClone(lifecycleOf(ctx.wcId).console),
-    resources: summarizeResources({ requests: last?.stats.requests ?? 0, answered: last?.stats.answered ?? 0, errorStatus: last?.stats.errorStatus ?? 0, cancelled: last?.stats.cancelled ?? 0, failures: last?.stats.failures ?? [] }, { failed: !!lifecycleOf(ctx.wcId).failed || v.outcome === "failed", status: lifecycleOf(ctx.wcId).status ?? statusSeen.get(normUrl(last?.url ?? "")) ?? null }),
+    resources: summarizeResources({ requests: last?.stats.requests ?? 0, answered: last?.stats.answered ?? 0, errorStatus: last?.stats.errorStatus ?? 0, cancelled: last?.stats.cancelled ?? 0, failures: last?.stats.failures ?? [], statusExamples: last?.stats.statusExamples ?? [] }, { failed: !!lifecycleOf(ctx.wcId).failed || v.outcome === "failed", status: lifecycleOf(ctx.wcId).status ?? statusSeen.get(normUrl(last?.url ?? "")) ?? null }),
     cookies: await cookieFacts(last?.url ?? ""),
     };
   };

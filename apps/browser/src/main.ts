@@ -31,9 +31,11 @@ import { noteDownload, runSettle, trackLifecycle, noteKnownDocument } from "./se
 import { EXPIRED_HTML, READER_SCHEME, ReaderPages, readerIdFromUrl } from "./reader-pages.js";
 import { READER_CSP } from "./reader.js";
 import { registerVault } from "./vault-service.js";
-import { handle as handleControl, setTabs, startControl, type ApprovalPolicy, type ControlDeps, type ControlHandle, type TabInfo } from "./control.js";
+import { handle as handleControl, getTabs, setTabs, startControl, type ApprovalPolicy, type ControlDeps, type ControlHandle, type TabInfo } from "./control.js";
 import { ChatService } from "./chat-service.js";
 import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
+import { diskUsage, type DiskUsage } from "./disk-usage.js";
+import { macFootprints } from "./process-memory.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -847,6 +849,61 @@ app.whenReady().then(async () => {
   ipcMain.handle("mcp:cancel", (_e, id: unknown) => (mcp.cancelConnect(String(id)), true));
   ipcMain.handle("mcp:disconnect", (_e, id: unknown) => mcp.disconnect(String(id)).then(() => ({ ok: true }), (e) => ({ ok: false, message: String(e?.message ?? e) })));
 
+  // What the browser is using, so something that hogs the machine has a name: memory and CPU per tab (from the operating system's
+  // numbers for each page's own process), the data folder's size and what it is made of, and the cache.
+  let diskCache: { at: number; usage: DiskUsage } | null = null;
+  let footprintCache: { at: number; bytes: Map<number, number> } | null = null;
+  const resources = {
+    async state() {
+      const metrics = app.getAppMetrics();
+      const byPid = new Map(metrics.map((x) => [x.pid, x]));
+      const mb = (kb: number) => Math.round((kb / 1024) * 10) / 10;
+      // What a process really costs the machine: on macOS the physical footprint (it counts memory the system has compressed,
+      // which resident size hides); elsewhere the figure Electron gives (private bytes on Windows, resident size on Linux).
+      if (!footprintCache || Date.now() - footprintCache.at > 2000) footprintCache = { at: Date.now(), bytes: await macFootprints(metrics.map((x) => x.pid)) };
+      const costKB = (x: Electron.ProcessMetric): number => {
+        const f = footprintCache?.bytes.get(x.pid);
+        if (f != null) return f / 1024;
+        return process.platform === "win32" && x.memory.privateBytes != null ? x.memory.privateBytes : x.memory.workingSetSize;
+      };
+      const tabsNow = getTabs().map((t) => {
+        const wc = t.wcId != null ? webContents.fromId(t.wcId) : undefined;
+        const pid = wc && !wc.isDestroyed() ? wc.getOSProcessId() : null;
+        const x = pid != null ? byPid.get(pid) : undefined;
+        return { id: t.id, title: t.title, url: t.url, active: t.active, pid, memoryMB: x ? mb(costKB(x)) : null, residentMB: x ? mb(x.memory.workingSetSize) : null, cpu: x ? Math.round(x.cpu.percentCPUUsage * 10) / 10 : null };
+      });
+      // Tabs on the same site can share one process: say so, so the same number is not counted twice.
+      const pidCount = new Map<number, number>();
+      for (const t of tabsNow) if (t.pid != null) pidCount.set(t.pid, (pidCount.get(t.pid) ?? 0) + 1);
+      const byType: Record<string, { processes: number; memoryMB: number; cpu: number }> = {};
+      for (const x of metrics) {
+        const k = x.type === "Tab" ? "pages" : x.type === "Browser" ? "browser" : x.type === "GPU" ? "graphics" : "other";
+        const e = (byType[k] ??= { processes: 0, memoryMB: 0, cpu: 0 });
+        e.processes++;
+        e.memoryMB = Math.round((e.memoryMB + mb(costKB(x))) * 10) / 10;
+        e.cpu = Math.round((e.cpu + x.cpu.percentCPUUsage) * 10) / 10;
+      }
+      const cacheBytes = await session.defaultSession.getCacheSize().catch(() => null);
+      if (!diskCache || Date.now() - diskCache.at > 30_000) diskCache = { at: Date.now(), usage: await diskUsage(app.getPath("userData")) };
+      return {
+        totalMemoryMB: Math.round(Object.values(byType).reduce((s, e) => s + e.memoryMB, 0) * 10) / 10,
+        totalCpu: Math.round(Object.values(byType).reduce((s, e) => s + e.cpu, 0) * 10) / 10,
+        byType,
+        tabs: tabsNow.map((t) => ({ ...t, sharedProcess: t.pid != null && (pidCount.get(t.pid) ?? 0) > 1 })),
+        cacheBytes,
+        disk: diskCache.usage,
+      };
+    },
+    async clearCache() {
+      const before = await session.defaultSession.getCacheSize().catch(() => 0);
+      await session.defaultSession.clearCache();
+      diskCache = null;
+      return { freedBytes: before };
+    },
+  };
+  ipcMain.handle("resources:state", () => resources.state());
+  ipcMain.handle("resources:clear-cache", () => resources.clearCache());
+
   // The in-browser chat: a model, the page tools (run in-process, the same methods scripts use) and the person's say.
   const chat = new ChatService({
     getAi: () => aiCfg,
@@ -934,6 +991,7 @@ app.whenReady().then(async () => {
         aiStatus: () => describeAi(aiCfg),
         chat,
         mcp,
+        resources,
         setAiProvider: (p) => (p === "anthropic" || p === "openai" ? setAiProvider(p) : false),
         spent: () => formatUsd(engine.policy.spentUsdMicro()),
         receipts: () => JSON.parse(JSON.stringify(engine.ledger.all(), (_k, v) => (typeof v === "bigint" ? v.toString() : v))),

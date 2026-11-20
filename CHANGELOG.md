@@ -6,6 +6,11 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **Resource status** (◔ in the toolbar). Memory and CPU per tab, what the browser costs in total (pages, browser, graphics),
+  the cache, and what the data folder is made of, with a Clear cache button and Close per tab; amber when a tab is using over
+  800 MB or most of a CPU. On a Mac it reports the physical footprint (Activity Monitor's number, which includes memory the
+  system has compressed) rather than resident size, which can hide a tab's real cost. The finished-loading report also names
+  which requests failed and which got an error status (addresses without their queries). Scriptable as `resources.*`.
 - **Connections to other services (MCP).** Sign in to an MCP server with OAuth (discovery, registration as a public client,
   PKCE, a loopback redirect, quiet refresh, revocation on disconnect) and its tools join the assistant chat. A server adds
   only the tools its entry lists; reads run, everything else asks every time; entries can force arguments and drop result

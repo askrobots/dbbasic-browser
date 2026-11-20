@@ -81,6 +81,25 @@
       .cred .who { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
       .cred .who small { display: block; color: #7a7a82; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; }
       .cred .x { cursor: pointer; opacity: .5; padding: 0 4px; } .cred .x:hover { opacity: 1; color: #ff9a9a; }
+      /* ---- resource status ---- */
+      #resBtn { font-variant-numeric: tabular-nums; white-space: nowrap; }
+      #resBtn.warn { color: #f0c674; border-color: #5a4514; background: #2a1f0a; }
+      #resPanel { position: fixed; top: 84px; right: 10px; width: 420px; max-height: calc(100vh - 100px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12px; }
+      #resPanel.open { display: block; }
+      #resPanel h4 { margin: 0 0 6px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+      #resPanel h4 .sp { flex: 1; }
+      #resPanel .sec { margin: 12px 0 4px; color: #7a7a82; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+      #resPanel .tot { color: #c8c8ce; line-height: 1.6; }
+      #resPanel .trow { padding: 6px 0; border-bottom: 1px solid #2a2a30; }
+      #resPanel .trow .t1 { display: flex; align-items: center; gap: 6px; }
+      #resPanel .trow .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e8e8ea; }
+      #resPanel .trow .mb { color: #c8c8ce; font-variant-numeric: tabular-nums; }
+      #resPanel .trow.hot .mb { color: #f0c674; font-weight: 700; }
+      #resPanel .bar { height: 4px; border-radius: 2px; background: #131316; margin: 4px 0 3px; overflow: hidden; }
+      #resPanel .bar i { display: block; height: 100%; background: #5b8cff; }
+      #resPanel .trow.hot .bar i { background: #f0c674; }
+      #resPanel .t2 { color: #8a8a90; font-size: 11px; }
+      #resPanel .hint { color: #8a8a90; font-size: 11px; line-height: 1.5; margin-top: 8px; }
       /* ---- assistant chat panel ---- */
       #chat { width: 380px; flex: none; background: #17171b; border-left: 1px solid #000; display: none; flex-direction: column; min-height: 0; }
       #chat.open { display: flex; }
@@ -162,6 +181,7 @@
       <button class="btn" id="galleryBtn" title="Open the local x402 test gallery (http://127.0.0.1:8899/) — start it with: node apps/browser/demo/x402-demo-server.mjs">🧪 x402 tests</button>
       <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
       <div id="ctlChip" style="display:none"></div>
+      <button class="btn" id="resBtn" title="What the browser is using: memory, CPU, data, disk">◔ …</button>
       <button class="btn" id="chatBtn" title="Assistant chat (⌘J)">💬 Chat</button>
       <button class="btn" id="readerBtn" title="AI Reader — a clean reading view with a TL;DR (⌘⇧R)">📖 Reader</button>
       <button class="btn" id="keyBtn" title="Passwords"><span>🔑</span><span id="keyDot"></span></button>
@@ -174,6 +194,7 @@
     </div>
     <div id="offerbar"></div>
     <div id="vaultPanel"></div>
+    <div id="resPanel"></div>
     <div id="main">
       <div id="pages"></div>
       <div id="chat">
@@ -232,7 +253,7 @@
         wv.setAttribute("allowpopups", ""); // main's windowOpenHandler turns these into tabs
         if (window.x402.webviewPreload) wv.setAttribute("preload", window.x402.webviewPreload);
         const tab = { id: nextTabId++, wv, wcId: null, url: "", title: "", rows: new Map(), userClosed: false, paid: false, ready: false, pending: null, loading: false, saveOffer: null, fillOffer: null, waiters: [], navSeen: false,
-          el: null, reader: null, aiBusy: null, net: { reqs: new Map() }, lastActivity: 0, stats: { requests: 0, bytes: 0, hosts: new Set(), redirects: [], answered: 0, errorStatus: 0, cancelled: 0, failures: [] }, redirect: null, settledUntil: 0, failed: null, netError: null, thState: null, thText: "" };
+          el: null, reader: null, aiBusy: null, net: { reqs: new Map() }, lastActivity: 0, stats: { requests: 0, bytes: 0, hosts: new Set(), redirects: [], answered: 0, errorStatus: 0, cancelled: 0, failures: [], statusExamples: [] }, redirect: null, settledUntil: 0, failed: null, netError: null, thState: null, thText: "" };
 
         // Navigate only once the webview is really ready — setting src at creation
         // races its own init and can leave us stranded on about:blank.
@@ -501,6 +522,8 @@
       const isEventStream = (r) => /text\/event-stream/i.test(r.contentType || "");
       const isLongLived = (r, now) => r.phase === "receiving" && (isEventStream(r) || (r.total == null && now - r.last > STREAM_IDLE_MS));
 
+      // An address without its query or fragment (those can hold tokens), cut short: enough to name what failed.
+      const addrOnly = (u) => String(u || "").split(/[?#]/)[0].slice(0, 200);
       window.x402.onNetEvent((e) => {
         if (e.type === "start") owners.delete(e.url); // a new request begins a new lifecycle
         const tab = ownerOf(e.url);
@@ -521,7 +544,7 @@
           else if (e.type === "headers") {
             r.phase = "receiving"; r.total = e.total; r.contentType = e.contentType;
             r.answered = true; tab.stats.answered++; // a response arrived (what the status was is counted apart)
-            if (e.status >= 400) { r.errStatus = true; tab.stats.errorStatus++; }
+            if (e.status >= 400) { r.errStatus = true; tab.stats.errorStatus++; if (tab.stats.statusExamples.length < 10) tab.stats.statusExamples.push({ url: addrOnly(r.url), status: e.status }); }
           }
           else if (e.type === "progress") r.bytes = e.bytes;
           else if (e.type === "redirect") { tab.stats.answered++; reqs.delete(e.id); tab.redirect = { to: e.location, until: now + 700 }; tab.stats.redirects.push({ status: e.status, to: e.location }); }
@@ -530,7 +553,7 @@
             // A request that ends in an error is a failure, even if its response had started (then it is not also "answered").
             if (r.answered) { tab.stats.answered--; if (r.errStatus) tab.stats.errorStatus--; }
             if (e.error === "aborted") tab.stats.cancelled++; // the page itself gave up on it
-            else if (tab.stats.failures.length < 500) tab.stats.failures.push({ kind: e.failureKind || null, error: String(e.error || "").replace(/^net::/, "").slice(0, 120) });
+            else if (tab.stats.failures.length < 500) tab.stats.failures.push({ kind: e.failureKind || null, error: String(e.error || "").replace(/^net::/, "").slice(0, 120), url: addrOnly(r.url) });
             reqs.delete(e.id); tab.netError = String(e.error || "").replace(/^net::/, ""); }
         }
         refreshThrobber(tab);
@@ -593,7 +616,7 @@
               url: tab.url, title: tab.title, state: tab.thState, pay,
               inFlight: [...tab.net.reqs.values()].map((x) => ({ url: x.url, phase: x.phase, ageMs: now - x.t0, longLived: isLongLived(x, now) })),
               sinceActivityMs: now - (tab.lastActivity || now),
-              stats: { requests: tab.stats.requests, bytes: tab.stats.bytes, hosts: [...tab.stats.hosts], redirects: tab.stats.redirects, answered: tab.stats.answered, errorStatus: tab.stats.errorStatus, cancelled: tab.stats.cancelled, failures: tab.stats.failures },
+              stats: { requests: tab.stats.requests, bytes: tab.stats.bytes, hosts: [...tab.stats.hosts], redirects: tab.stats.redirects, answered: tab.stats.answered, errorStatus: tab.stats.errorStatus, cancelled: tab.stats.cancelled, failures: tab.stats.failures, statusExamples: tab.stats.statusExamples },
             };
           }
           default: throw new Error("unknown op " + op);
@@ -768,6 +791,62 @@
         if (e.kind === "user") chatSetBusy(true);
       });
 
+
+      // ---- resource status -----------------------------------------------------------------------------
+      // The operating system's own numbers for each page's process, so something that hogs the machine has a name.
+      const fmtMB = (mb) => mb == null ? "—" : mb >= 1024 ? (mb / 1024).toFixed(1) + " GB" : Math.round(mb) + " MB";
+      const resBytes = (b) => b == null ? "—" : fmtMB(b / 1048576);
+      const HOT_MB = 800, HOT_CPU = 60, WARN_TOTAL_MB = 3000;
+      let resOpen = false, resBusy = false;
+      async function resRefresh() {
+        if (resBusy) return;
+        resBusy = true;
+        let r;
+        try { r = await window.x402.resources.state(); } catch { resBusy = false; return; }
+        resBusy = false;
+        const hotTab = r.tabs.some((t) => (t.memoryMB || 0) > HOT_MB || (t.cpu || 0) > HOT_CPU);
+        $("resBtn").textContent = "◔ " + fmtMB(r.totalMemoryMB);
+        $("resBtn").classList.toggle("warn", r.totalMemoryMB > WARN_TOTAL_MB || hotTab);
+        if (!resOpen) return;
+        const box = $("resPanel");
+        box.textContent = "";
+        const add = (cls, text, parent = box) => { const d = document.createElement("div"); d.className = cls; d.textContent = text; parent.appendChild(d); return d; };
+        const h = document.createElement("h4"); const t = document.createElement("span"); t.textContent = "What the browser is using"; const sp = document.createElement("span"); sp.className = "sp";
+        const x = document.createElement("button"); x.className = "sbtn quiet"; x.textContent = "✕"; x.onclick = () => setRes(false);
+        h.append(t, sp, x); box.appendChild(h);
+        const bt = r.byType;
+        add("tot", "Memory " + fmtMB(r.totalMemoryMB) + " · CPU " + r.totalCpu + "%  —  pages " + fmtMB(bt.pages && bt.pages.memoryMB) + ", browser " + fmtMB(bt.browser && bt.browser.memoryMB) + ", graphics " + fmtMB(bt.graphics && bt.graphics.memoryMB) + (bt.other ? ", other " + fmtMB(bt.other.memoryMB) : ""));
+        add("sec", "Tabs");
+        const maxMB = Math.max(1, ...r.tabs.map((t) => t.memoryMB || 0));
+        const sorted = [...r.tabs].sort((a, b) => (b.memoryMB || 0) - (a.memoryMB || 0));
+        for (const tb of sorted) {
+          const mine = tabs.find((x) => x.id === tb.id);
+          const hot = (tb.memoryMB || 0) > HOT_MB || (tb.cpu || 0) > HOT_CPU;
+          const row = document.createElement("div"); row.className = "trow" + (hot ? " hot" : "");
+          const t1 = document.createElement("div"); t1.className = "t1";
+          const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = tb.title || tb.url || "(blank)"; nm.title = tb.url || "";
+          const mb = document.createElement("span"); mb.className = "mb"; mb.textContent = fmtMB(tb.memoryMB);
+          const cl = document.createElement("button"); cl.className = "sbtn quiet"; cl.textContent = "Close"; cl.onclick = () => { if (mine) closeTab(mine); setTimeout(resRefresh, 300); };
+          t1.append(nm, mb, cl); row.appendChild(t1);
+          const bar = document.createElement("div"); bar.className = "bar"; const bi = document.createElement("i"); bi.style.width = Math.max(2, Math.round(((tb.memoryMB || 0) / maxMB) * 100)) + "%"; bar.appendChild(bi); row.appendChild(bar);
+          const st = mine && mine.stats;
+          add("t2", [(tb.cpu == null ? "" : tb.cpu + "% CPU"), st ? resBytes(st.bytes) + " loaded in " + st.requests + " requests" : "", st && st.failures.length ? st.failures.length + " failed" : "", tb.sharedProcess ? "shares a process with another tab" : ""].filter(Boolean).join(" · "), row);
+          box.appendChild(row);
+        }
+        add("sec", "On disk");
+        add("tot", "Data folder " + resBytes(r.disk.bytes) + (r.disk.truncated ? " (at least)" : "") + " — " + r.disk.top.slice(0, 5).map((d) => d.name + " " + resBytes(d.bytes)).join(", "));
+        const cr = document.createElement("div"); cr.className = "trow";
+        const t1 = document.createElement("div"); t1.className = "t1";
+        const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = "Cache " + resBytes(r.cacheBytes);
+        const clr = document.createElement("button"); clr.className = "sbtn"; clr.textContent = "Clear cache";
+        clr.onclick = async () => { clr.disabled = true; const f = await window.x402.resources.clearCache(); toast("skipped", "Cache cleared (" + resBytes(f.freedBytes) + ")"); resRefresh(); };
+        t1.append(nm, clr); cr.appendChild(t1); box.appendChild(cr);
+        add("hint", "Each page's memory is what its own process costs the machine (on a Mac, the physical footprint Activity Monitor shows, which includes memory the system has compressed). Clearing the cache keeps your logins. A tab marked in amber is using over " + HOT_MB + " MB or " + HOT_CPU + "% of a CPU.");
+      }
+      function setRes(open) { resOpen = open; $("resPanel").classList.toggle("open", open); if (open) resRefresh(); }
+      $("resBtn").onclick = () => setRes(!resOpen);
+      (function resLoop() { if (!document.hidden) resRefresh(); setTimeout(resLoop, resOpen ? 3000 : 10000); })();
+
       // Native menu accelerators (⌘T / ⌘W / ⌘L …) arrive here — they work even when
       // focus is inside a page, which a document-level keydown would never see.
       window.x402.onTabCommand((cmd) => {
@@ -813,7 +892,7 @@
         const u = toUrl(raw);
         if (!u) return;
         tab.url = u.startsWith("data:") || u.startsWith("dbb-reader:") ? "" : u;
-        tab.stats = { requests: 0, bytes: 0, hosts: new Set(), redirects: [], answered: 0, errorStatus: 0, cancelled: 0, failures: [] }; // a new VISIT: facts start over (a page moving itself continues it)
+        tab.stats = { requests: 0, bytes: 0, hosts: new Set(), redirects: [], answered: 0, errorStatus: 0, cancelled: 0, failures: [], statusExamples: [] }; // a new VISIT: facts start over (a page moving itself continues it)
         if (tab === active) setUrlBar(tab);
         renderTabs();
         // loadURL, not the src attribute: setting src to the address the page is already on loads it TWICE (two requests to the site).
