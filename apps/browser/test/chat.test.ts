@@ -122,6 +122,17 @@ describe("what the model is shown", () => {
   });
 });
 
+it("the latest list_fields and find results are never shrunk, so the model keeps the refs it needs", () => {
+  const big = "z".repeat(2000);
+  const msgs: ChatMsg[] = [];
+  msgs.push({ role: "tool", results: [{ id: "1", name: "list_fields", text: big, isError: false }] });
+  msgs.push({ role: "tool", results: [{ id: "2", name: "list_fields", text: big, isError: false }] });
+  for (let i = 0; i < 4; i++) msgs.push({ role: "tool", results: [{ id: "x" + i, name: "type_text", text: big, isError: false }] });
+  const lens = compact(msgs).map((m) => (m.role === "tool" ? m.results[0]!.text.length : 0));
+  expect(lens[1]).toBe(2000); // the latest list_fields, long past the window
+  expect(lens[0]).toBeLessThan(400); // an older one is shrunk
+});
+
 describe("model adapters", () => {
   const msgs: ChatMsg[] = [
     { role: "user", text: "hi" },

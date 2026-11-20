@@ -87,7 +87,7 @@ Rules you always follow:
 - Use tools instead of guessing. Read the page before you say what is on it. To act on something, find it first (list_fields or find) and use the ref you were given; never invent a ref.
 - Anything that changes the page or the browser (opening, clicking, typing, choosing, pressing keys) will be shown to the person for approval. Do one step at a time and say briefly what you are about to do and why.
 - Never type into password, card number or one-time-code fields, and never submit or buy anything unless the person clearly asked for exactly that. Do not read or repeat secrets. If a form needs something you do not know, ask the person; do not make values up.
-- Keep answers short and plain. If you could not do something, say so and say why.`;
+- Keep answers short and plain, in plain text with no markdown (no asterisks, no headings). If you could not do something, say so and say why.`;
 
 const clean = (s: string) => s.replace(/<\/?data>/gi, "");
 
@@ -98,16 +98,29 @@ export function wrapResult(text: string): string {
   return `<data>\n${cut ? t.slice(0, MAX_RESULT_CHARS) : t}\n</data>${cut ? `\n(output cut at ${MAX_RESULT_CHARS} characters)` : ""}`;
 }
 
-/** Shrink tool results that are more than KEEP_FULL_ROUNDS rounds old. Returns a new array. */
+/** Results the model needs in order to act (the refs in them), so the latest of each is never shrunk. */
+const KEEP_LATEST = new Set(["list_fields", "find"]);
+
+/** Shrink tool results that are more than KEEP_FULL_ROUNDS rounds old, except the latest list_fields and find. Returns a new array. */
 export function compact(messages: ChatMsg[]): ChatMsg[] {
   let seen = 0;
+  const kept = new Set<string>();
   const out = [...messages];
   for (let i = out.length - 1; i >= 0; i--) {
     const m = out[i];
     if (m?.role !== "tool") continue;
     seen++;
-    if (seen <= KEEP_FULL_ROUNDS) continue;
-    out[i] = { role: "tool", results: m.results.map((r) => (r.text.length > STUB_CHARS ? { ...r, text: `${r.text.slice(0, STUB_CHARS)}… [earlier result shortened]` } : r)) };
+    const recent = seen <= KEEP_FULL_ROUNDS;
+    out[i] = {
+      role: "tool",
+      results: m.results.map((r) => {
+        if (KEEP_LATEST.has(r.name) && !kept.has(r.name)) {
+          kept.add(r.name);
+          return r;
+        }
+        return !recent && r.text.length > STUB_CHARS ? { ...r, text: `${r.text.slice(0, STUB_CHARS)}… [earlier result shortened]` } : r;
+      }),
+    };
   }
   return out;
 }
