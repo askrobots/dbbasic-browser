@@ -591,9 +591,6 @@ function buildMenu(): void {
         { type: "separator" },
         { label: "Show Last Download in Finder", click: () => showLastDownload() },
         { label: "Show Downloads Folder", click: () => void shell.openPath(app.getPath("downloads")) },
-        { type: "separator" },
-        { label: "Next Tab", accelerator: "Ctrl+Tab", click: tabCmd("next") },
-        { label: "Previous Tab", accelerator: "Ctrl+Shift+Tab", click: tabCmd("prev") },
         { label: "Next Tab (alt)", accelerator: "CmdOrCtrl+Alt+Right", click: tabCmd("next"), visible: false },
         { label: "Previous Tab (alt)", accelerator: "CmdOrCtrl+Alt+Left", click: tabCmd("prev"), visible: false },
         // ⌘⇧] and ⌘⇧[, as in Safari and Chrome. Some keyboard layouts report the shifted key as } and {, so both are listened for.
@@ -621,6 +618,8 @@ function buildMenu(): void {
         { type: "separator" },
         { label: "AI Reader", accelerator: "CmdOrCtrl+Shift+R", click: tabCmd("reader") },
         { label: "Assistant chat", accelerator: "CmdOrCtrl+J", click: tabCmd("chat") },
+        { label: "x402 Inspector", click: tabCmd("click:inspectBtn") },
+        { label: "What the Browser Is Using (Memory, CPU, Data)", click: tabCmd("click:resBtn") },
         {
           label: "AI Provider",
           enabled: !!aiCfg,
@@ -642,6 +641,38 @@ function buildMenu(): void {
         { role: "toggleDevTools" },
         { type: "separator" },
         { role: "togglefullscreen" },
+      ],
+    },
+    {
+      label: "Go",
+      submenu: [
+        { label: "Back", accelerator: "CmdOrCtrl+[", click: tabCmd("back") },
+        { label: "Forward", accelerator: "CmdOrCtrl+]", click: tabCmd("forward") },
+        { type: "separator" },
+        { label: "Next Tab", accelerator: "Ctrl+Tab", click: tabCmd("next") },
+        { label: "Previous Tab", accelerator: "Ctrl+Shift+Tab", click: tabCmd("prev") },
+      ],
+    },
+    {
+      label: "Bookmarks",
+      submenu: [
+        { label: "Save This Page to askrobots", accelerator: "CmdOrCtrl+D", click: tabCmd("click:starBtn") },
+        { label: "Show Bookmarks", accelerator: "CmdOrCtrl+Shift+B", click: tabCmd("click:bmBtn") },
+        { type: "separator" },
+        { label: "Keep This Page and Close It", click: tabCmd("click:keepBtn") },
+        { label: "Show Kept Copies", click: tabCmd("kept") },
+      ],
+    },
+    {
+      label: "Tools",
+      submenu: [
+        { label: "Passwords…", click: tabCmd("click:keyBtn") },
+        { label: "Connections (askrobots and other services)…", click: tabCmd("connections") },
+        { type: "separator" },
+        { label: "Wallet: Copy Address and Get Test Funds", click: tabCmd("click:fundBtn") },
+        { type: "separator" },
+        { label: "x402 Test Gallery (local)", click: tabCmd("click:galleryBtn") },
+        { label: "Tour of the Test Gallery", click: tabCmd("click:tourBtn") },
       ],
     },
     { role: "windowMenu" },

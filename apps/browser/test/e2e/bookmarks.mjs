@@ -15,10 +15,10 @@ export default async function (ctx) {
   const s0 = await T("bookmarks.list");
   check(s0.items.length === 0 && s0.source === "none" && s0.connected === false, "before connecting there are no bookmarks and nothing was asked of the service", JSON.stringify(s0));
   await T("page.goto", { url: base + "/forms" });
-  try { await waitFor(async () => (await star()) === "☆", "the empty star on a web page", 30); } catch (e) { throw new Error(e.message + " — star is " + (await star()) + ", url bar " + (await q(`return document.getElementById('url').value`)) + ", errors " + (await q(`return String(window.__lastErr || '')`))); }
+  try { await waitFor(async () => (await star()) === "☆ Save", "the empty star on a web page", 30); } catch (e) { throw new Error(e.message + " — star is " + (await star()) + ", url bar " + (await q(`return document.getElementById('url').value`)) + ", errors " + (await q(`return String(window.__lastErr || '')`))); }
   await q(`document.getElementById('starBtn').click()`);
   await waitFor(async () => /Connect askrobots/.test(await q(`return document.getElementById('toast').textContent`)), "the 'connect first' note");
-  check((await star()) === "☆", "clicking ☆ before connecting says to connect first, and saves nothing");
+  check((await star()) === "☆ Save", "clicking ☆ before connecting says to connect first, and saves nothing");
 
   // connect (in a tab of the browser): the bookmarks come in by themselves
   await T("mcp.connect", { id: "askrobots", wait: true });
@@ -34,13 +34,13 @@ export default async function (ctx) {
   await q(`document.querySelector('#bmPanel .bm').click()`);
   await waitFor(async () => (await T("tabs.list")).find((t) => t.active).url === base + "/free", "the bookmark to open");
   check(!(await q(`return document.getElementById('bmPanel').classList.contains('open')`)), "clicking a bookmark opens it in the tab and closes the list");
-  check((await star()) === "★|saved", "the star is filled on a page that is already a bookmark", await star());
+  check((await star()) === "★ Saved|saved", "the star is filled on a page that is already a bookmark", await star());
 
   // one click saves, with no dialog
   await T("page.goto", { url: base + "/forms" });
-  await waitFor(async () => (await star()) === "☆", "the empty star");
+  await waitFor(async () => (await star()) === "☆ Save", "the empty star");
   await q(`document.getElementById('starBtn').click()`);
-  await waitFor(async () => (await star()) === "★|saved", "the star to fill in");
+  await waitFor(async () => (await star()) === "★ Saved|saved", "the star to fill in");
   const saved = (await server())[0];
   check(saved.url === base + "/forms" && saved.title === "forms" && saved.project_id === "P-links" && saved.is_public === false, "one click saves the page with its title, private, in the project the server's entry names", JSON.stringify(saved));
   check(await q(`return !document.querySelector('dialog[open], .modal.show')`) && (await T("bookmarks.has", { url: base + "/forms" })).saved, "there is no dialog after it, and the browser knows the page is saved");
@@ -53,7 +53,7 @@ export default async function (ctx) {
   await T("page.goto", { url: base + "/hits" });
   await waitFor(async () => /site/.test(await q(`return document.getElementById('starBtn').className`)), "the same-site hint");
   const hint = await q(`const b = document.getElementById('starBtn'); return b.textContent + '|' + b.title`);
-  check(/^☆\|You have \d+ bookmarks on this site/.test(hint), "a page that is not saved, on a site with saved pages, shows that you have bookmarks there (and ☆ still saves this page)", hint);
+  check(/^☆ Save\|You have \d+ bookmarks on this site/.test(hint), "a page that is not saved, on a site with saved pages, shows that you have bookmarks there (and ☆ still saves this page)", hint);
 
   // a link saved somewhere else shows up the next time the list is opened
   await fetch(base + "/o/_addlink?url=" + encodeURIComponent(base + "/headers?elsewhere=1") + "&title=" + encodeURIComponent("Saved on the website"));
@@ -74,12 +74,12 @@ export default async function (ctx) {
   check(direct.items.length === 1 && direct.items[0].title === "Ancient Yahoo archive", "and scripts can search the same way", JSON.stringify(direct.items.map((b) => b.title)));
   await cdp.ev(`setBm(false)`);
   await T("page.goto", { url: base + "/headers?ancient=1&utm_source=newsletter" });
-  await waitFor(async () => (await star()) === "★|saved", "the star on the old bookmark");
+  await waitFor(async () => (await star()) === "★ Saved|saved", "the star on the old bookmark");
   check(true, "an old bookmark found by a search is then known: opening it shows ★ (a tracking parameter on the address does not matter)");
 
   // an old bookmark nobody searched for: the browser asks about the site when you open the page, and ☆ fills in
   await T("page.goto", { url: base.replace("127.0.0.1", "localhost") + "/free?old=103" });
-  try { await waitFor(async () => (await star()) === "★|saved", "the star on an old bookmark found by checking the site", 60); } catch (e) { throw new Error(e.message + " — star " + (await star()) + ", direct check " + JSON.stringify(await T("bookmarks.check", { url: base.replace("127.0.0.1", "localhost") + "/free?old=103" })) + ", state " + JSON.stringify((({ items, known, ...r }) => ({ ...r, items: items.length, known: known.length }))(await T("bookmarks.list")))); }
+  try { await waitFor(async () => (await star()) === "★ Saved|saved", "the star on an old bookmark found by checking the site", 60); } catch (e) { throw new Error(e.message + " — star " + (await star()) + ", direct check " + JSON.stringify(await T("bookmarks.check", { url: base.replace("127.0.0.1", "localhost") + "/free?old=103" })) + ", state " + JSON.stringify((({ items, known, ...r }) => ({ ...r, items: items.length, known: known.length }))(await T("bookmarks.list")))); }
   check(true, "opening a page saved long ago (beyond the newest 100) fills ☆ after the browser checks the site with askrobots");
   await cdp.ev(`setBm(true)`);
   await waitFor(async () => q(`return !!document.getElementById('bmCheck')`), "the setting in the list");

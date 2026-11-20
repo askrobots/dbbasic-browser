@@ -40,13 +40,19 @@
       .tab .th { flex: none; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; color: #7ee787; font-size: 11px; }
       .th svg { width: 16px; height: 16px; display: block; }
       .tab:not(.on) .th svg { opacity: .8; }
-      #status { position: fixed; left: 0; bottom: 0; z-index: 5; display: none; align-items: center; gap: 7px; max-width: 70%; padding: 4px 12px 4px 8px; background: #26262b; color: #c8c8ce; border: 1px solid #000; border-left: 0; border-bottom: 0; border-radius: 0 7px 0 0; font-size: 12px; pointer-events: none; }
+      #sbar { flex: none; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; background: #26262b; border-top: 1px solid #000; font-size: 12px; color: #c8c8ce; }
+      #sbar .btn, #sbar #bal, #sbar #mbal, #sbar #meter, #sbar #ctlChip { padding: 2px 9px; border-radius: 5px; font-size: 12px; line-height: 18px; }
+      #sbar #meter::before { content: "Paid "; opacity: .75; }
+      #sbar #mbal::before { content: "Merchant "; opacity: .75; }
+      #sbar #inspectCount { position: static; display: inline-flex; margin-left: 5px; vertical-align: 1px; }
+      #sleft { flex: 1; min-width: 0; display: flex; align-items: center; }
+      #status { display: none; align-items: center; gap: 7px; min-width: 0; }
       #status.show { display: flex; }
-      #cn { position: fixed; right: 8px; bottom: 8px; z-index: 7; display: none; padding: 4px 10px; background: #7a1f1f; color: #fff; border-radius: 6px; font-size: 12px; font-weight: 600; pointer-events: none; }
+      #cn { display: none; padding: 2px 9px; background: #7a1f1f; color: #fff; border-radius: 5px; font-size: 12px; font-weight: 600; white-space: nowrap; }
       #cn.show { display: block; }
-      #link { position: fixed; left: 0; bottom: 0; z-index: 6; display: none; max-width: 70%; padding: 4px 12px 4px 8px; background: #26262b; color: #c8c8ce; border: 1px solid #000; border-left: 0; border-bottom: 0; border-radius: 0 7px 0 0; font-size: 12px; pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #link { display: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #link.show { display: block; }
-      #link.stacked { bottom: 27px; border-radius: 0 7px 7px 0; border-bottom: 1px solid #000; }
+      #link.show + #status { display: none; } /* a link you point at is shown instead of the page's status, as it always was */
       #link .k { font-weight: 600; margin-right: 6px; }
       #link.same { color: #8fd19e; }  /* same site: green */
       #link.other { color: #f0c674; } /* another site: amber */
@@ -124,7 +130,7 @@
       /* ---- resource status ---- */
       #resBtn { font-variant-numeric: tabular-nums; white-space: nowrap; }
       #resBtn.warn { color: #f0c674; border-color: #5a4514; background: #2a1f0a; }
-      #resPanel { position: fixed; top: 84px; right: 10px; width: 420px; max-height: calc(100vh - 100px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12px; }
+      #resPanel { position: fixed; bottom: 36px; right: 10px; width: 420px; max-height: calc(100vh - 130px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12px; }
       #resPanel.open { display: block; }
       #resPanel h4 { margin: 0 0 6px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
       #resPanel h4 .sp { flex: 1; }
@@ -201,11 +207,13 @@
       .detail dd { margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 11px; word-break: break-all; color: #cdcdd3; }
       .detail dd.warn { color: #f0c674; }
       .detail .step { margin: 8px 0 2px; color: #8a8a90; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; font-size: 10px; }
-      #toast { position: fixed; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 10; }
+      #toast { position: fixed; right: 14px; bottom: 40px; display: flex; flex-direction: column; gap: 6px; z-index: 10; }
       .note { padding: 8px 12px; border-radius: 8px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.4); animation: in .15s ease-out; }
       .note.paid { background: #10240f; color: #7ee787; border: 1px solid #1c4a1a; }
       .note.quoted { background: #201a0a; color: #f0c674; border: 1px solid #4a3a12; }
       .note.skipped { background: #241010; color: #ff9a9a; border: 1px solid #4a1a1a; }
+      #bar .lbl { margin-left: 3px; }
+      @media (max-width: 1100px) { #bar .lbl { display: none; } }
       @keyframes in { from { opacity: 0; transform: translateY(6px); } }
     </style>
   </head>
@@ -219,22 +227,14 @@
       <button class="btn" id="fwd">›</button>
       <button class="btn" id="reload" title="Reload (⌘R)">⟳</button>
       <input id="url" placeholder="Search askrobots.com or enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
-      <button class="btn" id="keepBtn" title="Keep a copy of this page (what is on screen and its text) and close the tab">📥</button>
-      <button class="btn" id="starBtn" title="Save this page to your askrobots bookmarks (one click)">☆</button>
+      <button class="btn" id="keepBtn" title="Keep a copy of this page (what is on screen and its text) and close the tab">📥<span class="lbl"> Keep</span></button>
+      <button class="btn" id="starBtn" title="Save this page to your askrobots bookmarks (one click)">☆<span class="lbl"> Save</span></button>
       <button class="btn" id="galleryBtn" title="Open the local x402 test gallery (http://127.0.0.1:8899/) — start it with: node apps/browser/demo/x402-demo-server.mjs">🧪 x402 tests</button>
       <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
-      <div id="ctlChip" style="display:none"></div>
-      <button class="btn" id="bmBtn" title="Your bookmarks (askrobots links)">🔖</button>
-      <button class="btn" id="resBtn" title="What the browser is using: memory, CPU, data, disk">◔ …</button>
-      <button class="btn" id="chatBtn" title="Assistant chat (⌘J)">💬 Chat</button>
-      <button class="btn" id="readerBtn" title="AI Reader — a clean reading view with a TL;DR (⌘⇧R)">📖 Reader</button>
-      <button class="btn" id="keyBtn" title="Passwords"><span>🔑</span><span id="keyDot"></span></button>
-      <button class="btn" id="inspectBtn" title="x402 inspector">⚡ x402<span id="inspectCount">0</span></button>
-      <div id="bal" class="chip" title="Your wallet USDC on Base Sepolia — click to copy address">◈ —</div>
-      <div id="mbal" title="Merchant wallet — live payments land here" style="display:none">🏪 —</div>
-      <button class="btn" id="refundBtn" title="Refund merchant → you" style="display:none">Refund</button>
-      <button class="btn" id="fundBtn" title="Copy address + open the faucet">Fund</button>
-      <div id="meter" class="zero" title="Total paid this session">$0.00</div>
+      <button class="btn" id="bmBtn" title="Your bookmarks (askrobots links)">🔖<span class="lbl"> Bookmarks</span></button>
+      <button class="btn" id="chatBtn" title="Assistant chat (⌘J)">💬<span class="lbl"> Chat</span></button>
+      <button class="btn" id="readerBtn" title="AI Reader — a clean reading view with a TL;DR (⌘⇧R)">📖<span class="lbl"> Reader</span></button>
+      <button class="btn" id="keyBtn" title="Passwords"><span>🔑</span><span class="lbl"> Passwords</span><span id="keyDot"></span></button>
     </div>
     <div id="offerbar"></div>
     <div id="vaultPanel"></div>
@@ -271,9 +271,19 @@
         <div id="insList"><div id="insEmpty">No x402 activity yet.<br />Load a page that returns 402 Payment Required — every challenge, decision, and payment shows up here.</div></div>
       </div>
     </div>
-    <div id="status"><span class="ic"></span><span class="tx"></span></div>
-    <div id="link"></div>
-    <div id="cn">Caller network ON · this browser fetches nothing itself</div>
+    <!-- The status bar: what the page is doing on the left; what the browser is spending (memory, money) on the right. -->
+    <div id="sbar">
+      <div id="sleft"><div id="link"></div><div id="status"><span class="ic"></span><span class="tx"></span></div></div>
+      <div id="cn">Caller network ON · this browser fetches nothing itself</div>
+      <div id="ctlChip" style="display:none"></div>
+      <button class="btn" id="resBtn" title="What the browser is using: memory, CPU, data, disk">Memory …</button>
+      <button class="btn" id="inspectBtn" title="x402 inspector: every payment request, decision and payment">⚡ x402<span id="inspectCount">0</span></button>
+      <div id="bal" class="chip" title="Your wallet USDC on Base Sepolia — click to copy address">◈ —</div>
+      <div id="mbal" title="Merchant wallet — live payments land here" style="display:none">🏪 —</div>
+      <button class="btn" id="refundBtn" title="Refund merchant → you" style="display:none">Refund</button>
+      <button class="btn" id="fundBtn" title="Copy address + open the faucet">Fund</button>
+      <div id="meter" class="zero" title="Total paid this session">$0.00</div>
+    </div>
     <div id="toast"></div>
 
     <script>
@@ -540,7 +550,7 @@
         if (!href) { el.className = ""; el.textContent = ""; return; }
         let cur = ""; try { cur = active.wv.getURL(); } catch {}
         const same = sameSite(href, cur);
-        el.className = "show " + (same ? "same" : "other") + ($("status").classList.contains("show") ? " stacked" : "");
+        el.className = "show " + (same ? "same" : "other");
         const k = document.createElement("span"); k.className = "k"; k.textContent = same ? "● this site" : "↗ other site"; // not colour alone
         el.replaceChildren(k, document.createTextNode(href));
         el.title = href;
@@ -891,7 +901,8 @@
         // Not this page, but something else on the same site is saved: say so (the star stays a click to save this page).
         let host = ""; try { host = web ? new URL(u).host.replace(/^www\./, "") : ""; } catch {}
         const onSite = !saved && host ? (bm.items || []).concat(bm.known || []).filter((x) => { try { return new URL(x.url).host.replace(/^www\./, "") === host; } catch { return false; } }) : [];
-        b.textContent = saved ? "★" : "☆";
+        const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = saved ? " Saved" : " Save";
+        b.replaceChildren(saved ? "★" : "☆", lbl);
         b.classList.toggle("saved", saved);
         b.classList.toggle("site", onSite.length > 0);
         b.disabled = !web;
@@ -1035,7 +1046,7 @@
         try { r = await window.x402.resources.state(); } catch { resBusy = false; return; }
         resBusy = false;
         const hotTab = r.tabs.some((t) => (t.memoryMB || 0) > HOT_MB || (t.cpu || 0) > HOT_CPU);
-        $("resBtn").textContent = "◔ " + fmtMB(r.totalMemoryMB);
+        $("resBtn").textContent = "Memory " + fmtMB(r.totalMemoryMB);
         $("resBtn").classList.toggle("warn", r.totalMemoryMB > WARN_TOTAL_MB || hotTab);
         if (!resOpen) return;
         const box = $("resPanel");
@@ -1079,6 +1090,7 @@
 
       // Native menu accelerators (⌘T / ⌘W / ⌘L …) arrive here — they work even when
       // focus is inside a page, which a document-level keydown would never see.
+      const MENU_BUTTONS = new Set(["keepBtn", "starBtn", "bmBtn", "keyBtn", "inspectBtn", "resBtn", "fundBtn", "galleryBtn", "tourBtn"]);
       window.x402.onTabCommand((cmd) => {
         if (cmd === "new") openNewTab();
         else if (cmd === "close") closeTab(active);
@@ -1090,6 +1102,12 @@
         else if (cmd.startsWith("motion:")) setMotionMode(cmd.slice(7));
         else if (cmd === "reader") openReader();
         else if (cmd === "chat") toggleChat();
+        // The menu bar has every feature: a menu item does what its button does.
+        else if (cmd.startsWith("click:") && MENU_BUTTONS.has(cmd.slice(6))) $(cmd.slice(6)).click();
+        else if (cmd === "back") $("back").click();
+        else if (cmd === "forward") $("fwd").click();
+        else if (cmd === "kept") { bmView = "kept"; setBm(true); }
+        else if (cmd === "connections") { setChat(true); }
         else if (cmd === "open-external") {
           if (active && /^https?:\/\//i.test(active.url)) window.x402.openExternal(active.url);
           else toast("skipped", "Only web pages can be opened in the default browser");

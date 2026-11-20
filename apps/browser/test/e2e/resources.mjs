@@ -25,7 +25,7 @@ export default async function (ctx) {
   // the window shows it
   await cdp.ev(`setRes(false)`);
   await sleep(2500);
-  check(await q(`return /^◔ [\\d.]+ (MB|GB)$/.test(document.getElementById('resBtn').textContent.trim())`), "the toolbar shows the total memory in use", await q(`return document.getElementById('resBtn').textContent`));
+  check(await q(`return /^Memory [\\d.]+ (MB|GB)$/.test(document.getElementById('resBtn').textContent.trim())`), "the status bar shows the total memory in use", await q(`return document.getElementById('resBtn').textContent`));
   await cdp.ev(`setRes(true)`);
   for (let i = 0; i < 40 && !(await q(`return document.querySelectorAll('#resPanel .trow').length >= 3`)); i++) await sleep(100);
   const panel = await q(`return document.getElementById('resPanel').innerText`);

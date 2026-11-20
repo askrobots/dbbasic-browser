@@ -142,6 +142,11 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   automation API, plus 94 unit tests and a test that fails if an API key is ever committed.
 
 ### Changed
+- **A status bar, words on the buttons, and everything in the menu bar.** What the browser is using and spending (memory,
+  the x402 inspector, wallet, Fund, paid this session) moved from the toolbar to a status bar along the bottom, with the
+  page's status and the link you point at on its left. Toolbar buttons say what they do (Keep, Save, Bookmarks, Chat,
+  Reader, Passwords), down to icons in a narrow window. New Go, Bookmarks and Tools menus hold every feature, with
+  ⌘[ / ⌘] for back and forward, ⌘D to save a bookmark and ⌘⇧B for the list.
 - **The assistant remembers having read your private data.** Once a message (or a command you ran) has brought in something
   from your accounts, later messages in the same conversation still ask before anything that could carry it out of the
   browser, in any mode, until you clear the conversation. Before, each message started fresh.
