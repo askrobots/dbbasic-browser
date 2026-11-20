@@ -11,10 +11,10 @@
 
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { basename, dirname, extname, join } from "node:path";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, session, shell, webContents, type MenuItemConstructorOptions, type WebContents } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, protocol, safeStorage, session, shell, webContents, type MenuItemConstructorOptions, type WebContents } from "electron";
 import { createPublicClient, http as viemHttp } from "viem";
 import { baseSepolia } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
@@ -33,6 +33,7 @@ import { READER_CSP } from "./reader.js";
 import { registerVault } from "./vault-service.js";
 import { handle as handleControl, setTabs, startControl, type ApprovalPolicy, type ControlDeps, type ControlHandle, type TabInfo } from "./control.js";
 import { ChatService } from "./chat-service.js";
+import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -813,6 +814,39 @@ app.whenReady().then(async () => {
 
   createWindow();
   // Automation API: off unless asked for (see control.ts for the security model).
+  // MCP connections (sign in with OAuth, add tools to the chat). Sign-ins are kept only encrypted by the operating system;
+  // without that, or with DBB_MCP_STORE=memory, they last until the browser closes.
+  const mcpAuthPath = join(app.getPath("userData"), "mcp-auth.bin");
+  const mcpEncryption = process.env.DBB_MCP_STORE === "memory" ? { isEncryptionAvailable: () => false, encryptString: () => Buffer.alloc(0), decryptString: () => "" } : safeStorage;
+  const mcpConfig = loadServerConfigs(process.env.DBB_MCP_SERVERS || join(app.getPath("userData"), "mcp-servers.json"));
+  for (const problem of mcpConfig.problems) console.error(`[mcp] servers file: ${problem}`);
+  const mcp = new McpService({
+    fetch: (url, init) => fetch(url, init as RequestInit),
+    store: createStore(mcpAuthPath, mcpEncryption, {
+      read: (p) => (existsSync(p) ? readFileSync(p) : null),
+      write: (p, b) => (b ? (writeFileSync(p, b, { mode: 0o600 }), chmodSync(p, 0o600)) : rmSync(p, { force: true })),
+    }),
+    servers: mcpConfig.servers,
+    openExternal: (url) => {
+      const safe = safeExternalUrl(url);
+      if (safe) void shell.openExternal(safe);
+    },
+    callerNetworkOn: () => callerNet.enabled,
+    announce: (e) => emit(e),
+  });
+  ipcMain.handle("mcp:state", () => mcp.state());
+  ipcMain.handle("mcp:connect", async (_e, id: unknown) => {
+    try {
+      const r = await mcp.connect(String(id));
+      await r.done;
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  ipcMain.handle("mcp:cancel", (_e, id: unknown) => (mcp.cancelConnect(String(id)), true));
+  ipcMain.handle("mcp:disconnect", (_e, id: unknown) => mcp.disconnect(String(id)).then(() => ({ ok: true }), (e) => ({ ok: false, message: String(e?.message ?? e) })));
+
   // The in-browser chat: a model, the page tools (run in-process, the same methods scripts use) and the person's say.
   const chat = new ChatService({
     getAi: () => aiCfg,
@@ -820,6 +854,7 @@ app.whenReady().then(async () => {
     toPanel: (e) => mainWindow?.webContents.send("chat:event", e),
     announce: (e) => emit(e),
     callerNetworkOn: () => callerNet.enabled,
+    extraTools: () => mcp.toolDefs(),
     consent: async ({ model, where }) => {
       const opts: Electron.MessageBoxOptions = {
         type: "question",
@@ -898,6 +933,7 @@ app.whenReady().then(async () => {
         },
         aiStatus: () => describeAi(aiCfg),
         chat,
+        mcp,
         setAiProvider: (p) => (p === "anthropic" || p === "openai" ? setAiProvider(p) : false),
         spent: () => formatUsd(engine.policy.spentUsdMicro()),
         receipts: () => JSON.parse(JSON.stringify(engine.ledger.all(), (_k, v) => (typeof v === "bigint" ? v.toString() : v))),

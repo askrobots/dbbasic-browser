@@ -14,7 +14,7 @@
 
 import { estimateCostUsd } from "./ai.js";
 import { describeAi, redact, type AiConfig } from "./ai-config.js";
-import { runChat, type ChatEvent, type ChatMsg, type ModelClient, type Policy } from "./chat-core.js";
+import { runChat, type ChatEvent, type ChatMsg, type ModelClient, type Policy, type ToolDef } from "./chat-core.js";
 import { chatModel } from "./chat-models.js";
 import { pageTools, type Runner } from "./chat-tools.js";
 
@@ -37,6 +37,8 @@ export interface ChatDeps {
   callerNetworkOn(): boolean;
   /** Ask the person whether the assistant may send what it reads to this model. */
   consent(what: { provider: string; model: string; where: string }): Promise<boolean>;
+  /** Tools from connected services (see mcp-service.ts), asked for at the start of each message. */
+  extraTools?(): Promise<ToolDef[]>;
   /** Tests and tools can supply the model. */
   modelFor?(cfg: AiConfig): ModelClient;
 }
@@ -153,7 +155,7 @@ export class ChatService {
     try {
       await runChat({
         model,
-        tools: pageTools(this.deps.run),
+        tools: [...pageTools(this.deps.run), ...((await this.deps.extraTools?.().catch(() => [])) ?? [])],
         history: this.history,
         userText: t,
         policy: { mode: this.mode },

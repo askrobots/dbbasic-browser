@@ -31,6 +31,7 @@ import type { VaultService } from "./vault-service.js";
 import type { SettleContext } from "./settle-service.js";
 import type { ExtensionRegistry } from "./extensions.js";
 import type { ChatService } from "./chat-service.js";
+import type { McpService } from "./mcp-service.js";
 
 export interface TabInfo {
   id: number;
@@ -66,6 +67,8 @@ export interface ControlDeps {
   aiStatus(): unknown;
   /** The in-browser chat (see chat-service.ts). */
   chat: ChatService;
+  /** MCP connections (see mcp-service.ts). */
+  mcp: McpService;
   downloads(): unknown;
   getNetPolicy(): { blockWebSockets: boolean };
   /** Methods added by local extensions (see extensions.ts), reached as ext.<name>. */
@@ -351,6 +354,23 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       return { cleared: true };
     case "chat.mode":
       return { mode: d.chat.setMode(p.mode) };
+
+    // ---- MCP connections ----------------------------------------------------------
+    case "mcp.state":
+      return d.mcp.state();
+    case "mcp.connect": {
+      // open:false returns the consent address instead of opening the person's browser, so a script can drive it.
+      const r = await d.mcp.connect(str(p.id, "id"), { open: p.open !== false });
+      if (p.wait === true) await r.done;
+      return { authorizeUrl: r.authorizeUrl };
+    }
+    case "mcp.cancel":
+      d.mcp.cancelConnect(str(p.id, "id"));
+      return { cancelled: true };
+    case "mcp.disconnect":
+      return d.mcp.disconnect(str(p.id, "id"));
+    case "mcp.tools":
+      return (await d.mcp.toolDefs()).map((t) => ({ name: t.name, risk: t.risk, description: t.description }));
 
     // ---- vault ---------------------------------------------------------------
     case "vault.state":

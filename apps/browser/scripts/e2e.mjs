@@ -15,7 +15,7 @@
  * Needs a macOS/desktop session (it opens real windows). Exit code is non-zero if any check fails.
  */
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -24,7 +24,7 @@ import { makeCtx } from "../test/e2e/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const SUITES = ["api", "ui", "transport", "states", "reader", "downloads", "settle", "provider", "escape", "example", "extensions", "forms", "chat", "live-net"];
+const SUITES = ["api", "ui", "transport", "states", "reader", "downloads", "settle", "provider", "escape", "example", "extensions", "forms", "chat", "mcp", "live-net"];
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const run = wanted.length ? wanted : SUITES;
 for (const s of run) if (!SUITES.includes(s)) { console.error(`unknown suite "${s}" (have: ${SUITES.join(", ")})`); process.exit(2); }
@@ -92,13 +92,19 @@ async function launchApp(suite) {
   const debugPort = await freePort();
   const token = "e2e-" + Math.random().toString(16).slice(2);
   const log = [];
+  const mcpServersFile = join(tmp, `mcp-servers-${suite}.json`);
+  if (suite === "mcp") {
+    writeFileSync(mcpServersFile, JSON.stringify([{ id: "demo", name: "Demo notes", url: `${base}/mcp`, tools: ["lookup", "save", "person"], readOnly: ["lookup", "person"], fixedArgs: { save: { project_id: "P-1" } }, dropFields: { person: ["notes", "interactions"] } }]));
+  }
   const app = spawn(process.execPath, [join(here, "launch.mjs"), `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`], {
     env: {
       ...process.env,
       DBB_CONTROL: "1", DBB_CONTROL_PORT: String(controlPort), DBB_CONTROL_TOKEN: token, DBB_CONTROL_FILE: join(tmp, `control-${suite}.json`),
       ...(suite === "extensions" ? { DBB_EXTENSIONS: join(here, "..", "test", "fixtures", "ext-echo.mjs") } : {}),
       // The chat suite talks to a scripted model on the demo server (never a real provider or the user's own keys).
-      ...(suite === "chat" ? { DBB_AI_BASE_URL: `${base}/v1`, DBB_AI_PROVIDER: "openai", DBB_AI_MODEL: "fake-model", OPENAI_API_KEY: "e2e-fake-key", ANTHROPIC_API_KEY: "", DBB_AI_CONSENT: "1" } : {}),
+      ...(suite === "chat" || suite === "mcp" ? { DBB_AI_BASE_URL: `${base}/v1`, DBB_AI_PROVIDER: "openai", DBB_AI_MODEL: "fake-model", OPENAI_API_KEY: "e2e-fake-key", ANTHROPIC_API_KEY: "", DBB_AI_CONSENT: "1" } : {}),
+      // The mcp suite signs in to a stand-in MCP server on the demo server; sign-ins stay in memory, never in the keychain.
+      ...(suite === "mcp" ? { DBB_MCP_STORE: "memory", DBB_MCP_SERVERS: mcpServersFile } : {}),
       ...(process.env.E2E_BACKGROUND === "1" ? { DBB_BACKGROUND: "1" } : {}),
       DBB_VAULT: vaultPath, HOMEPAGE: `${base}/free`, DBB_DOWNLOAD_DIR: join(tmp, `downloads-${suite}`),
     },

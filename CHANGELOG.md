@@ -6,6 +6,11 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **Connections to other services (MCP).** Sign in to an MCP server with OAuth (discovery, registration as a public client,
+  PKCE, a loopback redirect, quiet refresh, revocation on disconnect) and its tools join the assistant chat. A server adds
+  only the tools its entry lists; reads run, everything else asks every time; entries can force arguments and drop result
+  fields. Tokens stay in the main process, encrypted by the OS keychain (or in memory with `DBB_MCP_STORE=memory`).
+  askrobots.com is built in; more servers go in `mcp-servers.json`. Scriptable as `mcp.*`.
 - **Assistant chat** (⌘J). A side panel to talk to an assistant about the page you are on and ask it to read, find, fill in
   and open things, using the browser's own page tools. Every action waits for your OK (or, in Auto mode, only risky ones:
   submitting, pressing Enter, opening a site that is not already open); password, card and one-time-code fields are never

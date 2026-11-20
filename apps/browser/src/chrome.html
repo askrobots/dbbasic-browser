@@ -87,6 +87,14 @@
       #chatHead { display: flex; align-items: center; gap: 6px; padding: 9px 12px; border-bottom: 1px solid #2a2a30; font-weight: 600; }
       #chatHead .sub { color: #8a8a90; font-weight: 400; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
       #chatHead select { background: #131316; color: #c8c8ce; border: 1px solid #2a2a30; border-radius: 6px; font-size: 11px; padding: 2px 4px; }
+      #chatConn { padding: 6px 12px; border-bottom: 1px solid #2a2a30; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+      #chatConn:empty { display: none; }
+      #chatConn .cn { display: flex; align-items: center; gap: 8px; color: #9a9aa2; }
+      #chatConn .cn .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #chatConn .cn .dot { width: 8px; height: 8px; border-radius: 50%; background: #55555c; flex: none; }
+      #chatConn .cn.on { color: #c8c8ce; } #chatConn .cn.on .dot { background: #7ee787; }
+      #chatConn .cn.wait .dot { background: #f0c674; }
+      #chatConn .er { color: #ff9a9a; font-size: 11.5px; line-height: 1.4; }
       #chatLog { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
       #chatLog .m { padding: 8px 10px; border-radius: 9px; white-space: pre-wrap; word-break: break-word; line-height: 1.45; font-size: 13px; }
       #chatLog .u { background: #23324e; color: #e8f0ff; align-self: flex-end; max-width: 92%; }
@@ -179,6 +187,7 @@
           <button class="sbtn quiet" id="chatClear" title="Start a new conversation">New</button>
           <button class="sbtn quiet" id="chatClose" title="Close (⌘J)">✕</button>
         </div>
+        <div id="chatConn"></div>
         <div id="chatLog"></div>
         <div id="chatForm">
           <textarea id="chatIn" placeholder="Ask about this page, or tell me what to do…" spellcheck="true"></textarea>
@@ -705,10 +714,37 @@
         for (const e of chatInfo.transcript) chatRender(e);
         chatSetBusy(chatInfo.running);
       }
+
+      // Connections to other services (MCP): sign in with OAuth in your own browser; the tools then show up for the assistant.
+      async function mcpRender() {
+        const box = $("chatConn");
+        let list = [];
+        try { list = await window.x402.mcp.state(); } catch {}
+        box.textContent = "";
+        for (const sv of list) {
+          const row = document.createElement("div");
+          row.className = "cn" + (sv.signedIn ? " on" : sv.connecting ? " wait" : "");
+          const dot = document.createElement("span"); dot.className = "dot";
+          const nm = document.createElement("span"); nm.className = "nm";
+          nm.textContent = sv.name + (sv.connecting ? " — waiting for you to approve in your browser…" : sv.signedIn ? " — connected" + (sv.persistent ? "" : " (until you close the browser)") : "");
+          const btn = document.createElement("button"); btn.className = "sbtn" + (sv.signedIn ? " quiet" : "");
+          btn.textContent = sv.connecting ? "Cancel" : sv.signedIn ? "Disconnect" : "Connect";
+          btn.onclick = async () => {
+            btn.disabled = true;
+            if (sv.connecting) await window.x402.mcp.cancel(sv.id);
+            else if (sv.signedIn) await window.x402.mcp.disconnect(sv.id);
+            else { const p = window.x402.mcp.connect(sv.id); setTimeout(mcpRender, 400); await p; }
+            mcpRender();
+          };
+          row.append(dot, nm, btn);
+          box.appendChild(row);
+          if (sv.error && !sv.signedIn) { const er = document.createElement("div"); er.className = "er"; er.textContent = sv.error; box.appendChild(er); }
+        }
+      }
       function setChat(open) {
         chatOpen = open;
         chatEl.classList.toggle("open", open);
-        if (open) { chatRefresh().then(() => chatIn.focus()); }
+        if (open) { chatRefresh().then(() => chatIn.focus()); mcpRender(); }
       }
       function toggleChat() { setChat(!chatOpen); }
       async function chatSend() {

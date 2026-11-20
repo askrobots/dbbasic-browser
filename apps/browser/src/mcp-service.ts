@@ -1,0 +1,432 @@
+/**
+ * MCP connections for the assistant: which servers there are, whether you are signed in to each, and the tools they add.
+ *
+ * Rules (the point of the design):
+ *  - Tokens live here and in the OS-encrypted store, never in a page, the chrome UI or a log. Without OS encryption
+ *    they are kept in memory only (you sign in again after a restart) and the state says so.
+ *  - A server adds only the tools its entry names, not everything it offers. Tools that only read run when the assistant
+ *    asks; every other tool is asked about every time, even in Auto mode.
+ *  - Some arguments are fixed by the entry (for example the one project saved links go in, set per person in mcp-servers.json), whatever the model asks for,
+ *    and some fields are dropped from results (notes, interactions) before the model sees them.
+ *  - What comes back is untrusted data, like page text.
+ *  - Off while the caller network is on.
+ */
+
+import { readFileSync } from "node:fs";
+import type { ToolDef } from "./chat-core.js";
+import { McpAuthError, McpClient, type McpTool } from "./mcp-client.js";
+import { OAuthError, authorizeUrl, discover, exchangeCode, listenForCode, newPkce, newState, refreshTokens, register, revoke, type Fetch, type ServerMeta, type Tokens } from "./mcp-oauth.js";
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  url: string;
+  /** The only tools the assistant is given. */
+  tools: string[];
+  /** The ones that only read. Every other enabled tool asks every time. */
+  readOnly: string[];
+  /** Arguments forced on a tool, whatever the model sends (and hidden from the model). */
+  fixedArgs?: Record<string, Record<string, unknown>>;
+  /** Result fields removed before the model sees them, per tool. */
+  dropFields?: Record<string, string[]>;
+}
+
+export const DEFAULT_SERVERS: McpServerConfig[] = [
+  {
+    id: "askrobots",
+    name: "askrobots.com",
+    url: "https://askrobots.com/api/mcp/",
+    tools: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links", "create_link"],
+    readOnly: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links"],
+    // Saved links are private. To keep them in one project, put its id in this entry's fixedArgs in mcp-servers.json.
+    fixedArgs: { create_link: { is_public: false } },
+    dropFields: { get_contact: ["notes", "interactions"], list_contacts: ["notes", "interactions"] },
+  },
+];
+
+const ID = /^[a-z0-9-]{1,32}$/;
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const strings = (v: unknown, max: number): string[] | null => (Array.isArray(v) && v.length <= max && v.every((x) => typeof x === "string" && x.length > 0 && x.length <= 80) ? (v as string[]) : null);
+
+/** Extra servers from a file you edit by hand. A bad entry is skipped (and reported), never half-used. */
+export function parseServerConfigs(text: string): { servers: McpServerConfig[]; problems: string[] } {
+  const problems: string[] = [];
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { servers: [], problems: ["the servers file is not valid JSON"] };
+  }
+  const servers: McpServerConfig[] = [];
+  for (const [i, e] of (Array.isArray(raw) ? raw : []).entries()) {
+    const where = `entry ${i + 1}`;
+    if (!isObj(e) || typeof e.id !== "string" || !ID.test(e.id) || typeof e.name !== "string" || typeof e.url !== "string") {
+      problems.push(`${where}: needs an id (lowercase letters, digits, dashes), a name and a url`);
+      continue;
+    }
+    let ok = false;
+    try {
+      const u = new URL(e.url);
+      ok = u.protocol === "https:" || (u.protocol === "http:" && (u.hostname === "127.0.0.1" || u.hostname === "localhost")) ;
+    } catch {
+      /* not a url */
+    }
+    const tools = strings(e.tools, 40);
+    const readOnly = strings(e.readOnly ?? [], 40);
+    if (!ok || !tools || !tools.length || !readOnly || !readOnly.every((r) => tools.includes(r))) {
+      problems.push(`${where} (${e.id}): url must be https, "tools" must list the tools to allow, and "readOnly" must be among them`);
+      continue;
+    }
+    servers.push({
+      id: e.id,
+      name: e.name.slice(0, 60),
+      url: e.url,
+      tools,
+      readOnly,
+      ...(isObj(e.fixedArgs) ? { fixedArgs: e.fixedArgs as Record<string, Record<string, unknown>> } : {}),
+      ...(isObj(e.dropFields) ? { dropFields: e.dropFields as Record<string, string[]> } : {}),
+    });
+  }
+  return { servers, problems };
+}
+
+export function loadServerConfigs(file: string | undefined, read: (p: string) => string = (p) => readFileSync(p, "utf8")): { servers: McpServerConfig[]; problems: string[] } {
+  let extra: ReturnType<typeof parseServerConfigs> = { servers: [], problems: [] };
+  if (file) {
+    try {
+      extra = parseServerConfigs(read(file));
+    } catch {
+      /* no file is normal */
+    }
+  }
+  const byId = new Map(DEFAULT_SERVERS.map((s) => [s.id, s]));
+  for (const s of extra.servers) byId.set(s.id, s); // a file entry replaces the built-in one with the same id
+  return { servers: [...byId.values()], problems: extra.problems };
+}
+
+// ---- storage -----------------------------------------------------------------------------------------------------
+
+export interface Store {
+  /** False when nothing is written to disk (no OS encryption): sign-ins last until the browser closes. */
+  readonly persistent: boolean;
+  load(): string | null;
+  save(text: string | null): void;
+}
+export interface Encryption {
+  isEncryptionAvailable(): boolean;
+  encryptString(s: string): Buffer;
+  decryptString(b: Buffer): string;
+}
+export interface Files {
+  read(p: string): Buffer | null;
+  write(p: string, b: Buffer | null): void;
+}
+
+/** Tokens go to disk only encrypted with the operating system's keychain; otherwise nowhere. */
+export function createStore(path: string, enc: Encryption, files: Files): Store {
+  let memory: string | null = null;
+  const persistent = enc.isEncryptionAvailable();
+  return {
+    persistent,
+    load() {
+      if (!persistent) return memory;
+      try {
+        const b = files.read(path);
+        return b ? enc.decryptString(b) : null;
+      } catch {
+        return null; // unreadable or from another user: start signed out
+      }
+    },
+    save(text) {
+      if (!persistent) {
+        memory = text;
+        return;
+      }
+      files.write(path, text == null ? null : enc.encryptString(text));
+    },
+  };
+}
+
+// ---- the service -------------------------------------------------------------------------------------------------
+
+interface Saved {
+  servers: Record<string, { clientId?: string; issuer?: string; tokens?: Tokens }>;
+}
+
+export interface McpDeps {
+  fetch: Fetch;
+  store: Store;
+  servers: McpServerConfig[];
+  /** Open the person's own browser on the consent page. */
+  openExternal(url: string): void | Promise<void>;
+  callerNetworkOn(): boolean;
+  announce(payload: Record<string, unknown>): void;
+  now?(): number;
+  /** Shown to the server during registration. */
+  appName?: string;
+  /** Reaching the server to sign in may be refused on purpose (tests, a stricter policy). */
+  timeoutMs?: number;
+}
+
+export interface McpServerState {
+  id: string;
+  name: string;
+  host: string;
+  signedIn: boolean;
+  connecting: boolean;
+  tools: string[];
+  persistent: boolean;
+  error?: string;
+}
+
+const TOOL_CACHE_MS = 5 * 60_000;
+
+/** Remove the named keys, at any depth, from JSON text. Text that is not JSON is returned as it is. */
+export function dropKeys(text: string, keys: string[]): string {
+  if (!keys.length) return text;
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  const strip = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(strip);
+    if (isObj(x)) return Object.fromEntries(Object.entries(x).filter(([k]) => !keys.includes(k)).map(([k, val]) => [k, strip(val)]));
+    return x;
+  };
+  return JSON.stringify(strip(v));
+}
+
+const compactArgs = (a: Record<string, unknown>): string => {
+  const s = JSON.stringify(a);
+  return s.length > 160 ? `${s.slice(0, 159)}…` : s;
+};
+
+export class McpService {
+  private saved: Saved;
+  private meta = new Map<string, ServerMeta>();
+  private flows = new Map<string, { cancel(): void }>();
+  private errors = new Map<string, string>();
+  private refreshing = new Map<string, Promise<string>>();
+  private clients = new Map<string, McpClient>();
+  private toolCache = new Map<string, { at: number; tools: McpTool[] }>();
+
+  constructor(private d: McpDeps) {
+    let s: Saved = { servers: {} };
+    try {
+      const t = d.store.load();
+      const j = t ? (JSON.parse(t) as Saved) : null;
+      if (j && isObj(j.servers)) s = j;
+    } catch {
+      /* start signed out */
+    }
+    this.saved = s;
+  }
+
+  private now() {
+    return (this.d.now ?? Date.now)();
+  }
+  private persist() {
+    this.d.store.save(JSON.stringify(this.saved));
+  }
+  private cfg(id: string): McpServerConfig {
+    const c = this.d.servers.find((s) => s.id === id);
+    if (!c) throw new Error(`no MCP server called ${id}`);
+    return c;
+  }
+  private refuseInCallerMode() {
+    if (this.d.callerNetworkOn()) throw new Error("MCP connections are switched off while the caller network is on.");
+  }
+
+  state(): McpServerState[] {
+    return this.d.servers.map((c) => ({
+      id: c.id,
+      name: c.name,
+      host: new URL(c.url).host,
+      signedIn: !!this.saved.servers[c.id]?.tokens,
+      connecting: this.flows.has(c.id),
+      tools: c.tools,
+      persistent: this.d.store.persistent,
+      ...(this.errors.has(c.id) ? { error: this.errors.get(c.id) as string } : {}),
+    }));
+  }
+
+  private async metaFor(c: McpServerConfig): Promise<ServerMeta> {
+    let m = this.meta.get(c.id);
+    if (!m) {
+      m = await discover(c.url, this.d.fetch);
+      this.meta.set(c.id, m);
+    }
+    return m;
+  }
+
+  /** Start signing in. Returns the consent address at once; `done` settles when the person has approved (or not). */
+  async connect(id: string, opts: { open?: boolean } = {}): Promise<{ authorizeUrl: string; done: Promise<void> }> {
+    this.refuseInCallerMode();
+    const c = this.cfg(id);
+    this.flows.get(id)?.cancel();
+    this.errors.delete(id);
+    const meta = await this.metaFor(c);
+    let entry = this.saved.servers[id] ?? (this.saved.servers[id] = {});
+    if (!entry.clientId || entry.issuer !== meta.issuer) {
+      entry = this.saved.servers[id] = { clientId: await register(meta, this.d.fetch, this.d.appName ?? "dbbasic-browser"), issuer: meta.issuer };
+      this.persist();
+    }
+    const clientId = entry.clientId as string;
+    const { verifier, challenge } = newPkce();
+    const state = newState();
+    const cb = await listenForCode(state, this.d.timeoutMs ? { timeoutMs: this.d.timeoutMs } : {});
+    const url = authorizeUrl(meta, clientId, cb.redirectUri, challenge, state);
+    this.flows.set(id, { cancel: cb.cancel });
+    const done = (async () => {
+      try {
+        const code = await cb.code;
+        const tokens = await exchangeCode(meta, this.d.fetch, { clientId, code, verifier, redirect: cb.redirectUri }, this.now());
+        this.saved.servers[id] = { ...entry, clientId, tokens };
+        this.persist();
+        this.toolCache.delete(id);
+        this.d.announce({ kind: "mcp-signed-in", server: c.id, host: new URL(c.url).host });
+      } catch (e) {
+        this.errors.set(id, e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        this.flows.delete(id);
+      }
+    })();
+    done.catch(() => {}); // the caller decides whether to look; the error is also kept in state()
+    if (opts.open !== false) await this.d.openExternal(url);
+    return { authorizeUrl: url, done };
+  }
+
+  cancelConnect(id: string): void {
+    this.flows.get(id)?.cancel();
+  }
+
+  async disconnect(id: string): Promise<{ revoked: boolean }> {
+    const c = this.cfg(id);
+    this.flows.get(id)?.cancel();
+    const e = this.saved.servers[id];
+    let revoked = false;
+    if (e?.tokens && e.clientId && !this.d.callerNetworkOn()) {
+      try {
+        const m = await this.metaFor(c);
+        revoked = await revoke(m, this.d.fetch, e.clientId, e.tokens.refresh ?? e.tokens.access);
+      } catch {
+        /* forgetting it here is what matters */
+      }
+    }
+    if (e) delete e.tokens;
+    this.clients.delete(id);
+    this.toolCache.delete(id);
+    this.errors.delete(id);
+    this.persist();
+    this.d.announce({ kind: "mcp-signed-out", server: c.id, revoked });
+    return { revoked };
+  }
+
+  /** A valid access token, refreshed shortly before it runs out. Throws McpAuthError when you must sign in again. */
+  async token(id: string): Promise<string> {
+    const e = this.saved.servers[id];
+    const t = e?.tokens;
+    if (!t) throw new McpAuthError(`not signed in to ${this.cfg(id).name}`);
+    if (t.expiresAt - 60_000 > this.now()) return t.access;
+    const running = this.refreshing.get(id);
+    if (running) return running;
+    const p = (async () => {
+      try {
+        if (!t.refresh || !e.clientId) throw new OAuthError("refresh", "no refresh token");
+        const next = await refreshTokens(await this.metaFor(this.cfg(id)), this.d.fetch, { clientId: e.clientId, refresh: t.refresh }, this.now());
+        e.tokens = next;
+        this.persist();
+        return next.access;
+      } catch (err) {
+        if (err instanceof OAuthError && err.code === "refresh" && /\b(400|401)\b|no refresh/.test(err.message)) {
+          delete e.tokens; // the refresh token is no good: signed out
+          this.persist();
+          this.errors.set(id, "you were signed out; connect again");
+          throw new McpAuthError(`signed out of ${this.cfg(id).name}; connect again`);
+        }
+        throw err;
+      } finally {
+        this.refreshing.delete(id);
+      }
+    })();
+    this.refreshing.set(id, p);
+    return p;
+  }
+
+  private client(id: string): McpClient {
+    let c = this.clients.get(id);
+    if (!c) {
+      c = new McpClient(this.cfg(id).url, () => this.token(id), this.d.fetch);
+      this.clients.set(id, c);
+    }
+    return c;
+  }
+
+  private async listed(id: string): Promise<McpTool[]> {
+    const hit = this.toolCache.get(id);
+    if (hit && this.now() - hit.at < TOOL_CACHE_MS) return hit.tools;
+    const tools = await this.client(id).listTools();
+    this.toolCache.set(id, { at: this.now(), tools });
+    return tools;
+  }
+
+  /** The chat tools from every server you are signed in to. A server that cannot be reached adds none (and the reason is in state()). */
+  async toolDefs(): Promise<ToolDef[]> {
+    if (this.d.callerNetworkOn()) return [];
+    const out: ToolDef[] = [];
+    for (const c of this.d.servers) {
+      if (!this.saved.servers[c.id]?.tokens) continue;
+      let tools: McpTool[];
+      try {
+        tools = await this.listed(c.id);
+      } catch (e) {
+        this.errors.set(c.id, e instanceof McpAuthError ? "you were signed out; connect again" : `could not list tools: ${(e as Error).message}`);
+        continue;
+      }
+      for (const t of tools) {
+        if (!c.tools.includes(t.name)) continue;
+        out.push(this.toToolDef(c, t));
+      }
+    }
+    return out;
+  }
+
+  private toToolDef(c: McpServerConfig, t: McpTool): ToolDef {
+    const fixed = c.fixedArgs?.[t.name] ?? {};
+    const schema = JSON.parse(JSON.stringify(t.inputSchema ?? { type: "object", properties: {} })) as { properties?: Record<string, unknown>; required?: string[] };
+    for (const k of Object.keys(fixed)) {
+      if (schema.properties) delete schema.properties[k];
+      if (schema.required) schema.required = schema.required.filter((r) => r !== k);
+    }
+    const reads = c.readOnly.includes(t.name);
+    const name = `${c.id}__${t.name}`.slice(0, 64);
+    const def: ToolDef = {
+      name,
+      description: `[${c.name}] ${(t.description ?? t.name).slice(0, 500)}`,
+      input_schema: schema as Record<string, unknown>,
+      risk: reads ? "read" : "act",
+      private: true, // what a connected account returns is private: after it, typing and opening addresses always ask
+      run: async (input) => {
+        this.refuseInCallerMode();
+        let res;
+        try {
+          res = await this.client(c.id).callTool(t.name, { ...input, ...fixed });
+        } catch (e) {
+          if (e instanceof McpAuthError) {
+            this.errors.set(c.id, "you were signed out; connect again");
+            throw new Error(`${c.name} wants a fresh sign-in. Tell the person to connect again in the chat panel.`);
+          }
+          throw e;
+        }
+        const text = dropKeys(res.text, c.dropFields?.[t.name] ?? []);
+        if (res.isError) throw new Error(text.slice(0, 500) || `${c.name} reported an error`);
+        return text;
+      },
+    };
+    if (!reads) def.plan = async (input) => ({ summary: `Ask ${c.name} to ${t.name} ${compactArgs({ ...input, ...fixed })}`, danger: true });
+    return def;
+  }
+}

@@ -55,6 +55,13 @@ contextBridge.exposeInMainWorld("x402", {
     setMode: (m) => ipcRenderer.invoke("chat:mode", m),
     onEvent: sub("chat:event"),
   },
+  /** Connections to other services (MCP). Tokens never cross this bridge. */
+  mcp: {
+    state: () => ipcRenderer.invoke("mcp:state"),
+    connect: (id) => ipcRenderer.invoke("mcp:connect", id),
+    cancel: (id) => ipcRenderer.invoke("mcp:cancel", id),
+    disconnect: (id) => ipcRenderer.invoke("mcp:disconnect", id),
+  },
   /** Tell the main process the loading-animation preference (always|system|never) so the menu can show it. */
   reportMotion(mode) {
     ipcRenderer.send("pref:motion", mode);
