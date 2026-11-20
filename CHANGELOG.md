@@ -10,7 +10,9 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   copies, askrobots search suggestions, and "Ask the assistant". Sites you use are completed inline ("slash" →
   slashdot.org, local sites keep their port and http). Suggestions are asked for only for text that is not an address,
   without cookies, and can be switched off. A page loading while you type no longer overwrites what you typed, and ⌘K
-  reaches the page even when the address bar has the focus.
+  reaches the page even when the address bar has the focus. With askrobots connected, `/` lists the askrobots tools your
+  sign-in may use (and the site's short names, `/note`, `/task`, `/search`, `/websearch`); Enter runs one with the rest
+  of the line as its argument and shows the answer. Destructive tools ask first; nothing is sent without a sign-in.
 - **Keep** (📥 next to the address). One click keeps a copy of the page you are on (a picture of what is on screen, and its
   text), saves it as a bookmark when askrobots is connected and puts the picture and the text in your askrobots Files (private, named
   "<title> (<site>, <date>)"; saving files is its own permission on the consent page, and a server without it still signs

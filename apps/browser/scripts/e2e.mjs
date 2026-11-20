@@ -93,7 +93,7 @@ async function launchApp(suite) {
   const token = "e2e-" + Math.random().toString(16).slice(2);
   const log = [];
   const mcpServersFile = join(tmp, `mcp-servers-${suite}.json`);
-  if (suite === "bookmarks") {
+  if (suite === "bookmarks" || suite === "omnibox") {
     // The built-in askrobots entry, replaced by one that points at the stand-in server: the bookmarks use the "askrobots" entry.
     writeFileSync(mcpServersFile, JSON.stringify([{ id: "askrobots", name: "askrobots (stand-in)", url: `${base}/mcp`, tools: ["list_links", "create_link"], readOnly: ["list_links"], browserOnly: ["upload_file"], fixedArgs: { create_link: { project_id: "P-links", is_public: false }, upload_file: { project_id: "P-links", is_public: false, category: "browser/kept" } } }]));
   }
@@ -108,7 +108,7 @@ async function launchApp(suite) {
       // The chat suite talks to a scripted model on the demo server (never a real provider or the user's own keys).
       ...(suite === "chat" || suite === "mcp" || suite === "bookmarks" || suite === "keep" ? { DBB_AI_BASE_URL: `${base}/v1`, DBB_AI_PROVIDER: "openai", DBB_AI_MODEL: "fake-model", OPENAI_API_KEY: "e2e-fake-key", ANTHROPIC_API_KEY: "", DBB_AI_CONSENT: "1" } : {}),
       // The mcp suite signs in to a stand-in MCP server on the demo server; sign-ins stay in memory, never in the keychain.
-      ...(suite === "mcp" || suite === "bookmarks" ? { DBB_MCP_STORE: "memory", DBB_MCP_SERVERS: mcpServersFile } : {}),
+      ...(suite === "mcp" || suite === "bookmarks" || suite === "omnibox" ? { DBB_MCP_STORE: "memory", DBB_MCP_SERVERS: mcpServersFile } : {}),
       ...(process.env.E2E_BACKGROUND === "1" ? { DBB_BACKGROUND: "1" } : {}),
       ...(suite === "keep" || suite === "omnibox" ? { DBB_KEEP_DIR: join(tmp, "kept-" + suite) } : {}),
       DBB_SUGGEST_URL: `${base}/suggest?q=%s`, // never the real search site from a test

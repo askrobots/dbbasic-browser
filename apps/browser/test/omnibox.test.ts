@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autofillHost, looksLikeAddress, parseSuggestions, remoteAllowed, suggest } from "../src/omnibox";
+import { autofillHost, commandArgs, commandRows, looksLikeAddress, parseCommand, parseSuggestions, remoteAllowed, suggest, toCommand } from "../src/omnibox";
 
 const tabs = [
   { id: 1, url: "https://askrobots.com/", title: "Home - AskRobots" },
@@ -76,5 +76,56 @@ describe("the address bar", () => {
     expect(parseSuggestions("not json", "x")).toEqual([]);
     expect(parseSuggestions('{"a":1}', "x")).toEqual([]);
     expect(parseSuggestions(JSON.stringify(["q", Array.from({ length: 20 }, (_, i) => "q" + i)]), "q")).toHaveLength(5);
+  });
+
+  describe("/ commands", () => {
+    const tools = [
+      { name: "create_task", description: "Creates a new task\nwith details", inputSchema: { properties: { title: { type: "string" }, priority: { type: "integer" } }, required: ["title"] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+      { name: "list_tasks", description: "List tasks", inputSchema: { properties: { status: { type: "string" } } }, annotations: { readOnlyHint: true } },
+      { name: "create_note", description: "Create a note", inputSchema: { properties: { content: { type: "string" } }, required: ["content"] }, annotations: { destructiveHint: false } },
+      { name: "delete_tag", description: "Delete a tag", inputSchema: { properties: { tag_id: { type: "string" } }, required: ["tag_id"] }, annotations: { destructiveHint: true } },
+      { name: "mystery", description: "No hints at all", inputSchema: { properties: {} } },
+      { name: "create_link", description: "Save a link", inputSchema: { properties: { url: { type: "string" }, project_id: { type: "string" } }, required: ["project_id", "url"] } },
+      { name: "get_task", description: "One task", inputSchema: { properties: { task_id: { type: "integer" }, verbose: { type: "boolean" } }, required: ["task_id", "verbose"] }, annotations: { readOnlyHint: true } },
+    ];
+    const cmds = tools.map((t) => toCommand(t, t.name === "create_link" ? ["project_id"] : []));
+
+    it("reads a tool as a command: its argument, whether it only reads, and whether it asks first", () => {
+      expect(cmds[0]).toMatchObject({ name: "create_task", description: "Creates a new task", arg: "title", argType: "string", argRequired: true, readOnly: false, destructive: false });
+      expect(cmds[1]).toMatchObject({ arg: "status", argRequired: false, readOnly: true, destructive: false });
+      expect(cmds[3]?.destructive).toBe(true);
+      expect(cmds[4]?.destructive).toBe(true); // no hints: assume it may change things, and ask
+      expect(cmds[5]).toMatchObject({ arg: "url", needs: [] }); // the project is fixed by the browser, never asked for
+    });
+
+    it("parses a line, with the site's short names", () => {
+      expect(parseCommand("/note buy milk")).toEqual({ name: "create_note", typed: "note", rest: "buy milk" });
+      expect(parseCommand("/create_task  Fix the roof ")).toEqual({ name: "create_task", typed: "create_task", rest: "Fix the roof" });
+      expect(parseCommand("/")).toEqual({ name: "", typed: "", rest: "" });
+      expect(parseCommand("not a command")).toBeNull();
+    });
+
+    it("turns the rest of the line into the argument, typed, or says what is missing", () => {
+      expect(commandArgs(cmds[0]!, "buy milk")).toEqual({ args: { title: "buy milk" } });
+      expect(commandArgs(cmds[0]!, "")).toEqual({ problem: "type the title" });
+      expect(commandArgs(cmds[1]!, "")).toEqual({ args: {} }); // optional
+      expect(commandArgs(cmds[4]!, "x")).toEqual({ problem: "takes nothing after its name" });
+      expect(commandArgs(cmds[6]!, "12")).toMatchObject({ problem: expect.stringMatching(/needs verbose too/) });
+      const num = toCommand({ name: "n", inputSchema: { properties: { id: { type: "integer" } }, required: ["id"] } });
+      expect(commandArgs(num, "12")).toEqual({ args: { id: 12 } });
+      expect(commandArgs(num, "twelve")).toEqual({ problem: "id must be a number" });
+    });
+
+    it("lists matching commands while the name is typed, then the one command with what it will send", () => {
+      expect(commandRows("/", cmds).length).toBe(7);
+      expect(commandRows("/no", cmds).map((r) => (r as { name: string }).name)).toEqual(["create_note"]); // the short name
+      expect(commandRows("/task", cmds).map((r) => (r as { name: string }).name)).toEqual(["create_task", "list_tasks", "get_task"]); // /task, then names containing it
+      const one = commandRows("/create_task buy milk", cmds);
+      expect(one).toEqual([expect.objectContaining({ kind: "cmd", name: "create_task", line: "/create_task buy milk", preview: "title: buy milk", ready: true })]);
+      expect(commandRows("/create_task ", cmds)[0]).toMatchObject({ ready: false, problem: "type the title" });
+      expect(commandRows("/list_tasks", cmds)[0]).toMatchObject({ ready: true }); // nothing needed
+      expect(commandRows("/nothing here", cmds)).toEqual([]);
+      expect(remoteAllowed("/note buy milk")).toBe(false); // a command is never sent as a search
+    });
   });
 });

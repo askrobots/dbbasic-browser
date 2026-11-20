@@ -559,6 +559,42 @@ export class McpService {
     return text;
   }
 
+  /**
+   * Every tool this sign-in may use, as the server lists them (the server decides per account and permission), except the
+   * browser's own. For commands you type yourself in the address bar; the assistant still gets only the entry's allow-list.
+   */
+  async commandTools(id: string): Promise<McpTool[]> {
+    this.refuseInCallerMode();
+    const c = this.cfg(id);
+    if (!this.isSignedIn(id)) return [];
+    return (await this.listed(id)).filter((t) => !(c.browserOnly ?? []).includes(t.name));
+  }
+
+  /** The arguments the entry always sets on a tool (never asked for). */
+  fixedArgNames(id: string, tool: string): string[] {
+    return Object.keys(this.cfg(id).fixedArgs?.[tool] ?? {});
+  }
+
+  /** Run a command you typed: one of `commandTools`, with the entry's fixed arguments forced and its dropped fields dropped. */
+  async runCommand(id: string, tool: string, args: Record<string, unknown>): Promise<string> {
+    this.refuseInCallerMode();
+    const c = this.cfg(id);
+    if (!(await this.commandTools(id)).some((t) => t.name === tool)) throw new Error(`${c.name} does not offer ${tool} to this sign-in`);
+    let res;
+    try {
+      res = await this.client(id).callTool(tool, { ...args, ...(c.fixedArgs?.[tool] ?? {}) });
+    } catch (e) {
+      if (e instanceof McpAuthError) {
+        this.errors.set(id, "you were signed out; connect again");
+        throw new Error(`${c.name} wants a fresh sign-in; connect again in the assistant panel`);
+      }
+      throw e;
+    }
+    const text = dropKeys(res.text, c.dropFields?.[tool] ?? []);
+    if (res.isError) throw new Error(text.slice(0, 500) || `${c.name} reported an error`);
+    return text;
+  }
+
   private client(id: string): McpClient {
     let c = this.clients.get(id);
     if (!c) {

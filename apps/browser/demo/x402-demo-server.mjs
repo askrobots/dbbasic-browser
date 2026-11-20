@@ -574,6 +574,7 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     req.on("end", () => { const t = new URLSearchParams(raw).get("token"); oauth.access.delete(t); oauth.refresh.delete(t); oauth.revoked++; res.writeHead(200).end(); });
     return;
   }
+  if (path === "/o/_notes") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ notes: oauth.notes || [], wiped: oauth.wiped || 0 })); return; }
   if (path === "/o/_files") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.files ?? [])); return; }
   if (path === "/o/_links") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.links ?? [])); return; }
   if (path === "/o/_seed") { // many old links, with one at the very end that the newest-100 list cannot reach
@@ -597,11 +598,12 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
       if (b.method === "initialize") return ok({ protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "demo", version: "1" } });
       if (b.method === "notifications/initialized") { res.writeHead(202).end(); return; }
       if (b.method === "tools/list") return ok({ tools: [
-        { name: "lookup", description: "Look something up in the person's notes", inputSchema: { type: "object", properties: { q: { type: "string" } }, required: ["q"] } },
+        { name: "lookup", description: "Look something up in the person's notes", inputSchema: { type: "object", properties: { q: { type: "string" } }, required: ["q"] }, annotations: { readOnlyHint: true } },
         { name: "save", description: "Save a link", inputSchema: { type: "object", properties: { title: { type: "string" }, project_id: { type: "string" } }, required: ["title", "project_id"] } },
         { name: "person", description: "Get a contact", inputSchema: { type: "object", properties: {} } },
-        { name: "wipe", description: "Delete everything", inputSchema: { type: "object", properties: {} } },
-        { name: "list_links", description: "List saved links, newest first", inputSchema: { type: "object", properties: { limit: { type: "integer" }, search: { type: "string" }, project_id: { type: "string" } } } },
+        { name: "wipe", description: "Delete everything", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: false, destructiveHint: true } },
+        { name: "create_note", description: "Create a private note", inputSchema: { type: "object", properties: { content: { type: "string" }, title: { type: "string" } }, required: ["content"] }, annotations: { readOnlyHint: false, destructiveHint: false } },
+        { name: "list_links", description: "List saved links, newest first", inputSchema: { type: "object", properties: { limit: { type: "integer" }, search: { type: "string" }, project_id: { type: "string" } } }, annotations: { readOnlyHint: true } },
         { name: "upload_file", description: "Upload a file", inputSchema: { type: "object", properties: { filename: { type: "string" }, content_base64: { type: "string" }, description: { type: "string" }, category: { type: "string" }, is_public: { type: "boolean" }, project_id: { type: "string" } }, required: ["filename", "content_base64"] } },
         { name: "create_link", description: "Save a link", inputSchema: { type: "object", properties: { url: { type: "string" }, title: { type: "string" }, project_id: { type: "string" }, is_public: { type: "boolean" } }, required: ["url"] } },
       ] });
@@ -612,6 +614,8 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
           { id: "l1", url: `${origin}/headers`, title: "Headers echo", tags: "", is_public: false, project_id: null, created_at: "2026-11-18T10:00:00Z" },
           { id: "l2", url: `${origin}/free`, title: "Free page", tags: "news", is_public: false, project_id: null, created_at: "2026-11-17T10:00:00Z" },
         ];
+        if (t === "wipe") { oauth.wiped = (oauth.wiped || 0) + 1; return ok({ content: [{ type: "text", text: "wiped" }] }); }
+        if (t === "create_note") { (oauth.notes ??= []).push(b.params.arguments); return ok({ content: [{ type: "text", text: JSON.stringify({ id: "n" + oauth.notes.length, created: true }) }] }); }
         if (t === "list_links") {
           const a = b.params.arguments || {};
           const list = oauth.links.filter((l) => !a.search || (l.title + l.url).toLowerCase().includes(String(a.search).toLowerCase())).filter((l) => !a.project_id || l.project_id === a.project_id).slice(0, Math.min(Number(a.limit) || 20, 100));

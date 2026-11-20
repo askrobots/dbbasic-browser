@@ -17,6 +17,8 @@ export interface McpTool {
   name: string;
   description?: string;
   inputSchema?: Record<string, unknown>;
+  /** The server's own hints (MCP tool annotations). Hints only: what a tool may do is still decided here, not by them. */
+  annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
 }
 export interface McpResult {
   text: string;
@@ -119,7 +121,9 @@ export class McpClient {
       const tools = Array.isArray(r.tools) ? (r.tools as Array<Record<string, unknown>>) : [];
       for (const t of tools) {
         if (typeof t.name !== "string") continue;
-        out.push({ name: t.name, ...(typeof t.description === "string" ? { description: t.description } : {}), ...(t.inputSchema && typeof t.inputSchema === "object" ? { inputSchema: t.inputSchema as Record<string, unknown> } : {}) });
+        const a = t.annotations && typeof t.annotations === "object" ? (t.annotations as Record<string, unknown>) : null;
+        const annotations = a ? { ...(typeof a.readOnlyHint === "boolean" ? { readOnlyHint: a.readOnlyHint } : {}), ...(typeof a.destructiveHint === "boolean" ? { destructiveHint: a.destructiveHint } : {}) } : null;
+        out.push({ name: t.name, ...(typeof t.description === "string" ? { description: t.description } : {}), ...(t.inputSchema && typeof t.inputSchema === "object" ? { inputSchema: t.inputSchema as Record<string, unknown> } : {}), ...(annotations && Object.keys(annotations).length ? { annotations } : {}) });
       }
       cursor = typeof r.nextCursor === "string" && r.nextCursor ? r.nextCursor : undefined;
       if (!cursor) break;

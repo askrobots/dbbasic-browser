@@ -21,7 +21,9 @@ export type OmniRow =
   | { kind: "bookmark"; url: string; title: string }
   | { kind: "kept"; url: string; title: string; original: string }
   | { kind: "suggest"; text: string }
-  | { kind: "ask"; text: string };
+  | { kind: "ask"; text: string }
+  | { kind: "cmd"; name: string; line: string; description: string; arg?: string; preview?: string; ready: boolean; problem?: string; readOnly: boolean; destructive: boolean }
+  | { kind: "notice"; text: string; connect?: boolean };
 
 const LIMITS = { tab: 3, bookmark: 5, kept: 3 };
 
@@ -63,6 +65,7 @@ export function looksLikeAddress(raw: string): boolean {
 export function remoteAllowed(raw: string): boolean {
   const t = raw.trim();
   if (t.length < 2 || t.length > 100) return false;
+  if (t.startsWith("/")) return false; // a command, never a search
   if (looksLikeAddress(t)) return false;
   if (!/\s/.test(t) && /[/:@\\]/.test(t)) return false;
   return true;
@@ -159,4 +162,104 @@ export function parseSuggestions(body: string, text: string, max = 5): string[] 
     if (out.length >= max) break;
   }
   return out;
+}
+
+// ---- "/" commands: the tools of a connected service, typed ----------------------------------------------------------
+
+/** A tool as a command you can type: its argument is the rest of the line. */
+export interface CommandInfo {
+  name: string;
+  description: string;
+  /** The argument the rest of the line fills (the first required one, else the first), and its type. */
+  arg?: string;
+  argType?: string;
+  /** Whether that argument must be given. */
+  argRequired: boolean;
+  /** Other required arguments, which a single line cannot give. */
+  needs: string[];
+  readOnly: boolean;
+  /** Asks before it runs (the MCP default for a tool that changes things, unless the server says it does not destroy anything). */
+  destructive: boolean;
+}
+
+/** Short names the service's own box uses, for the same tools. */
+export const COMMAND_ALIASES: Record<string, string> = { note: "create_note", task: "create_task", search: "global_search", websearch: "web_search" };
+
+/** `fixed`: arguments the browser always sets itself (the entry's fixed arguments), so they are never asked for. */
+export function toCommand(t: { name: string; description?: string; inputSchema?: Record<string, unknown>; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } }, fixed: string[] = []): CommandInfo {
+  const all = t.inputSchema && typeof t.inputSchema.properties === "object" && t.inputSchema.properties ? (t.inputSchema.properties as Record<string, { type?: unknown }>) : {};
+  const props = Object.fromEntries(Object.entries(all).filter(([k]) => !fixed.includes(k)));
+  const required = (Array.isArray(t.inputSchema?.required) ? (t.inputSchema?.required as unknown[]).filter((x): x is string => typeof x === "string") : []).filter((r) => !fixed.includes(r));
+  const arg = required[0] ?? Object.keys(props)[0];
+  const type = arg ? props[arg]?.type : undefined;
+  const readOnly = t.annotations?.readOnlyHint === true;
+  return {
+    name: t.name,
+    description: (t.description ?? "").split(/\n/)[0]?.slice(0, 160) ?? "",
+    ...(arg ? { arg } : {}),
+    ...(typeof type === "string" ? { argType: type } : {}),
+    argRequired: !!arg && required.includes(arg),
+    needs: required.filter((r) => r !== arg),
+    readOnly,
+    destructive: !readOnly && t.annotations?.destructiveHint !== false,
+  };
+}
+
+/** "/create_task buy milk" → { name: "create_task", rest: "buy milk" }; aliases resolved. Null for anything else. */
+export function parseCommand(text: string): { name: string; typed: string; rest: string } | null {
+  const m = /^\/([A-Za-z_][\w-]*)?(?:\s+([\s\S]*))?$/.exec(text.trim());
+  if (!m) return null;
+  const typed = (m[1] ?? "").toLowerCase();
+  return { name: COMMAND_ALIASES[typed] ?? typed, typed, rest: (m[2] ?? "").trim() };
+}
+
+/** The arguments for a command line, or what is missing. */
+export function commandArgs(c: CommandInfo, rest: string): { args: Record<string, unknown> } | { problem: string } {
+  if (c.needs.length) return { problem: `needs ${c.needs.join(", ")} too, which a single line cannot give` };
+  if (!c.arg) return rest ? { problem: "takes nothing after its name" } : { args: {} };
+  if (!rest) return c.argRequired ? { problem: `type the ${c.arg.replace(/_/g, " ")}` } : { args: {} };
+  let v: unknown = rest;
+  if (c.argType === "integer" || c.argType === "number") {
+    v = Number(rest);
+    if (!Number.isFinite(v as number) || (c.argType === "integer" && !Number.isInteger(v))) return { problem: `${c.arg} must be a number` };
+  } else if (c.argType === "boolean") {
+    if (!/^(true|false|yes|no)$/i.test(rest)) return { problem: `${c.arg} must be yes or no` };
+    v = /^(true|yes)$/i.test(rest);
+  } else if (c.argType === "array") v = rest.split(",").map((x) => x.trim()).filter(Boolean);
+  return { args: { [c.arg]: v } };
+}
+
+/**
+ * The rows for a "/" line. While the name is being typed: the commands that start with it (then those that contain it). Once
+ * there is a space: that one command, with what will be sent.
+ */
+export function commandRows(text: string, cmds: CommandInfo[], max = 8): OmniRow[] {
+  const p = parseCommand(text);
+  if (!p) return [];
+  const row = (c: CommandInfo, line: string, rest: string | null): OmniRow => {
+    const a = rest === null ? null : commandArgs(c, rest);
+    const ready = !!a && "args" in a;
+    return {
+      kind: "cmd",
+      name: c.name,
+      line,
+      description: c.description,
+      ...(c.arg ? { arg: c.arg } : {}),
+      ...(a && "args" in a && c.arg && rest ? { preview: `${c.arg}: ${rest}` } : {}),
+      ready,
+      ...(a && "problem" in a ? { problem: a.problem } : {}),
+      readOnly: c.readOnly,
+      destructive: c.destructive,
+    };
+  };
+  const hasRest = /\s/.test(text.trim()) || text.endsWith(" ");
+  if (hasRest) {
+    const c = cmds.find((x) => x.name === p.name);
+    return c ? [row(c, text.trim(), p.rest)] : [];
+  }
+  const t = p.typed;
+  const aliasHits = Object.entries(COMMAND_ALIASES).filter(([a]) => t && a.startsWith(t)).map(([, n]) => n);
+  const starts = cmds.filter((c) => c.name.startsWith(t) || aliasHits.includes(c.name));
+  const contains = t ? cmds.filter((c) => !starts.includes(c) && c.name.includes(t)) : [];
+  return [...starts, ...contains].slice(0, max).map((c) => row(c, `/${c.name}`, c.argRequired ? null : ""));
 }

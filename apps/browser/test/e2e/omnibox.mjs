@@ -95,4 +95,59 @@ export default async function (ctx) {
   await q(`document.getElementById('url').focus(); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })); return true`);
   const got = await waitFor(async () => { const v = await T("page.eval", { js: "({ n: window.__cmdk || 0, f: document.activeElement && document.activeElement.id })" }); return v.value && v.value.n ? v.value : null; }, "the page's ⌘K", 30).catch(() => null);
   check(got && got.n === 1 && got.f === "box", "⌘K in the address bar goes to the page, whose own search box gets the focus", JSON.stringify(got || { page: (await T("page.eval", { js: "({ url: location.href, keys: window.__keys || [] })" })).value, chrome: await q(`return { id: active.id, url: active.url, ready: active.ready }`), cmdk: cmdk.id }));
+
+  // "/" commands: the askrobots tools of the sign-in (a stand-in here); nothing without a sign-in
+  await T("tabs.new", { url: base + "/free" });
+  await sleep(300);
+  const notes = async () => (await fetch(base + "/o/_notes")).json();
+  const out = () => q(`const o = document.getElementById('omniOut'); return o.classList.contains('open') ? o.textContent : ''`);
+  await type("/no");
+  await waitFor(async () => (await rows()).length, "rows for a command before signing in");
+  check((await rows()).join("|") === "notice:Connect askrobots to use / commands", "before connecting, / offers to connect and lists nothing", JSON.stringify(await rows()));
+  await key("Enter");
+  check(await q(`return document.getElementById('chat').classList.contains('open')`), "and Enter opens the panel where you connect");
+  await cdp.ev(`setChat(false)`);
+  await T("mcp.connect", { id: "askrobots", wait: true });
+
+  await type("/");
+  await waitFor(async () => (await rows()).length > 3, "the command list");
+  const all = await rows();
+  check(all.includes("cmd:/lookup") && all.includes("cmd:/wipe") && all.includes("cmd:/create_note") && !all.some((r) => /upload_file/.test(r)), "once connected, / lists the service's tools (not the browser's own upload)", JSON.stringify(all));
+  await type("/no");
+  await waitFor(async () => (await rows())[0] === "cmd:/create_note", "the /note shortcut");
+  await key("Tab");
+  check((await bar()).v === "/create_note ", "the site's short names work (/note is create_note), and Tab completes the command", JSON.stringify(await bar()));
+
+  await type("/note buy milk");
+  await waitFor(async () => (await rows())[0] === "cmd:/note buy milk", "the command row");
+  check(/content: buy milk/.test(await q(`return document.querySelector('#omni .or').textContent`)), "the row shows what will be saved before Enter");
+  await key("Enter");
+  await waitFor(async () => /created/.test(await out()), "the answer");
+  check((await notes()).notes.some((n) => n.content === "buy milk"), "Enter runs it on the service, and the answer is shown", await out());
+
+  await type("/lookup marmalade");
+  await waitFor(async () => (await rows())[0] === "cmd:/lookup marmalade", "the lookup row");
+  await key("Enter");
+  await waitFor(async () => /Found 2 notes about marmalade/.test(await out()), "the lookup answer");
+  check(!(await q(`return !!document.querySelector('#omniOut script, #omniOut img')`)), "an answer is shown as text, whatever it says");
+
+  await type("/wipe");
+  await waitFor(async () => (await rows())[0] === "cmd:/wipe", "the wipe row");
+  await key("Enter");
+  await waitFor(async () => (await rows()).some((r) => /Press Enter again/.test(r)), "the question");
+  check((await notes()).wiped === 0, "a command the service marks as destructive asks first, and does nothing yet", JSON.stringify(await rows()));
+  await key("Enter");
+  await waitFor(async () => (await notes()).wiped === 1, "the confirmed wipe");
+  check(true, "a second Enter runs it");
+
+  await type("/save hello");
+  await waitFor(async () => (await rows()).length, "the save row");
+  await key("Enter");
+  await sleep(300);
+  check(/needs project_id too/.test(await q(`return document.getElementById('omni').textContent`)), "a command needing more than one line can give says so instead of running", await q(`return document.getElementById('omni').textContent`));
+  await type("/zzz");
+  await waitFor(async () => /no command/.test((await rows()).join()), "the unknown command note");
+  check(true, "an unknown command says so");
+  check(!(await asked()).some((x) => x.startsWith("/")), "commands are never sent for search suggestions");
+  await key("Escape");
 }

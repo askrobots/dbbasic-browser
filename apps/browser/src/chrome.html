@@ -95,6 +95,15 @@
       #omni .or .k { color: #9cc3ff; font-size: 11px; flex: none; margin-left: auto; }
       #omni .of { color: #6f6f76; font-size: 11px; padding: 6px 9px 3px; border-top: 1px solid #2c2c32; margin-top: 4px; display: flex; gap: 8px; }
       #omni .of a { color: #8fb3e8; cursor: pointer; }
+      #omni .or[data-kind="notice"] { color: #f0c674; cursor: default; white-space: normal; }
+      #omni .or[data-kind="notice"].link { cursor: pointer; }
+      #omni .or .p { color: #f08a7a; font-size: 11.5px; }
+      #omniOut { position: fixed; z-index: 29; background: #1a1a1f; border: 1px solid #3a3a40; border-radius: 9px; box-shadow: 0 12px 40px rgba(0,0,0,.6); display: none; font-size: 12.5px; max-height: 60vh; flex-direction: column; }
+      #omniOut.open { display: flex; }
+      #omniOut .h { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #2c2c32; color: #e8e8ea; }
+      #omniOut .h .sp { flex: 1; color: #8a8a90; font-size: 11px; }
+      #omniOut .h button { background: none; border: 0; color: #9a9aa2; cursor: pointer; font-size: 14px; }
+      #omniOut pre { margin: 0; padding: 10px 12px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: #d8d8dc; font: 12px/1.45 ui-monospace, Menlo, monospace; }
       #bmPanel { position: fixed; top: 84px; right: 10px; width: 420px; max-height: calc(100vh - 100px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12.5px; }
       #bmPanel.open { display: block; }
       #bmPanel h4 { margin: 0 0 4px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
@@ -1111,8 +1120,12 @@
             r.kind === "tab" ? ["⇥", r.title, r.url, "Switch to tab"] :
             r.kind === "bookmark" ? ["★", r.title, r.url, ""] :
             r.kind === "kept" ? ["📥", r.title, r.original, "Kept copy"] :
+            r.kind === "cmd" ? ["/", r.line, r.preview || r.description || "", r.readOnly ? "" : r.destructive ? "asks first" : "saves on askrobots"] :
+            r.kind === "notice" ? ["ⓘ", r.text, "", r.connect ? "Connect" : ""] :
             ["✨", r.text, "", "Ask the assistant"];
+          if (r.kind === "notice" && r.connect) el.classList.add("link");
           for (const [cls, txt] of [["ic", ic], ["tt", tt], ["u", u], ["k", k]]) { if (!txt && cls !== "u") continue; const s2 = document.createElement("span"); s2.className = cls; s2.textContent = txt; el.appendChild(s2); }
+          if (r.kind === "cmd" && r.problem && /\s/.test(omniTyped.trim())) { const pr = document.createElement("span"); pr.className = "p"; pr.textContent = r.problem; el.insertBefore(pr, el.querySelector(".k")); }
           el.addEventListener("mousedown", (e) => e.preventDefault()); // keep the focus in the address bar
           el.addEventListener("click", () => omniPick(r));
           el.addEventListener("mousemove", () => { if (omniSel !== i) { omniSel = i; omniPaintSel(); } });
@@ -1120,7 +1133,8 @@
         });
         const f = document.createElement("div"); f.className = "of";
         const on = omniRemoteOn();
-        f.append(document.createTextNode("↑↓ pick · Enter open · Esc close · search suggestions from askrobots.com: " + (on ? "on" : "off") + " "));
+        if (omniTyped.trim().startsWith("/")) { f.append(document.createTextNode("Tab completes · Enter runs · commands are your askrobots tools, run with your sign-in")); omni.appendChild(f); omni.classList.add("open"); return; }
+        f.append(document.createTextNode("↑↓ pick · Enter open · Esc close · / for askrobots commands · search suggestions from askrobots.com: " + (on ? "on" : "off") + " "));
         const a = document.createElement("a"); a.textContent = on ? "turn off" : "turn on";
         a.addEventListener("mousedown", (e) => e.preventDefault());
         a.addEventListener("click", () => { try { localStorage.setItem("omniRemote", on ? "off" : "on"); } catch {} omniRemote = []; omniRender(); if (!on) omniFetchRemote(omniTyped, omniSeq); });
@@ -1159,7 +1173,60 @@
         omniRender();
         omniFetchRemote(text, seq);
       }
+      // ---- "/" commands: complete, confirm when asked to, run, show the answer ----
+      let omniConfirm = null;
+      const omniOut = document.createElement("div"); omniOut.id = "omniOut"; document.body.appendChild(omniOut);
+      function omniOutClose() { omniOut.classList.remove("open"); }
+      function omniShowResult(title, text, ok) {
+        let body = String(text || "");
+        try { body = JSON.stringify(JSON.parse(body), null, 2); } catch {}
+        const b = urlInput.getBoundingClientRect();
+        omniOut.style.left = b.left + "px"; omniOut.style.top = (b.bottom + 4) + "px"; omniOut.style.width = Math.max(b.width, 480) + "px";
+        omniOut.textContent = "";
+        const h = document.createElement("div"); h.className = "h";
+        const t = document.createElement("b"); t.textContent = (ok ? "✓ " : "✗ ") + title;
+        const sp = document.createElement("span"); sp.className = "sp"; sp.textContent = ok ? "answer from askrobots.com (Esc closes)" : "";
+        const x = document.createElement("button"); x.textContent = "✕"; x.title = "Close"; x.onclick = omniOutClose;
+        h.append(t, sp, x);
+        const pre = document.createElement("pre"); pre.textContent = body.slice(0, 100000) || "(no answer)";
+        omniOut.append(h, pre);
+        omniOut.classList.add("open");
+      }
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && omniOut.classList.contains("open") && !omni.classList.contains("open")) omniOutClose(); });
+      document.addEventListener("mousedown", (e) => { if (omniOut.classList.contains("open") && !omniOut.contains(e.target) && e.target !== urlInput) omniOutClose(); });
+      function omniComplete(r) {
+        urlInput.value = r.line + (r.arg ? " " : "");
+        omniTyped = urlInput.value; omniEditing = true;
+        urlInput.setSelectionRange(urlInput.value.length, urlInput.value.length);
+        omniUpdate(false);
+      }
+      async function omniRunCmd(text) {
+        const confirmed = omniConfirm === text;
+        omniConfirm = null;
+        let r;
+        try { r = await window.x402.omnibox.run(text, confirmed); } catch (e) { r = { ok: false, message: String(e && e.message || e) }; }
+        if (r.confirm) {
+          omniConfirm = text;
+          omniLocal = [{ kind: "notice", text: r.message }, ...omniLocal.filter((x) => x.kind !== "notice")];
+          omniSel = 1; omniRender();
+          return;
+        }
+        if (r.connect) { omniEnd(); setUrlBar(active); setChat(true); toast("skipped", r.message); return; }
+        if (!r.ok) { omniLocal = [{ kind: "notice", text: r.message }, ...omniLocal.filter((x) => x.kind !== "notice")]; omniSel = 0; omniRender(); return; }
+        omniEnd(); setUrlBar(active); urlInput.blur();
+        omniShowResult("/" + r.name, r.text, true);
+        if (!r.readOnly) toast("paid", "Done on askrobots: /" + r.name);
+      }
       function omniPick(r) {
+        if (r.kind === "cmd") {
+          const typed = omniTyped.trim();
+          const complete = typed === r.line || /\s/.test(typed);
+          if (!complete || (!r.ready && !/\s/.test(typed) && r.arg)) { omniComplete(r); return; }
+          if (!r.ready) { omniLocal = [{ kind: "notice", text: "/" + r.name + ": " + (r.problem || "cannot run yet") }, ...omniLocal.filter((x) => x.kind !== "notice")]; omniRender(); return; }
+          omniRunCmd(/\s/.test(typed) ? typed : r.line);
+          return;
+        }
+        if (r.kind === "notice") { if (r.connect) { omniEnd(); setUrlBar(active); setChat(true); } return; }
         omniEnd();
         if (r.kind === "tab") { const t = tabs.find((x) => x.id === r.id); if (t) { switchTo(t); return; } }
         if (r.kind === "ask") { setUrlBar(active); setChat(true); chatIn.value = r.text; chatSend(); return; }
@@ -1181,13 +1248,27 @@
           omniPaintSel();
           return;
         }
+        if (e.key === "Tab" && open && omniTyped.trim().startsWith("/")) {
+          const r = omniRows[omniSel];
+          if (r && r.kind === "cmd") { e.preventDefault(); omniComplete(r); }
+          return;
+        }
         if (e.key === "Escape") {
+          omniConfirm = null;
+          if (omniOut.classList.contains("open")) omniOutClose();
           if (open) { omniClose(); if (urlInput.value !== omniTyped && omniEditing) urlInput.value = omniTyped; }
           else { omniEditing = false; setUrlBar(active); urlInput.select(); }
           return;
         }
         if (e.key === "Enter" && !e.isComposing) {
           e.preventDefault();
+          if (urlInput.value.trim().startsWith("/")) {
+            // a command never becomes a search
+            const r = open ? omniRows[omniSel] : null;
+            if (r && (r.kind === "cmd" || r.kind === "notice")) omniPick(r);
+            else if (!open && /\s/.test(urlInput.value.trim())) omniRunCmd(urlInput.value.trim()); // pressed before the list arrived
+            return;
+          }
           if (open && omniSel > 0) { omniPick(omniRows[omniSel]); return; }
           if (omniRows[0] && omniRows[0].kind === "go" && omniFilled && urlInput.value === omniFilled) { omniPick(omniRows[0]); return; } // the completed site, with its own scheme
           const v = urlInput.value;

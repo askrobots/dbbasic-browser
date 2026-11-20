@@ -37,7 +37,7 @@ import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 import { BookmarksService } from "./bookmarks-service.js";
 import { KEPT_SCHEME, KeepStore, keptFilename, keptPageHtml, keptUrl, parseKeptUrl, type KeptRecord } from "./keep-store.js";
 import { diskUsage, type DiskUsage } from "./disk-usage.js";
-import { parseSuggestions, remoteAllowed, suggest, type OmniTab } from "./omnibox.js";
+import { commandArgs, commandRows, parseCommand, parseSuggestions, remoteAllowed, suggest, toCommand, type OmniTab } from "./omnibox.js";
 import { macFootprints } from "./process-memory.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1059,9 +1059,42 @@ app.whenReady().then(async () => {
     const q = (o && typeof o === "object" ? o : {}) as { text?: unknown; tabs?: unknown; activeTab?: unknown; autofill?: unknown };
     const text = String(q.text ?? "").slice(0, 500);
     const tabs: OmniTab[] = (Array.isArray(q.tabs) ? q.tabs : []).slice(0, 300).flatMap((t) => (t && typeof t === "object" && typeof (t as OmniTab).id === "number" ? [{ id: (t as OmniTab).id, url: String((t as OmniTab).url ?? ""), title: String((t as OmniTab).title ?? "") }] : []));
+    if (text.trim().startsWith("/")) {
+      // "/" commands: the tools of the askrobots sign-in, typed. Nothing is listed or sent without a sign-in.
+      if (callerNet.enabled) return { autofill: null, rows: [{ kind: "notice", text: "Commands are off while the caller network is on" }] };
+      if (!mcp.isSignedIn(BOOKMARK_SERVER)) return { autofill: null, rows: [{ kind: "notice", text: "Connect askrobots to use / commands", connect: true }] };
+      try {
+        const rows = commandRows(text, (await mcp.commandTools(BOOKMARK_SERVER)).map((t) => toCommand(t, mcp.fixedArgNames(BOOKMARK_SERVER, t.name))));
+        return { autofill: null, rows: rows.length ? rows : [{ kind: "notice", text: `askrobots has no command “${text.trim().split(/\s/)[0]}” for this sign-in` }] };
+      } catch (e) {
+        return { autofill: null, rows: [{ kind: "notice", text: `Could not list the askrobots commands: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200) }] };
+      }
+    }
     if (!keptCache || Date.now() - keptCache.at > 5000) keptCache = { at: Date.now(), list: (await keep.records()).map((r) => ({ id: r.id, url: r.url, title: r.title, view: keptUrl(r.id) })) };
     const bm = bookmarks.state();
     return suggest({ text, tabs, ...(typeof q.activeTab === "number" ? { activeTab: q.activeTab } : {}), bookmarks: [...bm.items, ...bm.known], kept: keptCache.list, autofill: q.autofill !== false });
+  });
+  // Run a "/" command you typed. Anything the server says may destroy or change things in a way it does not call harmless
+  // asks once more (the second Enter), decided here, not by the window.
+  ipcMain.handle("omnibox:run", async (_e, o: unknown) => {
+    const q = (o && typeof o === "object" ? o : {}) as { text?: unknown; confirmed?: unknown };
+    const p = parseCommand(String(q.text ?? "").slice(0, 5000));
+    if (!p || !p.name) return { ok: false, message: "Type a command after /" };
+    if (callerNet.enabled) return { ok: false, message: "Commands are off while the caller network is on" };
+    if (!mcp.isSignedIn(BOOKMARK_SERVER)) return { ok: false, connect: true, message: "Connect askrobots to use / commands" };
+    try {
+      const t = (await mcp.commandTools(BOOKMARK_SERVER)).find((x) => x.name === p.name);
+      if (!t) return { ok: false, message: `askrobots has no /${p.typed} for this sign-in` };
+      const c = toCommand(t, mcp.fixedArgNames(BOOKMARK_SERVER, t.name));
+      const a = commandArgs(c, p.rest);
+      if ("problem" in a) return { ok: false, message: `/${c.name}: ${a.problem}` };
+      if (c.destructive && q.confirmed !== true) return { ok: false, confirm: true, message: `/${c.name} may change or remove things on askrobots. Press Enter again to run it.` };
+      const text = await mcp.runCommand(BOOKMARK_SERVER, c.name, a.args);
+      emit({ kind: "command", server: BOOKMARK_SERVER, tool: c.name });
+      return { ok: true, name: c.name, readOnly: c.readOnly, text: text.slice(0, 100_000) };
+    } catch (e) {
+      return { ok: false, message: (e instanceof Error ? e.message : String(e)).slice(0, 500) };
+    }
   });
   const SUGGEST_URL = process.env.DBB_SUGGEST_URL || "https://askrobots.com/suggest/opensearch?q=%s";
   const suggestCache = new Map<string, { at: number; list: string[] }>();

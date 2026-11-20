@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld("x402", {
   omnibox: {
     suggest: (o) => ipcRenderer.invoke("omnibox:suggest", o || {}),
     remote: (text) => ipcRenderer.invoke("omnibox:remote", String(text || "")),
+    run: (text, confirmed) => ipcRenderer.invoke("omnibox:run", { text: String(text || ""), confirmed: confirmed === true }),
   },
   bookmarks: {
     state: () => ipcRenderer.invoke("bookmarks:state"),
