@@ -121,6 +121,12 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 - Development tooling: esbuild 0.21 → 0.28, vitest 2 → 5, and in-range patch updates. `npm audit` reports 0 findings.
 
 ### Fixed
+- **Scripts, styles and fonts from other sites (CDNs) failed to load in CORS mode** (`<script crossorigin>`, `<link crossorigin>`,
+  fonts, `fetch` with the default credentials), leaving pages unstyled or without their scripts (YouTube stayed on grey
+  placeholder boxes; askrobots' own signed-in pages lost their icons and scripts). The browser always asked for cookies on
+  cross-site requests, and a response that says "any site may read this" is refused when the request carried them. Requests now
+  follow the page's own credentials setting. Also fixed: a redirect whose own body was `text/plain` with `nosniff` (unpkg's) made
+  the browser refuse the script it redirected to.
 - A page's web-contents id is now published to the automation API the moment it exists, and the API waits briefly for a
   tab that is listed but not yet addressable, instead of failing right after launch or right after opening a tab.
 - **Redirects were followed inside the network layer**, so after a redirect the page showed the destination's content under

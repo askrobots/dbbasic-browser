@@ -34,7 +34,7 @@
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
 import { net, session, type Session } from "electron";
-import { chromiumRequestHeaders, type Hints } from "./compat.js";
+import { chromiumRequestHeaders, type Hints, requestCredentials } from "./compat.js";
 import type { RawFetch } from "./intercept.js";
 
 /**
@@ -149,13 +149,17 @@ export function netRequestFetch(ses: Session = session.defaultSession): RawFetch
         fn();
       };
 
+      // Cookies follow the page's own rule: a cross-site request that asked for none (<script crossorigin>, fetch with the default
+      // credentials) must not carry them, and a response with "Access-Control-Allow-Origin: *" is only acceptable to the network
+      // stack when the request carried none. Always asking for credentials made every such request fail (ERR_FAILED).
+      const credentials = requestCredentials(input, headers);
       const req = net.request({
         method: input.method,
         url: input.url,
         session: ses,
         redirect: "manual",
-        credentials: "include",
-        useSessionCookies: true,
+        credentials,
+        useSessionCookies: credentials === "include",
       });
 
       bypassProtocolHandlers(req);
@@ -172,7 +176,10 @@ export function netRequestFetch(ses: Session = session.defaultSession): RawFetch
       // A redirect: hand it to the renderer. We deliberately do NOT call req.followRedirect();
       // the request is cancelled, and the renderer re-requests `redirectUrl` through us.
       req.on("redirect", (status, _method, redirectUrl, headers) => {
-        const h = toHeaders(headers, new Set(["set-cookie"])); // already stored by the network stack
+        // The cookies are already stored by the network stack. The redirect's own body is never shown, so the headers that describe it go
+        // too: left in, a "text/plain" type with "nosniff" (unpkg sends exactly that on its redirects) made the browser refuse the script
+        // it was redirected to ("MIME type text/plain is not executable").
+        const h = toHeaders(headers, new Set(["set-cookie", "content-type", "x-content-type-options", "content-length", "content-encoding", "content-disposition"]));
         h.set("location", redirectUrl);
         emitNet({ id, url, type: "redirect", status, location: redirectUrl });
         settle(() => resolve(new Response(null, { status, headers: h })));

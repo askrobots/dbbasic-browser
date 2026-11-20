@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brandedUserAgent, chromeMajor, chromiumRequestHeaders, isTrustworthy, refererFor, secChUa, type Hints } from "../src/compat.js";
+import { brandedUserAgent, chromeMajor, chromiumRequestHeaders, isTrustworthy, refererFor, requestCredentials, secChUa, type Hints } from "../src/compat.js";
 
 const ELECTRON_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) dbbasic-browser/33.4.11 Chrome/130.0.6723.191 Electron/33.4.11 Safari/537.36";
@@ -141,5 +141,26 @@ describe("chromiumRequestHeaders + referrer", () => {
       expect(h.has("referer")).toBe(false);
       expect(h.get("sec-fetch-site")).toBe("none");
     }
+  });
+});
+
+describe("requestCredentials", () => {
+  const h = (o: Record<string, string> = {}) => new Headers(o);
+  it('"omit" never carries cookies', () => {
+    expect(requestCredentials({ url: "https://cdn.example/x.js", credentials: "omit" }, h())).toBe("omit");
+    expect(requestCredentials({ url: "https://page.example/api", credentials: "omit" }, h({ origin: "https://page.example" }))).toBe("omit");
+  });
+  it('"same-origin" carries cookies only to the page\'s own origin (a <script crossorigin> from a CDN carries none)', () => {
+    expect(requestCredentials({ url: "https://cdn.example/x.js", credentials: "same-origin" }, h({ origin: "https://page.example" }))).toBe("omit");
+    expect(requestCredentials({ url: "https://cdn.example/x.js", credentials: "same-origin", referrer: "https://page.example/a" }, h())).toBe("omit");
+    expect(requestCredentials({ url: "https://cdn.example/x.js", credentials: "same-origin" }, h({ referer: "https://page.example/a" }))).toBe("omit");
+    expect(requestCredentials({ url: "https://page.example/api", credentials: "same-origin" }, h({ origin: "https://page.example" }))).toBe("include");
+    expect(requestCredentials({ url: "http://127.0.0.1:2/x", credentials: "same-origin" }, h({ origin: "http://127.0.0.1:1" }))).toBe("omit"); // another port is another origin
+  });
+  it('"include", or no information, carries them, as before', () => {
+    expect(requestCredentials({ url: "https://api.example/x", credentials: "include" }, h({ origin: "https://page.example" }))).toBe("include");
+    expect(requestCredentials({ url: "https://api.example/x" }, h({ origin: "https://page.example" }))).toBe("include");
+    expect(requestCredentials({ url: "https://api.example/x", credentials: "same-origin", referrer: "about:client" }, h())).toBe("include"); // no way to tell whose page this is
+    expect(requestCredentials({ url: "not a url", credentials: "same-origin" }, h())).toBe("include");
   });
 });

@@ -315,6 +315,18 @@ describe("signing in and using a server's tools", () => {
     expect(await svc.token("demo")).toBe("AT-r1");
   });
 
+  it("refreshNow refreshes at once and says whether the server rotated the refresh token, without showing any token", async () => {
+    const { svc, st } = setup();
+    await signIn(svc);
+    const r = await svc.refreshNow("demo");
+    expect(r).toEqual({ ok: true, rotated: false, expiresInSeconds: 3600 }); // this server keeps the old refresh token
+    expect(st.refreshed).toBe(1);
+    expect(JSON.stringify(r)).not.toMatch(/AT-|RT-/);
+    st.badRefresh = true;
+    expect(await svc.refreshNow("demo")).toMatchObject({ ok: false, message: expect.stringMatching(/refused \(400/) });
+    expect(await setup().svc.refreshNow("demo")).toMatchObject({ ok: false, message: expect.stringMatching(/not signed in/) });
+  });
+
   it("a refresh the server refuses signs you out, and says so", async () => {
     const { svc, st } = setup();
     await signIn(svc);

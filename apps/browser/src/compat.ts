@@ -173,3 +173,28 @@ export function chromiumRequestHeaders(url: URL, input: Headers, hints: Hints | 
   }
   return h;
 }
+
+/**
+ * Whether a request should carry cookies. The Request the page made says ("omit", "same-origin" or "include"); "same-origin"
+ * means cookies only when the target is the page's own origin. Without that information, include (the old behaviour).
+ */
+export function requestCredentials(input: { url: string; credentials?: string; referrer?: string }, headers: Headers): "include" | "omit" {
+  const mode = input.credentials;
+  if (mode === "omit") return "omit";
+  if (mode !== "same-origin") return "include";
+  let target: URL;
+  try {
+    target = new URL(input.url);
+  } catch {
+    return "include";
+  }
+  const from = (v: string | null | undefined): string | null => {
+    try {
+      return v && v !== "about:client" ? new URL(v).origin : null;
+    } catch {
+      return null;
+    }
+  };
+  const initiator = from(headers.get("origin")) ?? from(input.referrer) ?? from(headers.get("referer"));
+  return initiator && initiator !== target.origin ? "omit" : "include";
+}

@@ -666,6 +666,34 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
   }
   if (path === "/v1/_log") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(fakeModelLog)); return; }
 
+  // Cross-origin scripts, styles and fonts the way CDNs serve them: some loaded in CORS mode (crossorigin, with or without an
+  // integrity hash), some not, one through a redirect (unpkg does this), one with a plain-text type. The next port is another
+  // origin, so a page on one port loads these from the other. window.loaded says what ran.
+  if (path.startsWith("/cdn/")) {
+    const body = {
+      "/cdn/a.js": ["application/javascript", "window.loaded = (window.loaded || []).concat('cors-script');"],
+      "/cdn/i.js": ["application/javascript", "window.loaded = (window.loaded || []).concat('integrity-script');"],
+      "/cdn/b.js": ["application/javascript", "window.loaded = (window.loaded || []).concat('plain-script');"],
+      "/cdn/d.js": ["application/javascript; charset=utf-8", "window.redirected = (window.redirected || 0) + 1; window.loaded = (window.loaded || []).concat('redirected-script');"],
+      "/cdn/a.css": ["text/css", "body { background: rgb(1, 2, 3) !important; }"],
+      "/cdn/x.woff2": ["font/woff2", "not really a font"],
+    }[path];
+    const REDIR = { "/cdn/redir301.js": 301, "/cdn/redir302.js": 302, "/cdn/redir307.js": 307, "/cdn/redir308.js": 308 };
+    if (REDIR[path]) { res.writeHead(REDIR[path], { location: "/cdn/d.js", "content-type": "text/plain;charset=UTF-8", "access-control-allow-origin": "*", "x-content-type-options": "nosniff" }); res.end(`Found. Redirecting to /cdn/d.js`); return; }
+    if (path === "/cdn/redir.js") { res.writeHead(302, { location: "/cdn/d.js", "content-type": "text/plain", "access-control-allow-origin": "*" }); res.end("Found. Redirecting to /cdn/d.js"); return; }
+    if (!body) { res.writeHead(404).end(); return; }
+    res.writeHead(200, { "content-type": body[0], ...(path === "/cdn/b.js" ? {} : { "access-control-allow-origin": "*" }), "cache-control": "public, max-age=3600" });
+    res.end(body[1]);
+    return;
+  }
+  if (path === "/cdn-page") {
+    const other = `http://127.0.0.1:${otherPort}`; // the same server on another port: another origin
+    const sri = "sha384-" + createHash("sha384").update("window.loaded = (window.loaded || []).concat('integrity-script');").digest("base64");
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>cdn</title><link rel="stylesheet" crossorigin="anonymous" href="${other}/cdn/a.css"><script crossorigin="anonymous" src="${other}/cdn/a.js"></script><script crossorigin="anonymous" integrity="${sri}" src="${other}/cdn/i.js"></script><script src="${other}/cdn/b.js"></script><script src="${other}/cdn/redir.js"></script><script crossorigin="anonymous" src="${other}/cdn/redir301.js"></script><script crossorigin="anonymous" src="${other}/cdn/redir302.js"></script><script src="${other}/cdn/redir307.js"></script><script crossorigin="anonymous" src="${other}/cdn/redir308.js"></script><body><h1>cdn</h1><script>fetch("${other}/cdn/x.woff2").then((r) => r.text()).then((t) => (window.fontFetch = t.length), (e) => (window.fontFetch = "ERR " + e.message));</script>`);
+    return;
+  }
+
   // A page that holds a lot of memory, for the resource status ("which tab is hogging the machine?").
   if (path === "/hog") {
     res.writeHead(200, { "content-type": "text/html" });
@@ -852,6 +880,11 @@ server.on("upgrade", (req, socket) => {
   socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
 });
 
+// A second port on the same handler, so one page can load things from "another site" (see /cdn-page).
+let otherPort = 0; // any free port: a fixed neighbour of PORT can be taken (suites run side by side)
+const otherServer = createServer((req, res) => server.emit("request", req, res));
+otherServer.on("error", () => {});
+otherServer.listen(0, HOST, () => (otherPort = otherServer.address().port));
 server.listen(PORT, HOST, () => {
   console.log(`x402 example gallery on http://127.0.0.1:${PORT}/ (bound ${HOST}) — mock settlement`);
 });

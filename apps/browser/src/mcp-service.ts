@@ -435,6 +435,26 @@ export class McpService {
     return p;
   }
 
+  /**
+   * Refresh the access token now, whatever its age, and say whether the server also issued a NEW refresh token (rotation).
+   * Never returns a token. For checking how a server behaves, and for a sign-in that seems stale.
+   */
+  async refreshNow(id: string): Promise<{ ok: true; rotated: boolean; expiresInSeconds: number } | { ok: false; message: string }> {
+    this.refuseInCallerMode();
+    const e = this.saved.servers[id];
+    const t = e?.tokens;
+    if (!t || !t.refresh || !e.clientId) return { ok: false, message: t ? "this sign-in has no refresh token" : `not signed in to ${this.cfg(id).name}` };
+    try {
+      const next = await refreshTokens(await this.metaFor(this.cfg(id)), this.d.fetch, { clientId: e.clientId, refresh: t.refresh }, this.now());
+      const rotated = next.refresh !== t.refresh;
+      e.tokens = next;
+      this.persist();
+      return { ok: true, rotated, expiresInSeconds: Math.round((next.expiresAt - this.now()) / 1000) };
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   private client(id: string): McpClient {
     let c = this.clients.get(id);
     if (!c) {

@@ -83,4 +83,15 @@ export default async function (ctx) {
   await T("page.goto", { url: base + "/free?other=1" });
   await sleep(500);
   check((await hits()) - h0 === 1, "going to a different address makes one request");
+
+  // Scripts, styles and fonts that a page loads from another site in CORS mode (<script crossorigin>, the way CDNs are used), with and
+  // without an integrity hash, plus a plain one and one through a redirect. These used to fail (ERR_FAILED): the browser always asked for
+  // cookies, and a response that says "any site may read this" is refused when the request carried them.
+  const cdn = await T("page.goto", { url: base + "/cdn-page", settle: { timeoutMs: 10000, frames: false } });
+  const loaded = (await T("page.eval", { js: "JSON.stringify({ redirected: window.redirected, loaded: [...new Set(window.loaded || [])].sort(), bg: getComputedStyle(document.body).backgroundColor, font: window.fontFetch })" })).value;
+  const lj = JSON.parse(loaded);
+  check(cdn.settle.resources.failed === 0 && cdn.settle.resources.requested >= 8, "every cross-origin script, style and fetch on a CDN-style page loads (none fail)", JSON.stringify(cdn.settle.resources.failedExamples ?? []));
+  check(JSON.stringify(lj.loaded) === JSON.stringify(["cors-script", "integrity-script", "plain-script", "redirected-script"]) && lj.redirected === 5, "the CORS-mode scripts, the one with an integrity hash, the plain one, and all five redirected ones (301, 302, 307, 308, with and without crossorigin) run", loaded);
+  check(cdn.settle.console.counts.error === 0, "and the page logs no errors (a redirect that says text/plain with nosniff, as unpkg's does, no longer makes the browser refuse the script it points to)", JSON.stringify(cdn.settle.console.errors.map((e) => e.text.slice(0, 80))));
+  check(lj.bg === "rgb(1, 2, 3)" && lj.font === 17, "the cross-origin stylesheet is applied and a cross-origin fetch succeeds", loaded);
 }

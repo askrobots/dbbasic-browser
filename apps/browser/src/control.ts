@@ -380,6 +380,8 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       return { cancelled: true };
     case "mcp.disconnect":
       return d.mcp.disconnect(str(p.id, "id"));
+    case "mcp.refresh":
+      return d.mcp.refreshNow(str(p.id, "id"));
     case "mcp.tools":
       return (await d.mcp.toolDefs()).map((t) => ({ name: t.name, risk: t.risk, description: t.description }));
 
