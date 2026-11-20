@@ -48,6 +48,8 @@ describe("reading the service's links", () => {
     expect(normalizeUrl("https://Facebook.com/")).toBe(normalizeUrl("https://facebook.com"));
     expect(normalizeUrl("https://x.example/a/#top")).toBe(normalizeUrl("https://x.example/a"));
     expect(normalizeUrl("https://x.example/a?q=1")).not.toBe(normalizeUrl("https://x.example/a"));
+    expect(normalizeUrl("https://x.example/a?utm_source=news&fbclid=1&guccounter=2")).toBe(normalizeUrl("https://x.example/a")); // tracking only
+    expect(normalizeUrl("https://www.youtube.com/watch?v=abc")).not.toBe(normalizeUrl("https://www.youtube.com/watch?v=xyz")); // a real query is the page
   });
 });
 
@@ -128,6 +130,64 @@ describe("searching all the links", () => {
     expect(svc.state().items).toHaveLength(3);
     expect(await svc.search("f")).toEqual({ items: [] }); // too short: nothing sent
     expect(await make({ signedIn: false }).svc.search("face")).toMatchObject({ items: [], error: expect.stringMatching(/Connect/) });
+  });
+
+  it("remembers older bookmarks a search turned up, so ☆ knows those pages are saved, and keeps them in the local copy", async () => {
+    const old = JSON.stringify([{ id: "z", url: "https://finance.yahoo.com/news/old-story", title: "Old story" }]);
+    const changed: BookmarksState[] = [];
+    let copy: string | null = null;
+    let calls = 0;
+    const svc = new BookmarksService({
+      call: async (_t, args) => (calls++, args.search ? old : LINKS), connected: () => true, ready: () => true,
+      loadCopy: () => copy, saveCopy: (t) => void (copy = t), changed: (s) => void changed.push(s),
+    });
+    await svc.refresh();
+    expect(svc.has("https://finance.yahoo.com/news/old-story")).toBe(false);
+    await svc.search("yahoo");
+    expect(svc.has("https://finance.yahoo.com/news/old-story?guccounter=1")).toBe(true);
+    expect(svc.state().known.map((b) => b.title)).toEqual(["Old story"]);
+    expect(changed.at(-1)?.known).toHaveLength(1);
+    const again = new BookmarksService({ call: async () => "[]", connected: () => true, ready: () => false, loadCopy: () => copy, saveCopy: () => {}, changed: () => {} });
+    expect(again.has("https://finance.yahoo.com/news/old-story")).toBe(true); // remembered across a restart
+    expect(calls).toBe(2);
+  });
+
+  it("checks the site of a page that is not known locally, once per site, and remembers what it finds", async () => {
+    const siteLinks = JSON.stringify([{ id: "s1", url: "https://finance.yahoo.com/news/old-story", title: "Old story" }, { id: "s2", url: "https://elsewhere.example/x", title: "Not this site" }]);
+    const calls: Array<Record<string, unknown>> = [];
+    let copy: string | null = null;
+    const svc = new BookmarksService({
+      call: async (_t, args) => (calls.push(args), args.search ? siteLinks : "[]"), connected: () => true, ready: () => true,
+      loadCopy: () => copy, saveCopy: (t) => void (copy = t), changed: () => {},
+    });
+    expect(await svc.checkPage("https://finance.yahoo.com/news/old-story?guccounter=1")).toEqual({ checked: true, saved: true });
+    expect(calls).toEqual([{ search: "finance.yahoo.com", limit: LIMIT }]); // only the site's name was sent
+    expect(svc.has("https://elsewhere.example/x")).toBe(false); // results for other sites are not taken
+    await svc.checkPage("https://finance.yahoo.com/news/other");
+    expect(calls).toHaveLength(1); // once per site: the first answer held every saved page there
+  });
+
+  it("asks about the page itself when the site has more saved pages than one answer holds", async () => {
+    const many = JSON.stringify(Array.from({ length: LIMIT }, (_, i) => ({ id: "m" + i, url: `https://big.example/p${i}`, title: "p" + i })));
+    const calls: Array<Record<string, unknown>> = [];
+    const svc = new BookmarksService({
+      call: async (_t, args) => (calls.push(args), String(args.search).startsWith("big.example/old") ? JSON.stringify([{ id: "o", url: "https://big.example/old", title: "old" }]) : many),
+      connected: () => true, ready: () => true, loadCopy: () => null, saveCopy: () => {}, changed: () => {},
+    });
+    expect(await svc.checkPage("https://big.example/old")).toEqual({ checked: true, saved: true });
+    expect(calls.map((c) => c.search)).toEqual(["big.example", "big.example/old"]);
+  });
+
+  it("asks nothing when the setting is off, or before the connection has been opened this session", async () => {
+    const calls: unknown[] = [];
+    const deps = { call: async () => (calls.push(1), "[]"), connected: () => true, loadCopy: () => null, saveCopy: () => {}, changed: () => {} };
+    const off = new BookmarksService({ ...deps, ready: () => true });
+    off.setCheckPages(false);
+    expect(await off.checkPage("https://x.example/a")).toEqual({ checked: false, saved: false });
+    const notYet = new BookmarksService({ ...deps, ready: () => false });
+    expect(await notYet.checkPage("https://x.example/a")).toEqual({ checked: false, saved: false });
+    expect(calls).toHaveLength(0);
+    expect(off.state().checkPages).toBe(false);
   });
 });
 

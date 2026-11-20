@@ -374,6 +374,11 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
     case "bookmarks.search":
       d.assertNotCallerNet("bookmarks");
       return d.bookmarks.search(str(p.q, "q"));
+    case "bookmarks.check":
+      d.assertNotCallerNet("bookmarks");
+      return d.bookmarks.checkPage(str(p.url, "url"));
+    case "bookmarks.setCheck":
+      return d.bookmarks.setCheckPages(p.on === true);
     case "bookmarks.has":
       return { saved: d.bookmarks.has(str(p.url, "url")) };
 

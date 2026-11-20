@@ -577,7 +577,8 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
   if (path === "/o/_links") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.links ?? [])); return; }
   if (path === "/o/_seed") { // many old links, with one at the very end that the newest-100 list cannot reach
     oauth.links ??= [];
-    for (let i = 0; i < 105; i++) oauth.links.push({ id: "old" + i, url: `${origin}/free?old=${i}`, title: `Old link ${i}`, tags: "", is_public: false, project_id: null, created_at: "2025-01-01T00:00:00Z" });
+    const lh = origin.replace("127.0.0.1", "localhost"); // another site name for the same server
+    for (let i = 0; i < 105; i++) oauth.links.push({ id: "old" + i, url: `${lh}/free?old=${i}`, title: `Old link ${i}`, tags: "", is_public: false, project_id: null, created_at: "2025-01-01T00:00:00Z" });
     oauth.links.push({ id: "ancient", url: `${origin}/headers?ancient=1`, title: "Ancient Yahoo archive", tags: "archive", is_public: false, project_id: null, created_at: "2024-01-01T00:00:00Z" });
     res.writeHead(200).end("ok"); return;
   }

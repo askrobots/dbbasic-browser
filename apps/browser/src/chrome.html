@@ -818,9 +818,10 @@
       // ---- bookmarks (askrobots links) -------------------------------------------------------------------
       // One click on ☆ saves the page; the star fills in, and there is no dialog after it. The list loads when you open it.
       let bm = { items: [], connected: false, updatedAt: null, source: "none", limit: 100 };
-      let bmKeys = new Set(), bmOpen = false, bmLoading = false, bmQuery = "", bmRemote = { q: "", items: [], busy: false, error: "" }, bmTimer = null;
-      const normUrl = (u) => { try { const x = new URL(u); x.hash = ""; x.hostname = x.hostname.toLowerCase(); let v = x.href; if (x.pathname !== "/" && v.endsWith("/") && !x.search) v = v.slice(0, -1); if (x.pathname === "/" && !x.search) v = x.protocol + "//" + x.host; return v; } catch { return String(u || "").trim(); } };
-      function bmApply(state) { if (!state) return; bm = state; bmKeys = new Set((state.items || []).map((b) => normUrl(b.url))); paintStar(); if (bmOpen) renderBm(); }
+      let bmChecked = new Set(), bmKeys = new Set(), bmOpen = false, bmLoading = false, bmQuery = "", bmRemote = { q: "", items: [], busy: false, error: "" }, bmTimer = null;
+      const BM_TRACKING = /^(utm_[a-z]+|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|ref_src|guccounter|guce_referrer|guce_referrer_sig|_ga|igshid|si)$/i;
+      const normUrl = (u) => { try { const x = new URL(u); x.hash = ""; for (const k of [...x.searchParams.keys()]) if (BM_TRACKING.test(k)) x.searchParams.delete(k); x.hostname = x.hostname.toLowerCase(); let v = x.href; if (x.pathname !== "/" && v.endsWith("/") && !x.search) v = v.slice(0, -1); if (x.pathname === "/" && !x.search) v = x.protocol + "//" + x.host; return v; } catch { return String(u || "").trim(); } };
+      function bmApply(state) { if (!state) return; bm = state; bmKeys = new Set((state.items || []).concat(state.known || []).map((b) => normUrl(b.url))); paintStar(); if (bmOpen) renderBm(); }
       function paintStar() {
         const b = $("starBtn"); if (!b) return;
         const u = active && !active.reader ? active.url : "";
@@ -828,11 +829,16 @@
         const saved = web && bmKeys.has(normUrl(u));
         // Not this page, but something else on the same site is saved: say so (the star stays a click to save this page).
         let host = ""; try { host = web ? new URL(u).host.replace(/^www\./, "") : ""; } catch {}
-        const onSite = !saved && host ? bm.items.filter((x) => { try { return new URL(x.url).host.replace(/^www\./, "") === host; } catch { return false; } }) : [];
+        const onSite = !saved && host ? (bm.items || []).concat(bm.known || []).filter((x) => { try { return new URL(x.url).host.replace(/^www\./, "") === host; } catch { return false; } }) : [];
         b.textContent = saved ? "★" : "☆";
         b.classList.toggle("saved", saved);
         b.classList.toggle("site", onSite.length > 0);
         b.disabled = !web;
+        // Not known locally: ask the person's own askrobots account about this site (a setting in the list; once per site).
+        if (web && !saved && bm.checkPages && bm.connected && !bmChecked.has(normUrl(u))) {
+          bmChecked.add(normUrl(u));
+          window.x402.bookmarks.check(u).then((r) => { if (r && r.saved) window.x402.bookmarks.state().then(bmApply); }).catch(() => {});
+        }
         b.title = !web ? "Only web pages can be saved" : saved ? "In your askrobots bookmarks" : onSite.length ? "You have " + (onSite.length === 1 ? "a bookmark" : onSite.length + " bookmarks") + " on this site (" + onSite.slice(0, 3).map((x) => x.title).join(", ") + "). Click to save this page too." : "Save this page to your askrobots bookmarks (one click)";
       }
       $("starBtn").onclick = async () => {
@@ -861,6 +867,13 @@
           const go = document.createElement("button"); go.className = "sbtn"; go.textContent = "Open the assistant to connect"; go.onclick = () => { setBm(false); setChat(true); };
           box.append(n, go);
           if (!bm.items.length) return;
+        }
+        if (bm.connected) {
+          const lab = document.createElement("label"); lab.className = "note"; lab.style.display = "flex"; lab.style.gap = "6px"; lab.style.alignItems = "flex-start";
+          const cb = document.createElement("input"); cb.type = "checkbox"; cb.id = "bmCheck"; cb.checked = !!bm.checkPages; cb.style.width = "auto"; cb.style.margin = "2px 0 0";
+          cb.onchange = async () => bmApply(await window.x402.bookmarks.setCheck(cb.checked));
+          const tx = document.createElement("span"); tx.textContent = "Check the sites I visit against my bookmarks on askrobots, so ☆ knows older ones too (sends the site's name to your account).";
+          lab.append(cb, tx); box.appendChild(lab);
         }
         const q = document.createElement("input"); q.id = "bmSearch"; q.placeholder = "Search all your bookmarks"; q.value = bmQuery;
         q.oninput = () => {

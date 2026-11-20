@@ -892,6 +892,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("bookmarks:state", () => bookmarks.state());
   ipcMain.handle("bookmarks:refresh", () => (callerNet.enabled ? bookmarks.state() : bookmarks.refresh()));
   ipcMain.handle("bookmarks:search", (_e, q: unknown) => (callerNet.enabled ? { items: [], error: "switched off while the caller network is on" } : bookmarks.search(String(q ?? ""))));
+  ipcMain.handle("bookmarks:check", (_e, url: unknown) => (callerNet.enabled ? { checked: false, saved: false } : bookmarks.checkPage(String(url ?? ""))));
+  ipcMain.handle("bookmarks:set-check", (_e, on: unknown) => bookmarks.setCheckPages(on === true));
   ipcMain.handle("bookmarks:add", (_e, url: unknown, title: unknown) => bookmarks.add(String(url ?? ""), String(title ?? "")));
   ipcMain.handle("mcp:state", () => mcp.state());
   ipcMain.handle("mcp:connect", async (_e, id: unknown) => {

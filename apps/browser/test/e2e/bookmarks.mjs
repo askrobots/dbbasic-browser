@@ -73,6 +73,23 @@ export default async function (ctx) {
   const direct = await T("bookmarks.search", { q: "ancient" });
   check(direct.items.length === 1 && direct.items[0].title === "Ancient Yahoo archive", "and scripts can search the same way", JSON.stringify(direct.items.map((b) => b.title)));
   await cdp.ev(`setBm(false)`);
+  await T("page.goto", { url: base + "/headers?ancient=1&utm_source=newsletter" });
+  await waitFor(async () => (await star()) === "★|saved", "the star on the old bookmark");
+  check(true, "an old bookmark found by a search is then known: opening it shows ★ (a tracking parameter on the address does not matter)");
+
+  // an old bookmark nobody searched for: the browser asks about the site when you open the page, and ☆ fills in
+  await T("page.goto", { url: base.replace("127.0.0.1", "localhost") + "/free?old=103" });
+  try { await waitFor(async () => (await star()) === "★|saved", "the star on an old bookmark found by checking the site", 60); } catch (e) { throw new Error(e.message + " — star " + (await star()) + ", direct check " + JSON.stringify(await T("bookmarks.check", { url: base.replace("127.0.0.1", "localhost") + "/free?old=103" })) + ", state " + JSON.stringify((({ items, known, ...r }) => ({ ...r, items: items.length, known: known.length }))(await T("bookmarks.list")))); }
+  check(true, "opening a page saved long ago (beyond the newest 100) fills ☆ after the browser checks the site with askrobots");
+  await cdp.ev(`setBm(true)`);
+  await waitFor(async () => q(`return !!document.getElementById('bmCheck')`), "the setting in the list");
+  check(await q(`return document.getElementById('bmCheck').checked && /sends the site's name/.test(document.getElementById('bmPanel').textContent)`), "the list shows the setting, on, and says what it sends");
+  await q(`document.getElementById('bmCheck').click()`);
+  await waitFor(async () => (await T("bookmarks.list")).checkPages === false, "the setting to turn off");
+  const offCheck = await T("bookmarks.check", { url: base.replace("127.0.0.1", "localhost") + "/free?old=104" });
+  check(offCheck.checked === false, "with it off, pages are not checked", JSON.stringify(offCheck));
+  await q(`document.getElementById('bmCheck').click()`);
+  await cdp.ev(`setBm(false)`);
 
   // the assistant can save a tab and close it (Auto mode: both are on the safe list, so no questions)
   const tidyTab = await T("tabs.new", { url: base + "/free?tidy=1" });

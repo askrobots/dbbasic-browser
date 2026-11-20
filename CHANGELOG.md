@@ -10,7 +10,10 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   in), as a private link on askrobots, where the server's entry says saved links go. 🔖 opens the list of your links, newest
   first, loaded from askrobots when the browser opens and when you open the list, and kept as a local copy; searching it
   also searches all your links on askrobots, not only the newest 100. ☆ shows when the page you are on is saved, and when
-  another page on the same site is (decided from the local copy: the pages you visit are never sent to askrobots to ask). The assistant can save a tab as a
+  another page on the same site is. To know older bookmarks too, the browser asks your askrobots account about the site you
+  are on (once every ten minutes per site), and remembers older bookmarks a search turned up; that check is a setting in the
+  list, on by default, and sends the site's name to your own account. Tracking parameters (utm_*, fbclid…) do not make a
+  saved page look unsaved. The assistant can save a tab as a
   bookmark and close tabs, so it can tidy up for you (both run unasked in Auto mode; in Ask mode each step asks).
 - **Tab shortcuts**: ⌘⇧] and ⌘⇧[ switch tabs (as do Ctrl+Tab and ⌘⌥→/←), ⌘1–⌘8 go to that tab and ⌘9 to the last, and ⌘N
   opens a tab (there is one window for now).
