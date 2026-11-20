@@ -171,7 +171,10 @@ export class BookmarksService {
         this.error = undefined;
         this.reindex();
         this.persistCopy();
-        if (JSON.stringify(next.map((b) => [b.id, b.url, b.title, b.tags])) !== before) this.d.changed(this.state());
+        // Always tell the window after a successful load, even when the list is the same: it may still think it is not
+        // connected (it starts from the local copy), and then it would never check the page you are on.
+        void before;
+        this.d.changed(this.state());
         return this.state();
       } catch (e) {
         this.error = e instanceof Error ? e.message : String(e);
@@ -247,9 +250,9 @@ export class BookmarksService {
     try {
       const at = this.checkedHosts.get(host);
       if (at === undefined || this.now() - at > CHECK_AGAIN_MS) {
+        if (!this.d.connected()) return { checked: false, saved: false };
         this.checkedHosts.set(host, this.now());
         this.fullHosts.delete(host);
-        if (!this.d.connected()) return { checked: false, saved: false };
         const onSite = parseLinks(await this.d.call("list_links", { search: host, limit: LIMIT }, { fixed: false })).filter((b) => {
           try {
             return new URL(b.url).hostname.replace(/^www\./, "") === host;
@@ -265,8 +268,12 @@ export class BookmarksService {
         const page = url.replace(/^https?:\/\//i, "").split("#")[0]!.slice(0, 200);
         this.remember(parseLinks(await this.d.call("list_links", { search: page, limit: 10 }, { fixed: false })).filter((b) => normalizeUrl(b.url) === normalizeUrl(url)));
       }
-    } catch {
-      /* a failed check is no answer: the star stays as it was */
+    } catch (e) {
+      // A failed check is no answer: forget that the site was checked, so the next page there tries again, and say why.
+      this.checkedHosts.delete(host);
+      this.checkedPages.delete(normalizeUrl(url));
+      this.error = `could not check ${host}: ${e instanceof Error ? e.message : String(e)}`;
+      return { checked: false, saved: this.has(url) };
     }
     return { checked: true, saved: this.has(url) };
   }

@@ -91,6 +91,12 @@ export default async function (ctx) {
   await q(`document.getElementById('bmCheck').click()`);
   await cdp.ev(`setBm(false)`);
 
+  // a window that thinks it is not connected learns it is after a load, even when the list did not change
+  await cdp.ev(`bmApply(Object.assign({}, bm, { connected: false }))`);
+  await T("bookmarks.list", { refresh: true });
+  await waitFor(async () => cdp.ev(`bm.connected === true`), "the window to learn it is connected");
+  check(true, "after a load the window always hears it is connected, even when the list is the same as its copy");
+
   // the assistant can save a tab and close it (Auto mode: both are on the safe list, so no questions)
   const tidyTab = await T("tabs.new", { url: base + "/free?tidy=1" });
   const tabsBefore = (await T("tabs.list")).length;

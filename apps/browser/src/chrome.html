@@ -837,7 +837,10 @@
         // Not known locally: ask the person's own askrobots account about this site (a setting in the list; once per site).
         if (web && !saved && bm.checkPages && bm.connected && !bmChecked.has(normUrl(u))) {
           bmChecked.add(normUrl(u));
-          window.x402.bookmarks.check(u).then((r) => { if (r && r.saved) window.x402.bookmarks.state().then(bmApply); }).catch(() => {});
+          window.x402.bookmarks.check(u).then((r) => {
+            if (!r || !r.checked) bmChecked.delete(normUrl(u)); // not checked (not ready yet, or it failed): try again on the next change
+            if (r && r.saved) window.x402.bookmarks.state().then(bmApply);
+          }).catch(() => bmChecked.delete(normUrl(u)));
         }
         b.title = !web ? "Only web pages can be saved" : saved ? "In your askrobots bookmarks" : onSite.length ? "You have " + (onSite.length === 1 ? "a bookmark" : onSite.length + " bookmarks") + " on this site (" + onSite.slice(0, 3).map((x) => x.title).join(", ") + "). Click to save this page too." : "Save this page to your askrobots bookmarks (one click)";
       }

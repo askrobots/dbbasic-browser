@@ -64,7 +64,7 @@ describe("the bookmarks list", () => {
     expect(changed).toHaveLength(1);
     expect(JSON.parse(saved() as string).items).toHaveLength(3);
     await svc.refresh();
-    expect(changed).toHaveLength(1); // the same list again: no change event
+    expect(changed).toHaveLength(2); // the same list again is still announced: the window may not know it is connected yet
     expect(svc.has("https://facebook.com/")).toBe(true);
     expect(svc.has("https://elsewhere.example")).toBe(false);
   });
@@ -188,6 +188,27 @@ describe("searching all the links", () => {
     expect(await notYet.checkPage("https://x.example/a")).toEqual({ checked: false, saved: false });
     expect(calls).toHaveLength(0);
     expect(off.state().checkPages).toBe(false);
+  });
+
+  it("tells the window after every load, so a window that started from the local copy learns it is connected", async () => {
+    const first = make();
+    await first.svc.refresh();
+    const again = make({ copy: first.saved() });
+    expect(again.svc.state().source).toBe("copy");
+    await again.svc.refresh(); // the same list as the copy
+    expect(again.changed.at(-1)).toMatchObject({ source: "service", connected: true });
+  });
+
+  it("a check that fails is not remembered as done, and says why", async () => {
+    let fail = true;
+    const svc = new BookmarksService({
+      call: async () => { if (fail) throw new Error("network down"); return JSON.stringify([{ id: "s", url: "https://slashdot.org/", title: "slashdot" }]); },
+      connected: () => true, ready: () => true, loadCopy: () => null, saveCopy: () => {}, changed: () => {},
+    });
+    expect(await svc.checkPage("https://slashdot.org/")).toEqual({ checked: false, saved: false });
+    expect(svc.state().error).toMatch(/could not check slashdot.org: network down/);
+    fail = false;
+    expect(await svc.checkPage("https://slashdot.org/")).toEqual({ checked: true, saved: true }); // tried again
   });
 });
 
