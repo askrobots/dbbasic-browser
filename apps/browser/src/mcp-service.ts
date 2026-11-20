@@ -98,7 +98,7 @@ export function parseServerConfigs(text: string): { servers: McpServerConfig[]; 
       ...(browserOnly && browserOnly.length ? { browserOnly } : {}),
       ...(isObj(e.fixedArgs) ? { fixedArgs: e.fixedArgs as Record<string, Record<string, unknown>> } : {}),
       ...(isObj(e.dropFields) ? { dropFields: e.dropFields as Record<string, string[]> } : {}),
-      ...(extraScopes.length ? { extraScopes } : {}),
+      ...(Array.isArray(e.extraScopes) ? { extraScopes } : {}), // an empty list is kept: it means "none", not "the built-in ones"
     });
   }
   return { servers, problems };
@@ -114,7 +114,12 @@ export function loadServerConfigs(file: string | undefined, read: (p: string) =>
     }
   }
   const byId = new Map(DEFAULT_SERVERS.map((s) => [s.id, s]));
-  for (const s of extra.servers) byId.set(s.id, s); // a file entry replaces the built-in one with the same id
+  for (const s of extra.servers) {
+    // A file entry replaces the built-in one with the same id, but keeps the permissions it asks for unless it names its own
+    // (otherwise a personal copy made earlier silently loses a permission added later).
+    const built = byId.get(s.id);
+    byId.set(s.id, built?.extraScopes && !s.extraScopes ? { ...s, extraScopes: built.extraScopes } : s);
+  }
   return { servers: [...byId.values()], problems: extra.problems };
 }
 

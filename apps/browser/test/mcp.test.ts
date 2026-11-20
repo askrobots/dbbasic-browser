@@ -576,6 +576,8 @@ describe("where tokens are kept, and which servers there are", () => {
     expect(parseServerConfigs(JSON.stringify([{ ...good, extraScopes: ["two words"] }])).servers).toEqual([]);
     const merged = loadServerConfigs("/f", () => JSON.stringify([{ ...good, id: "askrobots", name: "Mine" }])).servers;
     expect(merged.find((s) => s.id === "askrobots")?.name).toBe("Mine");
+    expect(merged.find((s) => s.id === "askrobots")?.extraScopes).toEqual(["files:upload"]); // a built-in permission is kept
+    expect(loadServerConfigs("/f", () => JSON.stringify([{ ...good, id: "askrobots", extraScopes: [] }])).servers.find((s) => s.id === "askrobots")?.extraScopes).toEqual([]); // unless the entry says otherwise
     expect(loadServerConfigs(undefined).servers).toEqual(DEFAULT_SERVERS);
     expect(loadServerConfigs("/missing", () => { throw new Error("ENOENT"); }).servers).toEqual(DEFAULT_SERVERS);
   });
