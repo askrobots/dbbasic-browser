@@ -2,7 +2,8 @@
  * The tools the chat can use on the open tabs. Each one is a thin layer over the browser's own automation methods
  * (the same ones scripts use), run in-process through `run`. Reading tools just run; tools that change something say
  * what they are about to do first (see chat-core.ts). In Auto mode only a short allow-list runs unasked:
- *  - switching tab, going back, keys that only move (Tab, arrows, Page Up/Down…), closing a tab, saving a tab as a bookmark;
+ *  - switching tab, going back, keys that only move (Tab, arrows, Page Up/Down…), closing a tab, saving a tab as a bookmark,
+ *    keeping a copy of a tab;
  *  - typing into an ordinary field and choosing in a dropdown;
  *  - clicking a link to a site that is already open, a checkbox or radio button, or a disclosure triangle.
  * Everything else asks: any other click (a "Post" or "Accept" button need not say anything scary), Enter, opening an address on
@@ -193,6 +194,25 @@ export function pageTools(run: Runner): ToolDef[] {
         const r = (await run("bookmarks.add", { url: t.url, title: t.title })) as { ok: boolean; already?: boolean; message?: string };
         if (!r.ok) throw new Error(r.message || "could not save it");
         return r.already ? "already in the bookmarks" : "saved";
+      },
+    },
+    {
+      name: "keep_tab",
+      origin: "browser",
+      description: "Keep a copy of a tab's page on this computer (what is on screen and its text), save it as a bookmark when connected, and close the tab. For tidying up without losing anything.",
+      input_schema: { type: "object", properties: { ...tabProp, reason: { type: "string", description: "One line on why it was open, if the person said." } }, additionalProperties: false },
+      risk: "act",
+      plan: async (input) => {
+        const tabs = (await run("tabs.list", {})) as Array<{ id: number; url: string; title: string; active: boolean }>;
+        const t = typeof input.tab === "number" ? tabs.find((x) => x.id === input.tab) : tabs.find((x) => x.active);
+        if (!t) return { summary: "", refuse: "there is no such tab; call list_tabs" };
+        if (!/^https?:\/\//i.test(t.url)) return { summary: "", refuse: "only web pages can be kept" };
+        return { summary: `Keep a copy of “${short(t.title || t.url, 60)}” and close the tab`, safe: true };
+      },
+      run: async (input) => {
+        const r = (await run("keep.tab", { ...tabParam(input), ...(typeof input.reason === "string" ? { reason: input.reason } : {}) })) as { ok: boolean; message?: string; bookmarked?: boolean };
+        if (!r.ok) throw new Error(r.message || "could not keep it");
+        return r.bookmarked ? "kept, saved as a bookmark, and closed" : "kept and closed";
       },
     },
     {

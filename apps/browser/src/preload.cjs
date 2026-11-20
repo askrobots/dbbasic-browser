@@ -55,6 +55,12 @@ contextBridge.exposeInMainWorld("x402", {
     setMode: (m) => ipcRenderer.invoke("chat:mode", m),
     onEvent: sub("chat:event"),
   },
+  /** Keep: copies of pages (image and text), so their tabs can be closed. Local only. */
+  keep: {
+    tab: (o) => ipcRenderer.invoke("keep:tab", o || {}),
+    list: (q) => ipcRenderer.invoke("keep:list", q || ""),
+    remove: (id) => ipcRenderer.invoke("keep:remove", id),
+  },
   /** Bookmarks: saved links on askrobots. */
   bookmarks: {
     state: () => ipcRenderer.invoke("bookmarks:state"),

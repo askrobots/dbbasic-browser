@@ -105,4 +105,11 @@ export default async function (ctx) {
   await T("chat.mode", { mode: "ask" });
   check(tidy.reply === "Result: saved and closed" && !tidy.events.some((e) => e.kind === "confirm"), "the assistant saves a tab as a bookmark and closes it, unasked in Auto mode", tidy.reply);
   check((await server()).some((l) => l.url === base + "/free?tidy=1") && (await T("tabs.list")).length === tabsBefore - 1 && !(await T("tabs.list")).some((t) => t.id === tidyTab.id), "the bookmark is on the service and the tab is gone");
+
+  // keeping a page while connected also saves it as a bookmark
+  await T("tabs.new", { url: base + "/keep-me" });
+  await sleep(300);
+  const kept = await T("keep.tab", {});
+  check(kept.ok && kept.bookmarked === true && (await server()).some((l) => l.url === base + "/keep-me"), "keeping a page while connected also saves it as a bookmark on askrobots", JSON.stringify({ ok: kept.ok, bookmarked: kept.bookmarked }));
 }
+

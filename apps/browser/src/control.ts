@@ -74,6 +74,8 @@ export interface ControlDeps {
   resources: { state(): Promise<unknown>; clearCache(): Promise<unknown> };
   /** Bookmarks: saved links on askrobots (see bookmarks-service.ts). */
   bookmarks: BookmarksService;
+  /** Keep: copies of pages, so their tabs can be closed (see keep-store.ts). */
+  keep: { tab(o: Record<string, unknown>): Promise<unknown>; list(q: string): Promise<unknown>; get(id: string): Promise<unknown>; remove(id: string): Promise<boolean> };
   downloads(): unknown;
   getNetPolicy(): { blockWebSockets: boolean };
   /** Methods added by local extensions (see extensions.ts), reached as ext.<name>. */
@@ -360,6 +362,16 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       return { cleared: true };
     case "chat.mode":
       return { mode: d.chat.setMode(p.mode) };
+
+    // ---- keep -----------------------------------------------------------------------
+    case "keep.tab":
+      return d.keep.tab({ ...(typeof p.tab === "number" ? { tab: p.tab } : {}), ...(typeof p.reason === "string" ? { reason: p.reason } : {}), close: p.close !== false, bookmark: p.bookmark !== false });
+    case "keep.list":
+      return d.keep.list(typeof p.q === "string" ? p.q : "");
+    case "keep.get":
+      return d.keep.get(str(p.id, "id"));
+    case "keep.remove":
+      return { removed: await d.keep.remove(str(p.id, "id")) };
 
     // ---- bookmarks ------------------------------------------------------------------
     case "bookmarks.list":

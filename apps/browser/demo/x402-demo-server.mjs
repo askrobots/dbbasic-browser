@@ -690,6 +690,14 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
           else if (results.length === 2) msg = call("close_tab", { tab: t.id });
           else msg = say("Result: saved and closed");
         }
+      } else if (text.startsWith("pocket")) { // (not "keep…": that starts the bookmark-saving script above)
+        if (results.length === 0) msg = call("list_tabs", {});
+        else {
+          const tabs = asJson(results[0]) || [];
+          const t = tabs.find((x) => /keep-me/.test(x.url));
+          if (results.length === 1) msg = call("keep_tab", { tab: t.id, reason: "recipe for later" });
+          else msg = say("Result: " + String(results[1].content).replace(/^\[[^\]]*\]\n/, "").replace(/<[^>]*>/g, "").trim());
+        }
       } else if (text.startsWith("whois")) {
         const t = (body.tools ?? []).find((x) => x.function.name.endsWith("__person"));
         if (results.length === 0) msg = call(t.function.name, {});
@@ -727,6 +735,13 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     const sri = "sha384-" + createHash("sha384").update("window.loaded = (window.loaded || []).concat('integrity-script');").digest("base64");
     res.writeHead(200, { "content-type": "text/html" });
     res.end(`<!doctype html><title>cdn</title><link rel="stylesheet" crossorigin="anonymous" href="${other}/cdn/a.css"><script crossorigin="anonymous" src="${other}/cdn/a.js"></script><script crossorigin="anonymous" integrity="${sri}" src="${other}/cdn/i.js"></script><script src="${other}/cdn/b.js"></script><script src="${other}/cdn/redir.js"></script><script crossorigin="anonymous" src="${other}/cdn/redir301.js"></script><script crossorigin="anonymous" src="${other}/cdn/redir302.js"></script><script src="${other}/cdn/redir307.js"></script><script crossorigin="anonymous" src="${other}/cdn/redir308.js"></script><body><h1>cdn</h1><script>fetch("${other}/cdn/x.woff2").then((r) => r.text()).then((t) => (window.fontFetch = t.length), (e) => (window.fontFetch = "ERR " + e.message));</script>`);
+    return;
+  }
+
+  // A page worth keeping: distinctive words to search for, and colour so the picture of it is not blank.
+  if (path === "/keep-me") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Marmalade notes</title><body style="font:18px system-ui;padding:40px;background:#fdf3d8"><h1 style="color:#b5651d">Marmalade notes</h1><p>The quick brown zebra keeps a secret recipe for marmalade: Seville oranges, sugar, and patience.</p><p>Second paragraph with <b>bold</b> words &amp; an ampersand.</p>`);
     return;
   }
 

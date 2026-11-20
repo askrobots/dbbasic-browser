@@ -94,6 +94,9 @@
       #bmPanel .bm { display: block; padding: 6px 4px; border-radius: 6px; cursor: pointer; }
       #bmPanel .bm:hover { background: #26262b; }
       #bmPanel .bm .t { color: #e8e8ea; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #bmPanel .tabs2 { display: flex; gap: 6px; margin: 0 0 8px; }
+      #bmPanel .tabs2 button.on { background: #23324e; border-color: #3a5a9a; color: #cde0ff; }
+      #bmPanel .bm .s { color: #9a9aa2; font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #bmPanel .bm .h { color: #7a7a82; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #bmPanel .note { color: #8a8a90; font-size: 11.5px; line-height: 1.5; padding: 6px 2px; }
       #bmPanel .err { color: #ff9a9a; font-size: 11.5px; padding: 4px 2px; }
@@ -195,6 +198,7 @@
       <button class="btn" id="fwd">›</button>
       <button class="btn" id="reload" title="Reload (⌘R)">⟳</button>
       <input id="url" placeholder="Search askrobots.com or enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
+      <button class="btn" id="keepBtn" title="Keep a copy of this page (what is on screen and its text) and close the tab">📥</button>
       <button class="btn" id="starBtn" title="Save this page to your askrobots bookmarks (one click)">☆</button>
       <button class="btn" id="galleryBtn" title="Open the local x402 test gallery (http://127.0.0.1:8899/) — start it with: node apps/browser/demo/x402-demo-server.mjs">🧪 x402 tests</button>
       <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
@@ -818,6 +822,7 @@
       // ---- bookmarks (askrobots links) -------------------------------------------------------------------
       // One click on ☆ saves the page; the star fills in, and there is no dialog after it. The list loads when you open it.
       let bm = { items: [], connected: false, updatedAt: null, source: "none", limit: 100 };
+      let bmView = "bookmarks", keptItems = [], keptQuery = "", keptTimer = null;
       let bmChecked = new Set(), bmKeys = new Set(), bmOpen = false, bmLoading = false, bmQuery = "", bmRemote = { q: "", items: [], busy: false, error: "" }, bmTimer = null;
       const BM_TRACKING = /^(utm_[a-z]+|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|ref_src|guccounter|guce_referrer|guce_referrer_sig|_ga|igshid|si)$/i;
       const normUrl = (u) => { try { const x = new URL(u); x.hash = ""; for (const k of [...x.searchParams.keys()]) if (BM_TRACKING.test(k)) x.searchParams.delete(k); x.hostname = x.hostname.toLowerCase(); let v = x.href; if (x.pathname !== "/" && v.endsWith("/") && !x.search) v = v.slice(0, -1); if (x.pathname === "/" && !x.search) v = x.protocol + "//" + x.host; return v; } catch { return String(u || "").trim(); } };
@@ -864,6 +869,14 @@
         const sub = document.createElement("div"); sub.className = "sub";
         sub.textContent = "Your links on askrobots.com · " + (bm.source === "service" ? "updated " + relTime(bm.updatedAt) : bm.source === "copy" ? "saved copy from " + relTime(bm.updatedAt) : "not loaded yet");
         box.appendChild(sub);
+        const sw = document.createElement("div"); sw.className = "tabs2";
+        for (const [k, label] of [["bookmarks", "Bookmarks"], ["kept", "Kept copies"]]) {
+          const b = document.createElement("button"); b.className = "sbtn quiet" + (bmView === k ? " on" : ""); b.textContent = label; b.id = "bmView-" + k;
+          b.onclick = () => { bmView = k; if (k === "kept") loadKept(); renderBm(); };
+          sw.appendChild(b);
+        }
+        box.appendChild(sw);
+        if (bmView === "kept") { renderKept(box); return; }
         if (bm.error) { const e = document.createElement("div"); e.className = "err"; e.textContent = bm.error; box.appendChild(e); }
         if (!bm.connected && !bmLoading) {
           const n = document.createElement("div"); n.className = "note"; n.textContent = "Connect askrobots.com to see and save your bookmarks.";
@@ -915,8 +928,37 @@
         if (bm.items.length >= bm.limit && !needle) { const n = document.createElement("div"); n.className = "note"; n.textContent = "Showing your newest " + bm.limit + ". Searching looks through all of them."; box.appendChild(n); }
         if (focusSearch) { const el = $("bmSearch"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
       }
+      // ---- kept copies --------------------------------------------------------------------------------
+      async function loadKept() { try { keptItems = await window.x402.keep.list(keptQuery); } catch { keptItems = []; } if (bmOpen && bmView === "kept") renderBm(); }
+      function renderKept(box) {
+        const focus = document.activeElement && document.activeElement.id === "keptSearch";
+        const q = document.createElement("input"); q.id = "keptSearch"; q.placeholder = "Search the text of kept pages"; q.value = keptQuery;
+        q.oninput = () => { keptQuery = q.value; clearTimeout(keptTimer); keptTimer = setTimeout(loadKept, 200); };
+        box.appendChild(q);
+        if (!keptItems.length) { const n = document.createElement("div"); n.className = "note"; n.textContent = keptQuery ? "Nothing kept matches." : "Nothing kept yet. 📥 keeps a copy of the page you are on (what is on screen and its text) and closes the tab."; box.appendChild(n); }
+        for (const k of keptItems) {
+          const row = document.createElement("div"); row.className = "bm"; row.title = "Open the kept copy (⌘-click: the live page)";
+          const tt = document.createElement("div"); tt.className = "t"; tt.textContent = k.title;
+          const hh = document.createElement("div"); hh.className = "h"; let host = k.url; try { host = new URL(k.url).host; } catch {}
+          hh.textContent = host + " · kept " + relTime(k.keptAt) + (k.reason ? " · " + k.reason : "");
+          row.append(tt, hh);
+          if (k.snippet) { const sn = document.createElement("div"); sn.className = "s"; sn.textContent = "…" + k.snippet + "…"; row.appendChild(sn); }
+          row.onclick = (ev) => { setBm(false); if (ev.metaKey || ev.ctrlKey) newTab(k.url, true); else newTab("dbb-kept://" + k.id + "/", true); };
+          box.appendChild(row);
+        }
+        if (focus) { const el = $("keptSearch"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+      }
+      $("keepBtn").onclick = async () => {
+        if (!active || !/^https?:\/\//i.test(active.url || "")) { toast("skipped", "Only web pages can be kept"); return; }
+        const b = $("keepBtn"); b.disabled = true;
+        try {
+          const r = await window.x402.keep.tab({});
+          if (!r.ok) toast("skipped", r.message || "Could not keep this page");
+          else toast("paid", "Kept “" + r.record.title + "”" + (r.bookmarked ? " and saved as a bookmark" : "") + " — find it in 🔖 › Kept copies");
+        } finally { b.disabled = false; }
+      };
       async function loadBm() { bmLoading = true; renderBm(); try { bmApply(await window.x402.bookmarks.refresh()); } finally { bmLoading = false; if (bmOpen) renderBm(); } }
-      function setBm(open) { bmOpen = open; if (!open) { bmQuery = ""; bmRemote = { q: "", items: [], busy: false, error: "" }; clearTimeout(bmTimer); } $("bmPanel").classList.toggle("open", open); if (open) { renderBm(); loadBm(); } }
+      function setBm(open) { bmOpen = open; if (open && bmView === "kept") loadKept(); if (!open) { keptQuery = ""; bmQuery = ""; bmRemote = { q: "", items: [], busy: false, error: "" }; clearTimeout(bmTimer); } $("bmPanel").classList.toggle("open", open); if (open) { renderBm(); loadBm(); } }
       $("bmBtn").onclick = () => setBm(!bmOpen);
       window.x402.bookmarks.onChanged(bmApply);
       window.x402.bookmarks.state().then(bmApply);

@@ -35,6 +35,7 @@ import { handle as handleControl, getTabs, setTabs, startControl, type ApprovalP
 import { ChatService } from "./chat-service.js";
 import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 import { BookmarksService } from "./bookmarks-service.js";
+import { KEPT_SCHEME, KeepStore, keptPageHtml, keptUrl, parseKeptUrl } from "./keep-store.js";
 import { diskUsage, type DiskUsage } from "./disk-usage.js";
 import { macFootprints } from "./process-memory.js";
 
@@ -48,7 +49,10 @@ app.setName("dbbasic-browser");
 const ICON_PATH = join(__dirname, "icon.png");
 
 // Reader views are served from dbb-reader://<id>/ (see reader-pages.ts). The scheme must be registered before ready.
-protocol.registerSchemesAsPrivileged([{ scheme: READER_SCHEME, privileges: { standard: true, secure: true } }]);
+protocol.registerSchemesAsPrivileged([
+  { scheme: READER_SCHEME, privileges: { standard: true, secure: true } },
+  { scheme: KEPT_SCHEME, privileges: { standard: true, secure: true } },
+]);
 const readerPages = new ReaderPages();
 
 // Who we say we are to web servers: a Chromium-compatible UA with our own product token and a
@@ -963,6 +967,48 @@ app.whenReady().then(async () => {
   ipcMain.handle("resources:state", () => resources.state());
   ipcMain.handle("resources:clear-cache", () => resources.clearCache());
 
+  // Keep: a copy of a page (what was on screen, and its text) so its tab can be closed without losing it (see keep-store.ts).
+  const keep = new KeepStore(process.env.DBB_KEEP_DIR || join(app.getPath("userData"), "kept"));
+  protocol.handle(KEPT_SCHEME, async (request) => {
+    const p = parseKeptUrl(request.url);
+    if (!p) return new Response("not found", { status: 404 });
+    if (p.file === "page.png") {
+      const img = await keep.image(p.id);
+      return img ? new Response(new Uint8Array(img), { headers: { "content-type": "image/png", "cache-control": "no-store" } }) : new Response("not found", { status: 404 });
+    }
+    const g = await keep.get(p.id);
+    return g ? new Response(keptPageHtml(g.record, g.text), { headers: { "content-type": "text/html; charset=utf-8" } }) : new Response("This kept copy was removed.", { status: 404 });
+  });
+  const keepTab = async (o: { tab?: number; reason?: string; close?: boolean; bookmark?: boolean } = {}) => {
+    if (callerNet.enabled) return { ok: false, reason: "caller-network-on", message: "Keep is switched off while the caller network is on." };
+    const all = getTabs();
+    const t = typeof o.tab === "number" ? all.find((x) => x.id === o.tab) : all.find((x) => x.active);
+    if (!t) return { ok: false, reason: "no-tab", message: "There is no such tab." };
+    if (!/^https?:\/\//i.test(t.url)) return { ok: false, reason: "not-web", message: "Only web pages can be kept." };
+    const wc = t.wcId != null ? webContents.fromId(t.wcId) : undefined;
+    if (!wc || wc.isDestroyed()) return { ok: false, reason: "no-tab", message: "That tab is not ready." };
+    // Never keep a copy of a page with a sign-in form showing (it may hold what someone typed).
+    const login = await wc.executeJavaScript("[...document.querySelectorAll('input[type=password]')].some((e) => e.offsetParent !== null)").catch(() => false);
+    if (login) return { ok: false, reason: "login", message: "Pages with a sign-in form are not kept." };
+    if (!t.active) {
+      await askChrome("tab.activate", { id: t.id });
+      await new Promise((r) => setTimeout(r, 200)); // let it be drawn before taking the picture
+    }
+    const img = await wc.capturePage().catch(() => null);
+    const png = img && !img.isEmpty() ? img.toPNG() : null;
+    const text = String((await wc.executeJavaScript("document.body ? document.body.innerText : ''").catch(() => "")) ?? "");
+    const record = await keep.add({ url: t.url, title: t.title, text, png, ...(o.reason ? { reason: o.reason } : {}) });
+    // Also a bookmark on askrobots, when connected (a page kept is a page worth finding again).
+    let bookmarked = false;
+    if (o.bookmark !== false && mcp.isLoaded() && mcp.isSignedIn(BOOKMARK_SERVER)) bookmarked = (await bookmarks.add(t.url, t.title)).ok;
+    if (o.close !== false) await askChrome("tab.close", { id: t.id }).catch(() => {});
+    emit({ kind: "kept", title: record.title, url: record.url, id: record.id, imageBytes: record.imageBytes, textChars: record.textChars });
+    return { ok: true, record, view: keptUrl(record.id), bookmarked, closed: o.close !== false };
+  };
+  ipcMain.handle("keep:tab", (_e, o: unknown) => keepTab((o && typeof o === "object" ? o : {}) as { tab?: number }));
+  ipcMain.handle("keep:list", (_e, q: unknown) => keep.list(String(q ?? "")));
+  ipcMain.handle("keep:remove", (_e, id: unknown) => keep.remove(String(id ?? "")));
+
   // The in-browser chat: a model, the page tools (run in-process, the same methods scripts use) and the person's say.
   const chat = new ChatService({
     getAi: () => aiCfg,
@@ -1052,6 +1098,7 @@ app.whenReady().then(async () => {
         mcp,
         resources,
         bookmarks,
+        keep: { tab: keepTab, list: (q: string) => keep.list(q), get: (id: string) => keep.get(id), remove: (id: string) => keep.remove(id) },
         setAiProvider: (p) => (p === "anthropic" || p === "openai" ? setAiProvider(p) : false),
         spent: () => formatUsd(engine.policy.spentUsdMicro()),
         receipts: () => JSON.parse(JSON.stringify(engine.ledger.all(), (_k, v) => (typeof v === "bigint" ? v.toString() : v))),
