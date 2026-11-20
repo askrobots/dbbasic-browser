@@ -96,6 +96,23 @@ export default async function (ctx) {
   const got = await waitFor(async () => { const v = await T("page.eval", { js: "({ n: window.__cmdk || 0, f: document.activeElement && document.activeElement.id })" }); return v.value && v.value.n ? v.value : null; }, "the page's ⌘K", 30).catch(() => null);
   check(got && got.n === 1 && got.f === "box", "⌘K in the address bar goes to the page, whose own search box gets the focus", JSON.stringify(got || { page: (await T("page.eval", { js: "({ url: location.href, keys: window.__keys || [] })" })).value, chrome: await q(`return { id: active.id, url: active.url, ready: active.ready }`), cmdk: cmdk.id }));
 
+  // the tab keys belong to the browser, even on a page that swallows every key it gets
+  const greedy = await T("tabs.new", { url: base + "/greedy" });
+  await sleep(500);
+  const before = (await T("tabs.list")).map((t) => t.id);
+  const next = before[before.indexOf(greedy.id) + 1] ?? before[0];
+  await q(`active.wv.focus(); return true`);
+  await T("page.eval", { js: "document.getElementById('box').focus(), true" });
+  await q(`active.wv.sendInputEvent({ type: "keyDown", keyCode: "]", modifiers: ["meta", "shift"] }); active.wv.sendInputEvent({ type: "keyUp", keyCode: "]", modifiers: ["meta", "shift"] }); return true`);
+  const moved = await waitFor(async () => (await active()).id === next, "the next tab", 30).catch(() => false);
+  const seen = (await fetch(base + "/free").then(() => null), (await T("tabs.list")).find((t) => t.id === greedy.id));
+  check(!!moved, "⌘⇧] switches to the next tab even when the page has the focus and swallows every key", JSON.stringify({ active: (await active()).id, greedy: greedy.id, next, seen: !!seen }));
+  await T("tabs.activate", { tab: greedy.id });
+  await sleep(200);
+  const pageSaw = (await T("page.eval", { js: "window.__seen || []" })).value;
+  check(Array.isArray(pageSaw) && !pageSaw.some((k) => /\]|\}/.test(k)), "and the page never sees the key", JSON.stringify(pageSaw));
+  await T("tabs.close", { tab: greedy.id }).catch(() => {});
+
   // "/" commands: the askrobots tools of the sign-in (a stand-in here); nothing without a sign-in
   await T("tabs.new", { url: base + "/free" });
   await sleep(300);

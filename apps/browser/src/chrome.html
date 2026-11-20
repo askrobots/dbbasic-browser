@@ -10,6 +10,7 @@
       body { display: flex; flex-direction: column; background: #1e1e22; color: #e8e8ea; }
       #bar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #26262b; border-bottom: 1px solid #000; }
       #url { flex: 1; padding: 7px 12px; border-radius: 7px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; font-size: 13px; }
+      #back, #fwd, #reload { min-width: 36px; height: 32px; display: inline-flex; align-items: center; justify-content: center; font-size: 17px; line-height: 1; }
       #url:focus { outline: none; border-color: #5b8cff; }
       .btn { padding: 7px 10px; border-radius: 7px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; cursor: pointer; white-space: nowrap; }
       .btn:hover { background: #1c1c20; }
@@ -225,7 +226,7 @@
     <div id="bar">
       <button class="btn" id="back">‹</button>
       <button class="btn" id="fwd">›</button>
-      <button class="btn" id="reload" title="Reload (⌘R)">⟳</button>
+      <button class="btn" id="reload" title="Reload (⌘R)" aria-label="Reload"></button>
       <input id="url" placeholder="Search askrobots.com or enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
       <button class="btn" id="keepBtn" title="Keep a copy of this page (what is on screen and its text) and close the tab">📥<span class="lbl"> Keep</span></button>
       <button class="btn" id="starBtn" title="Save this page to your askrobots bookmarks (one click)">☆<span class="lbl"> Save</span></button>
@@ -1325,13 +1326,17 @@
         } catch {}
       });
       // Reload, which becomes Stop while the page is loading.
+      const RELOAD_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 6.2A5.5 5.5 0 1 0 13.5 9.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M13.6 2.2v4.3H9.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const STOP_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
       function paintReload() {
         const b = $("reload");
         if (!b) return;
         const loading = !!(active && active.loading);
-        b.textContent = loading ? "✕" : "⟳";
+        b.innerHTML = loading ? STOP_ICON : RELOAD_ICON; // our own constant markup, never page text
+        b.setAttribute("aria-label", loading ? "Stop" : "Reload");
         b.title = loading ? "Stop loading" : "Reload (⌘R)";
       }
+      paintReload();
       $("reload").onclick = () => { if (!active) return; try { active.loading ? active.wv.stop() : active.wv.reload(); } catch {} };
       $("back").onclick = () => { try { active.wv.canGoBack() && active.wv.goBack(); } catch {} };
       $("fwd").onclick = () => { try { active.wv.canGoForward() && active.wv.goForward(); } catch {} };

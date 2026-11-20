@@ -83,7 +83,7 @@ export default async function (ctx) {
   // Reload button: reloads the page, and is a Stop button while a page is loading.
   await T("page.goto", { url: base + "/free" });
   await T("page.eval", { js: "window.__marker = 'before-reload'" });
-  check(await c.ev(`(() => { const b = document.getElementById('reload'); return !!b && b.textContent === '⟳' && /Reload/.test(b.title) })()`), "the toolbar has a reload button");
+  check(await c.ev(`(() => { const b = document.getElementById('reload'); return !!b && !!b.querySelector('svg') && b.getAttribute('aria-label') === 'Reload' && /Reload/.test(b.title) })()`), "the toolbar has a reload button");
   await c.ev(`document.getElementById('reload').click()`);
   let gone = false;
   for (let i = 0; i < 60 && !gone; i++) { await sleep(100); gone = (await T("page.eval", { js: "window.__marker === undefined" })).value === true; }
@@ -91,12 +91,12 @@ export default async function (ctx) {
   // while a slow page loads it is a Stop button, and clicking it stops the load
   const slow = T("page.goto", { url: base + "/slow", wait: false });
   await sleep(500);
-  const during = await c.ev(`(() => { const b = document.getElementById('reload'); return b.textContent + '|' + b.title })()`);
-  check(/^✕\|Stop/.test(during), "while a page is loading the button is a Stop button", during);
+  const during = await c.ev(`(() => { const b = document.getElementById('reload'); return b.getAttribute('aria-label') + '|' + b.title })()`);
+  check(/^Stop\|Stop/.test(during), "while a page is loading the button is a Stop button", during);
   await slow.catch(() => {});
   await c.ev(`document.getElementById('reload').click()`);
   let back = false;
-  for (let i = 0; i < 60 && !back; i++) { await sleep(100); back = await c.ev(`document.getElementById('reload').textContent === '⟳'`); }
+  for (let i = 0; i < 60 && !back; i++) { await sleep(100); back = await c.ev(`document.getElementById('reload').getAttribute('aria-label') === 'Reload'`); }
   check(back, "clicking Stop ends the load and the button goes back to Reload");
 }
 

@@ -37,6 +37,7 @@ import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 import { BookmarksService } from "./bookmarks-service.js";
 import { KEPT_SCHEME, KeepStore, keptFilename, keptPageHtml, keptUrl, parseKeptUrl, type KeptRecord } from "./keep-store.js";
 import { diskUsage, type DiskUsage } from "./disk-usage.js";
+import { reservedShortcut } from "./shortcuts.js";
 import { commandArgs, commandRows, describeResult, parseCommand, parseSuggestions, remoteAllowed, suggest, toCommand, type OmniTab } from "./omnibox.js";
 import { macFootprints } from "./process-memory.js";
 
@@ -801,6 +802,13 @@ app.whenReady().then(async () => {
   app.on("web-contents-created", (_e, wc) => {
     if (wc.getType() !== "webview") return;
     trackLifecycle(wc);
+    // Tab keys belong to the browser: caught before the page, which could otherwise swallow them (see shortcuts.ts).
+    wc.on("before-input-event", (event, input) => {
+      const cmd = reservedShortcut(input, process.platform === "darwin");
+      if (!cmd) return;
+      event.preventDefault(); // the page never sees it, and the menu does not run it a second time
+      mainWindow?.webContents.send("tab:cmd", cmd);
+    });
     if (callerNet.enabled) wc.setWebRTCIPHandlingPolicy("disable_non_proxied_udp"); // no UDP for ICE/STUN: it would bypass the caller
     wc.setWindowOpenHandler(({ url }) => {
       if (callerNet.enabled) {

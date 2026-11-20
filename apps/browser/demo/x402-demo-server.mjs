@@ -773,6 +773,12 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     res.end(`<!doctype html><title>Command K</title><body style="font:16px system-ui;padding:30px"><input id="box" placeholder="Ask (⌘K)"><script>document.addEventListener("keydown",(e)=>{window.__keys=(window.__keys||[]).concat(e.key+(e.metaKey?"+meta":""));if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();document.getElementById("box").focus();window.__cmdk=(window.__cmdk||0)+1;}});</script>`);
     return;
   }
+  if (path === "/greedy") {
+    // a page that swallows every key it is given (like an editor with its own shortcuts)
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Greedy keys</title><body style="font:16px system-ui;padding:30px"><input id="box" autofocus><script>addEventListener("keydown",(e)=>{e.preventDefault();e.stopPropagation();window.__seen=(window.__seen||[]).concat(e.key+(e.metaKey?"+meta":"")+(e.shiftKey?"+shift":""));},true);</script>`);
+    return;
+  }
   if (path === "/keep-me") {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(`<!doctype html><title>Marmalade notes</title><body style="font:18px system-ui;padding:40px;background:#fdf3d8"><h1 style="color:#b5651d">Marmalade notes</h1><p>The quick brown zebra keeps a secret recipe for marmalade: Seville oranges, sugar, and patience.</p><p>Second paragraph with <b>bold</b> words &amp; an ampersand.</p>`);

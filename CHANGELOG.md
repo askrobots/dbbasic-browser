@@ -157,6 +157,10 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 - Development tooling: esbuild 0.21 → 0.28, vitest 2 → 5, and in-range patch updates. `npm audit` reports 0 findings.
 
 ### Fixed
+- **Tab keys work whatever page has the focus.** A page that swallows keys (an editor, a site with its own shortcuts)
+  could stop ⌘⇧] / ⌘⇧[ from switching tabs until you clicked the tab bar. The browser's own keys (⌘⇧] ⌘⇧[, Ctrl+Tab,
+  ⌘1–⌘9, ⌘T, ⌘W, ⌘L) are now caught before the page sees them, as in other browsers. The reload button is the size of
+  back and forward.
 - **Scripts, styles and fonts from other sites (CDNs) failed to load in CORS mode** (`<script crossorigin>`, `<link crossorigin>`,
   fonts, `fetch` with the default credentials), leaving pages unstyled or without their scripts (YouTube stayed on grey
   placeholder boxes; askrobots' own signed-in pages lost their icons and scripts). The browser always asked for cookies on
