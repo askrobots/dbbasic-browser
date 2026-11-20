@@ -98,5 +98,51 @@ export default async function (ctx) {
   let back = false;
   for (let i = 0; i < 60 && !back; i++) { await sleep(100); back = await c.ev(`document.getElementById('reload').getAttribute('aria-label') === 'Reload'`); }
   check(back, "clicking Stop ends the load and the button goes back to Reload");
+
+  // find in page: the page's own find, with a count, next and previous, per tab
+  const findTab = await T("tabs.new", { url: base + "/keep-me" });
+  await sleep(600);
+  const fb = () => c.ev(`(() => ({ open: document.getElementById('findBar').classList.contains('open'), v: document.getElementById('findIn').value, n: document.getElementById('findCount').textContent, focus: document.activeElement && document.activeElement.id, none: document.getElementById('findBar').classList.contains('none') }))()`);
+  const waitFb = async (pred, what) => { for (let i = 0; i < 50; i++) { const v = await fb(); if (pred(v)) return v; await sleep(100); } throw new Error("timed out waiting for " + what + ": " + JSON.stringify(await fb())); };
+  const fkey = (k, shift = false) => c.ev(`document.getElementById('findIn').dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, shiftKey: ${shift}, bubbles: true }))`);
+  await c.ev(`onTabCmd("find")`);
+  let f = await waitFb((v) => v.open, "the find bar");
+  check(f.open && f.focus === "findIn", "Edit ▸ Find (⌘F) opens the find bar with the typing in it", JSON.stringify(f));
+  await c.ev(`(() => { const i = document.getElementById('findIn'); i.value = 'marmalade'; i.dispatchEvent(new Event('input')); })()`);
+  f = await waitFb((v) => v.n === "1 of 2", "the first match");
+  check(f.focus === "findIn", "typing finds the matches and counts them (1 of 2), and the typing stays in the bar", JSON.stringify(f));
+  await fkey("Enter");
+  f = await waitFb((v) => v.n === "2 of 2", "the next match");
+  check(true, "Enter goes to the next match");
+  await fkey("Enter", true);
+  f = await waitFb((v) => v.n === "1 of 2", "the previous match");
+  check(true, "Shift+Enter goes back to the previous one");
+  await c.ev(`onTabCmd("find-next")`);
+  f = await waitFb((v) => v.n === "2 of 2", "Find Next");
+  check(true, "Find Next (⌘G) goes to the next match");
+  await c.ev(`(() => { const i = document.getElementById('findIn'); i.value = 'zebrafinchqq'; i.dispatchEvent(new Event('input')); })()`);
+  f = await waitFb((v) => v.n === "No matches", "no matches");
+  check(f.none, "text that is not on the page says No matches", JSON.stringify(f));
+  await c.ev(`(() => { const i = document.getElementById('findIn'); i.value = 'quick brown'; i.dispatchEvent(new Event('input')); })()`);
+  await waitFb((v) => v.n === "1 of 1", "the phrase");
+  // another tab has its own find: the bar goes away there, and comes back here
+  const otherTab = await T("tabs.new", { url: base + "/free" });
+  await sleep(400);
+  f = await fb();
+  check(!f.open, "another tab does not show this tab's find bar", JSON.stringify(f));
+  await T("tabs.activate", { tab: findTab.id });
+  f = await waitFb((v) => v.open && v.v === "quick brown", "the find bar back on its tab");
+  check(true, "switching back shows the find bar with what was being found");
+  await fkey("Escape");
+  f = await waitFb((v) => !v.open, "the bar to close");
+  const sel = (await T("page.eval", { js: "String(getSelection())" })).value;
+  check(sel === "quick brown", "Esc closes the find bar and leaves the match selected on the page (⌘C copies it)", JSON.stringify(sel));
+  await c.ev(`onTabCmd("find")`);
+  f = await waitFb((v) => v.open, "the bar again");
+  const selAll = await c.ev(`(() => { const i = document.getElementById('findIn'); return i.selectionStart === 0 && i.selectionEnd === i.value.length })()`);
+  check(f.v === "quick brown" && selAll, "opening it again offers the last search, selected so typing replaces it", JSON.stringify(f));
+  await fkey("Escape");
+  await T("tabs.close", { tab: otherTab.id }).catch(() => {});
+  await T("tabs.close", { tab: findTab.id }).catch(() => {});
 }
 

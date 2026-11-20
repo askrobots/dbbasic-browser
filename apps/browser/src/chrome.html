@@ -26,6 +26,13 @@
       #mbal.earning { color: #7ee787; border-color: #1c4a1a; }
       .txlink { color: #7aa2ff; cursor: pointer; text-decoration: underline; }
       #main { flex: 1; display: flex; min-height: 0; }
+      #findBar { position: absolute; top: 8px; right: 18px; z-index: 15; display: none; align-items: center; gap: 6px; padding: 6px 8px; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 9px; box-shadow: 0 8px 28px rgba(0,0,0,.5); }
+      #findBar.open { display: flex; }
+      #findIn { width: 230px; padding: 6px 9px; border-radius: 6px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; font-size: 13px; }
+      #findIn:focus { outline: none; border-color: #5b8cff; }
+      #findBar.none #findIn { border-color: #8a3a3a; }
+      #findCount { min-width: 74px; text-align: right; color: #9a9aa2; font-size: 12px; font-variant-numeric: tabular-nums; }
+      #findBar .btn { padding: 4px 9px; }
       #pages { flex: 1; position: relative; min-width: 0; }
       /* Inactive tabs stay full-size (so pages lay out correctly) but are hidden. */
       .pg { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
@@ -242,7 +249,15 @@
     <div id="resPanel"></div>
     <div id="bmPanel"></div>
     <div id="main">
-      <div id="pages"></div>
+      <div id="pages">
+        <div id="findBar" role="search">
+          <input id="findIn" placeholder="Find in page" aria-label="Find in page" spellcheck="false" />
+          <span id="findCount" aria-live="polite"></span>
+          <button class="btn" id="findPrev" title="Previous match (⌘⇧G or ⇧Enter)" aria-label="Previous match">↑</button>
+          <button class="btn" id="findNext" title="Next match (⌘G or Enter)" aria-label="Next match">↓</button>
+          <button class="btn" id="findClose" title="Close (Esc)" aria-label="Close find">✕</button>
+        </div>
+      </div>
       <div id="chat">
         <div id="chatHead">
           <span>Assistant</span>
@@ -310,7 +325,7 @@
         wv.setAttribute("allowpopups", ""); // main's windowOpenHandler turns these into tabs
         if (window.x402.webviewPreload) wv.setAttribute("preload", window.x402.webviewPreload);
         const tab = { id: nextTabId++, wv, wcId: null, url: "", title: "", rows: new Map(), userClosed: false, paid: false, ready: false, pending: null, loading: false, saveOffer: null, fillOffer: null, waiters: [], navSeen: false,
-          el: null, reader: null, aiBusy: null, net: { reqs: new Map() }, lastActivity: 0, stats: { requests: 0, bytes: 0, hosts: new Set(), redirects: [], answered: 0, errorStatus: 0, cancelled: 0, failures: [], statusExamples: [] }, redirect: null, settledUntil: 0, failed: null, netError: null, thState: null, thText: "" };
+          el: null, reader: null, aiBusy: null, net: { reqs: new Map() }, lastActivity: 0, stats: { requests: 0, bytes: 0, hosts: new Set(), redirects: [], answered: 0, errorStatus: 0, cancelled: 0, failures: [], statusExamples: [] }, redirect: null, settledUntil: 0, failed: null, netError: null, thState: null, thText: "", find: { open: false, text: "", count: "" } };
 
         // Navigate only once the webview is really ready — setting src at creation
         // races its own init and can leave us stranded on about:blank.
@@ -355,6 +370,7 @@
           for (const [id, r] of tab.net.reqs) if (r.t0 < Date.now() - 150) tab.net.reqs.delete(id);
           refreshThrobber(tab);
           tab.userClosed = false; // new page — allow auto-open again
+          if (tab.find.count) { tab.find.count = ""; tab.find.none = false; if (tab === active) paintFind(); } // the matches were on the page we left
           tab.fillOffer = null; // a save offer deliberately survives: login → redirect → "save?"
           if (tab.saveOffer) { // …but not into a different site
             let same = false;
@@ -373,6 +389,15 @@
         wv.addEventListener("did-navigate", onNav);
         wv.addEventListener("did-navigate-in-page", (e) => { if (e.isMainFrame) onNav(e); });
         wv.addEventListener("page-title-updated", (e) => { tab.title = e.title; renderTabs(); });
+        wv.addEventListener("found-in-page", (e) => {
+          const r = e.result || {};
+          if (typeof r.matches !== "number") return;
+          tab.find.count = r.matches ? (r.activeMatchOrdinal || 1) + " of " + r.matches : "No matches";
+          tab.find.none = !r.matches;
+          if (tab === active) paintFind();
+        });
+        // a new page under an open find bar: look again once it has loaded
+        wv.addEventListener("did-stop-loading", () => { if (tab.find.open && tab.find.text && tab.find.loadedFor !== tab.url) { tab.find.loadedFor = tab.url; findRun(tab, 0); } });
 
         $("pages").appendChild(wv);
         tabs.push(tab);
@@ -392,8 +417,55 @@
         renderInspector();
         renderOffer();
         if (vaultPanelOpen) renderVaultPanel();
+        paintFind();
         if (!tab.url) urlInput.focus();
       }
+
+      // ---- find in page: the page's own find, per tab; nothing leaves the machine ----
+      const findBar = $("findBar"), findIn = $("findIn");
+      function paintFind() {
+        const f = active ? active.find : { open: false };
+        findBar.classList.toggle("open", !!f.open);
+        if (!f.open) return;
+        if (document.activeElement !== findIn) findIn.value = f.text;
+        $("findCount").textContent = f.text ? f.count : "";
+        findBar.classList.toggle("none", !!(f.text && f.none));
+      }
+      // dir 0: a new search for what is typed; 1 / -1: the next or previous match of it
+      function findRun(tab, dir) {
+        const q = tab.find.text;
+        if (!q) { try { tab.wv.stopFindInPage("clearSelection"); } catch {} tab.find.count = ""; tab.find.none = false; if (tab === active) paintFind(); return; }
+        if (dir === 0) tab.find.loadedFor = tab.url;
+        try { tab.wv.findInPage(q, { forward: dir !== -1, findNext: dir === 0 }); } catch {}
+      }
+      function openFind() {
+        if (!active) return;
+        active.find.open = true;
+        paintFind();
+        findIn.value = active.find.text;
+        findIn.focus(); findIn.select();
+        if (active.find.text) findRun(active, 0);
+      }
+      function closeFind() {
+        if (!active || !active.find.open) return;
+        active.find.open = false;
+        try { active.wv.stopFindInPage("keepSelection"); } catch {}
+        paintFind();
+        try { active.wv.focus(); } catch {}
+      }
+      function findStep(dir) {
+        if (!active) return;
+        if (!active.find.open || !active.find.text) return openFind();
+        findRun(active, dir);
+      }
+      findIn.addEventListener("input", () => { if (!active) return; active.find.text = findIn.value; findRun(active, 0); });
+      findIn.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); findStep(e.shiftKey ? -1 : 1); }
+        else if (e.key === "Escape") { e.preventDefault(); closeFind(); }
+      });
+      $("findNext").onclick = () => findStep(1);
+      $("findPrev").onclick = () => findStep(-1);
+      $("findClose").onclick = () => closeFind();
 
       function closeTab(tab) {
         const i = tabs.indexOf(tab);
@@ -1092,7 +1164,8 @@
       // Native menu accelerators (⌘T / ⌘W / ⌘L …) arrive here — they work even when
       // focus is inside a page, which a document-level keydown would never see.
       const MENU_BUTTONS = new Set(["keepBtn", "starBtn", "bmBtn", "keyBtn", "inspectBtn", "resBtn", "fundBtn", "galleryBtn", "tourBtn"]);
-      window.x402.onTabCommand((cmd) => {
+      window.x402.onTabCommand((cmd) => onTabCmd(cmd));
+      function onTabCmd(cmd) {
         if (cmd === "new") openNewTab();
         else if (cmd === "close") closeTab(active);
         else if (cmd === "focus-url") { urlInput.focus(); urlInput.select(); }
@@ -1109,11 +1182,14 @@
         else if (cmd === "forward") $("fwd").click();
         else if (cmd === "kept") { bmView = "kept"; setBm(true); }
         else if (cmd === "connections") { setChat(true); }
+        else if (cmd === "find") openFind();
+        else if (cmd === "find-next") findStep(1);
+        else if (cmd === "find-prev") findStep(-1);
         else if (cmd === "open-external") {
           if (active && /^https?:\/\//i.test(active.url)) window.x402.openExternal(active.url);
           else toast("skipped", "Only web pages can be opened in the default browser");
         }
-      });
+      }
       // target=_blank / window.open from a page → a new tab beside it.
       window.x402.onOpenTab((url) => newTab(url));
 

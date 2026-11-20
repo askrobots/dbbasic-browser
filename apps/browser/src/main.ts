@@ -603,7 +603,26 @@ function buildMenu(): void {
         ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({ label: n === 9 ? "Last Tab" : `Tab ${n}`, accelerator: `CmdOrCtrl+${n}`, click: tabCmd(`tab:${n}`), visible: false })),
       ],
     },
-    { role: "editMenu" },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "pasteAndMatchStyle" },
+        { role: "delete" },
+        { role: "selectAll" },
+        { type: "separator" },
+        // Find uses the page's own find: nothing leaves the machine. ⌘F goes to the page first, so a site with its own
+        // find (an editor, a document) keeps it; the menu item always opens the browser's.
+        { label: "Find…", accelerator: "CmdOrCtrl+F", click: tabCmd("find") },
+        { label: "Find Next", accelerator: "CmdOrCtrl+G", click: tabCmd("find-next") },
+        { label: "Find Previous", accelerator: "CmdOrCtrl+Shift+G", click: tabCmd("find-prev") },
+      ],
+    },
     {
       label: "View",
       submenu: [

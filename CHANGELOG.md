@@ -6,6 +6,9 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **Find in page** (⌘F, Edit ▸ Find). A find bar over the page with a match count, Enter / ⇧Enter and ⌘G / ⌘⇧G for
+  next and previous, and Esc to close with the match left selected. Each tab keeps its own search, and a page that
+  loads under an open bar is searched again. It uses the page's own find: nothing leaves the machine.
 - **A smarter address bar.** As you type: what Enter will do, open tabs (switch to them), your askrobots bookmarks, kept
   copies, askrobots search suggestions, and "Ask the assistant". Sites you use are completed inline ("slash" →
   slashdot.org, local sites keep their port and http). Suggestions are asked for only for text that is not an address,
