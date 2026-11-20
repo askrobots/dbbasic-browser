@@ -95,7 +95,7 @@ async function launchApp(suite) {
   const mcpServersFile = join(tmp, `mcp-servers-${suite}.json`);
   if (suite === "bookmarks") {
     // The built-in askrobots entry, replaced by one that points at the stand-in server: the bookmarks use the "askrobots" entry.
-    writeFileSync(mcpServersFile, JSON.stringify([{ id: "askrobots", name: "askrobots (stand-in)", url: `${base}/mcp`, tools: ["list_links", "create_link"], readOnly: ["list_links"], fixedArgs: { create_link: { project_id: "P-links", is_public: false } } }]));
+    writeFileSync(mcpServersFile, JSON.stringify([{ id: "askrobots", name: "askrobots (stand-in)", url: `${base}/mcp`, tools: ["list_links", "create_link"], readOnly: ["list_links"], browserOnly: ["upload_file"], fixedArgs: { create_link: { project_id: "P-links", is_public: false }, upload_file: { project_id: "P-links", is_public: false, category: "browser/kept" } } }]));
   }
   if (suite === "mcp") {
     writeFileSync(mcpServersFile, JSON.stringify([{ id: "demo", name: "Demo notes", url: `${base}/mcp`, tools: ["lookup", "save", "person"], readOnly: ["lookup", "person"], fixedArgs: { save: { project_id: "P-1" } }, dropFields: { person: ["notes", "interactions"] } }]));

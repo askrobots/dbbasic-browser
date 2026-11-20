@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { KeepStore, keptPageHtml, keptUrl, parseKeptUrl } from "../src/keep-store";
+import { KeepStore, keptFilename, keptPageHtml, keptUrl, parseKeptUrl } from "../src/keep-store";
 
 const store = () => new KeepStore(join(mkdtempSync(join(tmpdir(), "keep-")), "kept"));
 
@@ -50,4 +50,23 @@ describe("kept copies", () => {
     expect(html).toMatch(/default-src 'none'/);
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   });
+
+  it("names files readably: title, site and date, without characters file systems dislike", () => {
+    const at = Date.UTC(2026, 10, 20, 12);
+    expect(keptFilename({ title: "Amazon Fights the Delivery Protection Act", url: "https://slashdot.org/story/1", keptAt: at }, "png")).toBe("Amazon Fights the Delivery Protection Act (slashdot.org, 2026-11-20).png");
+    expect(keptFilename({ title: "a/b: c? <d> | e", url: "https://www.x.example/", keptAt: at }, "txt")).toBe("a b c d e (x.example, 2026-11-20).txt");
+    expect(keptFilename({ title: "slashdot.org", url: "https://slashdot.org/", keptAt: at }, "png")).toBe("slashdot.org (2026-11-20).png"); // the site is not said twice
+    expect(keptFilename({ title: "", url: "https://y.example/", keptAt: at }, "png")).toBe("y.example (2026-11-20).png");
+    expect(keptFilename({ title: "x".repeat(200), url: "https://z.example/", keptAt: at }, "png").length).toBeLessThan(130);
+  });
+
+  it("updates a record (what was saved to the account)", async () => {
+    const s = store();
+    const a = await s.add({ url: "https://a.example/", title: "A", text: "x", png: null });
+    const u = await s.update(a.id, { remote: { files: [{ kind: "text", filename: "A (a.example, 2026-11-20).txt", id: "f1" }] } });
+    expect(u?.remote?.files[0]?.id).toBe("f1");
+    expect((await s.get(a.id))?.record.remote?.files).toHaveLength(1);
+    expect(await s.update("0000000000000000", { title: "x" })).toBeNull();
+  });
 });
+

@@ -940,7 +940,7 @@
           const row = document.createElement("div"); row.className = "bm"; row.title = "Open the kept copy (⌘-click: the live page)";
           const tt = document.createElement("div"); tt.className = "t"; tt.textContent = k.title;
           const hh = document.createElement("div"); hh.className = "h"; let host = k.url; try { host = new URL(k.url).host; } catch {}
-          hh.textContent = host + " · kept " + relTime(k.keptAt) + (k.reason ? " · " + k.reason : "");
+          hh.textContent = host + " · kept " + relTime(k.keptAt) + (k.remote && k.remote.files && k.remote.files.length ? " · on askrobots" : "") + (k.reason ? " · " + k.reason : "");
           row.append(tt, hh);
           if (k.snippet) { const sn = document.createElement("div"); sn.className = "s"; sn.textContent = "…" + k.snippet + "…"; row.appendChild(sn); }
           row.onclick = (ev) => { setBm(false); if (ev.metaKey || ev.ctrlKey) newTab(k.url, true); else newTab("dbb-kept://" + k.id + "/", true); };
@@ -954,7 +954,10 @@
         try {
           const r = await window.x402.keep.tab({});
           if (!r.ok) toast("skipped", r.message || "Could not keep this page");
-          else toast("paid", "Kept “" + r.record.title + "”" + (r.bookmarked ? " and saved as a bookmark" : "") + " — find it in 🔖 › Kept copies");
+          else {
+            const up = r.record.remote && r.record.remote.files ? r.record.remote.files.length : 0;
+            toast("paid", "Kept “" + r.record.title + "”" + (r.bookmarked || up ? " — on askrobots too (" + [r.bookmarked ? "bookmark" : "", up ? (up === 1 ? "1 file" : up + " files") : ""].filter(Boolean).join(", ") + ")" : "") + (r.record.remote && r.record.remote.error ? " — could not save the copy to askrobots: " + r.record.remote.error : ""));
+          }
         } finally { b.disabled = false; }
       };
       async function loadBm() { bmLoading = true; renderBm(); try { bmApply(await window.x402.bookmarks.refresh()); } finally { bmLoading = false; if (bmOpen) renderBm(); } }

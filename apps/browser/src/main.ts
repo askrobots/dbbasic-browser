@@ -35,7 +35,7 @@ import { handle as handleControl, getTabs, setTabs, startControl, type ApprovalP
 import { ChatService } from "./chat-service.js";
 import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 import { BookmarksService } from "./bookmarks-service.js";
-import { KEPT_SCHEME, KeepStore, keptPageHtml, keptUrl, parseKeptUrl } from "./keep-store.js";
+import { KEPT_SCHEME, KeepStore, keptFilename, keptPageHtml, keptUrl, parseKeptUrl, type KeptRecord } from "./keep-store.js";
 import { diskUsage, type DiskUsage } from "./disk-usage.js";
 import { macFootprints } from "./process-memory.js";
 
@@ -997,10 +997,36 @@ app.whenReady().then(async () => {
     const img = await wc.capturePage().catch(() => null);
     const png = img && !img.isEmpty() ? img.toPNG() : null;
     const text = String((await wc.executeJavaScript("document.body ? document.body.innerText : ''").catch(() => "")) ?? "");
-    const record = await keep.add({ url: t.url, title: t.title, text, png, ...(o.reason ? { reason: o.reason } : {}) });
-    // Also a bookmark on askrobots, when connected (a page kept is a page worth finding again).
+    let record: KeptRecord = await keep.add({ url: t.url, title: t.title, text, png, ...(o.reason ? { reason: o.reason } : {}) });
+    // Also a bookmark on askrobots, and the picture and text in its Files, when connected (a page kept is a page worth finding
+    // again, from anywhere). Private, with readable names; the local copy stays either way.
     let bookmarked = false;
-    if (o.bookmark !== false && mcp.isLoaded() && mcp.isSignedIn(BOOKMARK_SERVER)) bookmarked = (await bookmarks.add(t.url, t.title)).ok;
+    if (o.bookmark !== false && mcp.isLoaded() && mcp.isSignedIn(BOOKMARK_SERVER)) {
+      bookmarked = (await bookmarks.add(t.url, t.title)).ok;
+      const when = new Date(record.keptAt).toISOString().slice(0, 16).replace("T", " ");
+      const description = `Kept from ${record.url} on ${when} UTC: ${record.title}${record.reason ? ` (why: ${record.reason})` : ""}`.slice(0, 500);
+      const files: NonNullable<KeptRecord["remote"]>["files"] = [];
+      let error: string | undefined;
+      const upload = async (kind: "image" | "text", filename: string, body: Buffer) => {
+        try {
+          const out = await mcp.callDirect(BOOKMARK_SERVER, "upload_file", { filename, content_base64: body.toString("base64"), description }, { fixed: true });
+          let id: string | undefined;
+          try {
+            const j = JSON.parse(out) as Record<string, unknown>;
+            id = typeof j.id === "string" ? j.id : typeof j.file_id === "string" ? j.file_id : undefined;
+          } catch {
+            /* an answer that is not JSON still means it was saved */
+          }
+          files.push({ kind, filename, ...(id ? { id } : {}) });
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e);
+        }
+      };
+      if (png) await upload("image", keptFilename(record, "png"), png);
+      const header = `${record.title}\n${record.url}\nKept ${when} UTC${record.reason ? `\nWhy: ${record.reason}` : ""}\n\n`;
+      await upload("text", keptFilename(record, "txt"), Buffer.from(header + text, "utf8"));
+      record = (await keep.update(record.id, { remote: { files, ...(error ? { error } : {}) } })) ?? record;
+    }
     if (o.close !== false) await askChrome("tab.close", { id: t.id }).catch(() => {});
     emit({ kind: "kept", title: record.title, url: record.url, id: record.id, imageBytes: record.imageBytes, textChars: record.textChars });
     return { ok: true, record, view: keptUrl(record.id), bookmarked, closed: o.close !== false };

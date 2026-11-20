@@ -26,6 +26,28 @@ export interface KeptRecord {
   /** Characters of text kept. */
   textChars: number;
   imageBytes: number;
+  /** Copies saved to the person's account (askrobots Files), when connected. */
+  remote?: { files: Array<{ kind: "image" | "text"; filename: string; id?: string }>; error?: string };
+}
+
+/**
+ * A readable file name for a kept copy: "<title> (<site>, <date>).<ext>". Characters that file systems or URLs treat
+ * specially are dropped, and the name is kept short enough for any of them.
+ */
+export function keptFilename(r: Pick<KeptRecord, "title" | "url" | "keptAt">, ext: "png" | "txt"): string {
+  let host = "";
+  try {
+    host = new URL(r.url).hostname.replace(/^www\./, "");
+  } catch {
+    /* no site */
+  }
+  const clean = (x: string) => x.replace(/[\u0000-\u001f\/\\:*?"<>|#%{}^~\[\]`]+/g, " ").replace(/\s+/g, " ").trim();
+  let title = clean(r.title || "");
+  const titleIsSite = !title || title.toLowerCase() === host.toLowerCase();
+  if (titleIsSite) title = host || "Page";
+  if (title.length > 90) title = `${title.slice(0, 89).trimEnd()}…`;
+  const date = new Date(r.keptAt).toISOString().slice(0, 10);
+  return `${title} (${host && !titleIsSite ? `${host}, ` : ""}${date}).${ext}`;
 }
 
 export const keptUrl = (id: string, file = "") => `${KEPT_SCHEME}://${id}/${file}`;
@@ -144,6 +166,15 @@ export class KeepStore {
     }
     out.sort((a, b) => b.keptAt - a.keptAt);
     return out.slice(0, limit);
+  }
+
+  /** Change a kept copy's record (for example once it has been saved to the person's account). */
+  async update(id: string, patch: Partial<Omit<KeptRecord, "id">>): Promise<KeptRecord | null> {
+    const g = await this.get(id);
+    if (!g) return null;
+    const r = { ...g.record, ...patch, id: g.record.id };
+    await fs.writeFile(join(this.folder(id), "record.json"), JSON.stringify(r), { mode: 0o600 });
+    return r;
   }
 
   async remove(id: string): Promise<boolean> {

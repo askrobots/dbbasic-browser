@@ -574,6 +574,7 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     req.on("end", () => { const t = new URLSearchParams(raw).get("token"); oauth.access.delete(t); oauth.refresh.delete(t); oauth.revoked++; res.writeHead(200).end(); });
     return;
   }
+  if (path === "/o/_files") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.files ?? [])); return; }
   if (path === "/o/_links") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.links ?? [])); return; }
   if (path === "/o/_seed") { // many old links, with one at the very end that the newest-100 list cannot reach
     oauth.links ??= [];
@@ -601,6 +602,7 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
         { name: "person", description: "Get a contact", inputSchema: { type: "object", properties: {} } },
         { name: "wipe", description: "Delete everything", inputSchema: { type: "object", properties: {} } },
         { name: "list_links", description: "List saved links, newest first", inputSchema: { type: "object", properties: { limit: { type: "integer" }, search: { type: "string" }, project_id: { type: "string" } } } },
+        { name: "upload_file", description: "Upload a file", inputSchema: { type: "object", properties: { filename: { type: "string" }, content_base64: { type: "string" }, description: { type: "string" }, category: { type: "string" }, is_public: { type: "boolean" }, project_id: { type: "string" } }, required: ["filename", "content_base64"] } },
         { name: "create_link", description: "Save a link", inputSchema: { type: "object", properties: { url: { type: "string" }, title: { type: "string" }, project_id: { type: "string" }, is_public: { type: "boolean" } }, required: ["url"] } },
       ] });
       if (b.method === "tools/call") {
@@ -614,6 +616,13 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
           const a = b.params.arguments || {};
           const list = oauth.links.filter((l) => !a.search || (l.title + l.url).toLowerCase().includes(String(a.search).toLowerCase())).filter((l) => !a.project_id || l.project_id === a.project_id).slice(0, Math.min(Number(a.limit) || 20, 100));
           return ok({ content: [{ type: "text", text: JSON.stringify(list) }] });
+        }
+        if (t === "upload_file") {
+          const a = b.params.arguments || {};
+          oauth.files ??= [];
+          const f = { id: "f" + (oauth.files.length + 1), filename: a.filename, bytes: Buffer.from(a.content_base64 || "", "base64").length, head: Buffer.from(a.content_base64 || "", "base64").subarray(0, 8).toString("hex"), text: /\.txt$/.test(a.filename || "") ? Buffer.from(a.content_base64 || "", "base64").toString("utf8").slice(0, 300) : undefined, description: a.description, category: a.category, is_public: !!a.is_public, project_id: a.project_id ?? null };
+          oauth.files.push(f);
+          return ok({ content: [{ type: "text", text: JSON.stringify({ id: f.id, filename: f.filename, uploaded: true }) }] });
         }
         if (t === "create_link") {
           const a = b.params.arguments || {};

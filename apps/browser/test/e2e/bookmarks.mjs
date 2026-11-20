@@ -111,5 +111,14 @@ export default async function (ctx) {
   await sleep(300);
   const kept = await T("keep.tab", {});
   check(kept.ok && kept.bookmarked === true && (await server()).some((l) => l.url === base + "/keep-me"), "keeping a page while connected also saves it as a bookmark on askrobots", JSON.stringify({ ok: kept.ok, bookmarked: kept.bookmarked }));
+  const files = await (await fetch(base + "/o/_files")).json();
+  const png = files.find((f) => /\.png$/.test(f.filename)), txt = files.find((f) => /\.txt$/.test(f.filename));
+  const today = new Date().toISOString().slice(0, 10);
+  check(png && png.filename === `Marmalade notes (127.0.0.1, ${today}).png` && png.head === "89504e470d0a1a0a" && png.bytes > 1000, "and its picture goes to the account's Files as a real PNG with a readable name: title, site and date", JSON.stringify(png && { filename: png.filename, bytes: png.bytes }));
+  check(txt && txt.filename === `Marmalade notes (127.0.0.1, ${today}).txt` && /^Marmalade notes\nhttp:\/\/127\.0\.0\.1:\d+\/keep-me\nKept /.test(txt.text) && /zebra keeps a secret recipe/.test(txt.text), "and its text too, headed by the title, address and time", txt && txt.text.slice(0, 80));
+  check(files.every((f) => f.is_public === false && f.category === "browser/kept" && f.project_id === "P-links" && /^Kept from http/.test(f.description)), "both private, in the category and project the server's entry names, described with where they came from", JSON.stringify(files.map((f) => [f.category, f.project_id, f.is_public])));
+  check(kept.record.remote && kept.record.remote.files.length === 2 && !kept.record.remote.error, "the kept copy records what was saved to the account", JSON.stringify(kept.record.remote));
+  const offered = await T("mcp.tools");
+  check(!offered.some((x) => /upload_file/.test(x.name)), "the assistant is never offered the upload tool (only the browser itself uses it)");
 }
 

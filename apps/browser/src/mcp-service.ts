@@ -25,6 +25,8 @@ export interface McpServerConfig {
   tools: string[];
   /** The ones that only read. Every other enabled tool asks every time. */
   readOnly: string[];
+  /** Tools the browser itself may call (saving a kept copy, for example) that the assistant is never offered. */
+  browserOnly?: string[];
   /** Arguments forced on a tool, whatever the model sends (and hidden from the model). */
   fixedArgs?: Record<string, Record<string, unknown>>;
   /** Result fields removed before the model sees them, per tool. */
@@ -37,9 +39,10 @@ export const DEFAULT_SERVERS: McpServerConfig[] = [
     name: "askrobots.com",
     url: "https://askrobots.com/api/mcp/",
     tools: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links", "create_link"],
+    browserOnly: ["upload_file"],
     readOnly: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links"],
     // Saved links are private. To keep them in one project, put its id in this entry's fixedArgs in mcp-servers.json.
-    fixedArgs: { create_link: { is_public: false } },
+    fixedArgs: { create_link: { is_public: false }, upload_file: { is_public: false, category: "browser/kept" } },
     dropFields: { get_contact: ["notes", "interactions"], list_contacts: ["notes", "interactions"] },
   },
 ];
@@ -73,7 +76,8 @@ export function parseServerConfigs(text: string): { servers: McpServerConfig[]; 
     }
     const tools = strings(e.tools, 40);
     const readOnly = strings(e.readOnly ?? [], 40);
-    if (!ok || !tools || !tools.length || !readOnly || !readOnly.every((r) => tools.includes(r))) {
+    const browserOnly = strings(e.browserOnly ?? [], 20);
+    if (!ok || !tools || !tools.length || !readOnly || !readOnly.every((r) => tools.includes(r)) || !browserOnly) {
       problems.push(`${where} (${e.id}): url must be https, "tools" must list the tools to allow, and "readOnly" must be among them`);
       continue;
     }
@@ -83,6 +87,7 @@ export function parseServerConfigs(text: string): { servers: McpServerConfig[]; 
       url: e.url,
       tools,
       readOnly,
+      ...(browserOnly && browserOnly.length ? { browserOnly } : {}),
       ...(isObj(e.fixedArgs) ? { fixedArgs: e.fixedArgs as Record<string, Record<string, unknown>> } : {}),
       ...(isObj(e.dropFields) ? { dropFields: e.dropFields as Record<string, string[]> } : {}),
     });
@@ -494,7 +499,7 @@ export class McpService {
   async callDirect(id: string, tool: string, args: Record<string, unknown>, opts: { fixed: boolean }): Promise<string> {
     this.refuseInCallerMode();
     const c = this.cfg(id);
-    if (!c.tools.includes(tool)) throw new Error(`${tool} is not one of the tools allowed for ${c.name}`);
+    if (!c.tools.includes(tool) && !(c.browserOnly ?? []).includes(tool)) throw new Error(`${tool} is not one of the tools allowed for ${c.name}`);
     if (!this.isSignedIn(id)) throw new Error(`not signed in to ${c.name}`);
     const fixed = opts.fixed ? (c.fixedArgs?.[tool] ?? {}) : {};
     let res;
