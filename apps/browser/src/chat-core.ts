@@ -7,7 +7,11 @@
  *  - The user's own typed messages are the only instructions. What tools return (page text, field labels, results from
  *    other servers) is wrapped in <data> tags and the system prompt says it is untrusted.
  *  - A tool that changes something (risk "act") is announced and asked about before it runs, unless the policy says
- *    this one may run unasked. A tool marked "danger" is always asked about.
+ *    this one may run unasked. In "auto" mode only tools that say they are safe (`safe`) run unasked; a tool marked
+ *    "danger" is always asked about.
+ *  - Once the conversation has read private data from one of the person's own accounts (a tool marked `private`), every
+ *    action that could carry data out (`carriesData`: typing, opening an address) asks, in any mode. An open site is not a
+ *    trusted site: a page the person is on can try to talk the assistant into copying what it read into the page.
  *  - Tool results are cut to a fixed size, and old ones shrink as the conversation grows, so a long page cannot
  *    crowd out the conversation or run up the bill.
  */
@@ -54,10 +58,23 @@ export interface ModelClient {
 export type Risk = "read" | "act";
 export interface ToolDef extends ToolSpec {
   risk: Risk;
+  /** Its results are private data from the person's own accounts (not page text). */
+  private?: boolean;
   /** Run it. Throw to report an error to the model. */
   run(input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
   /** For tools that act: what is about to happen, in words, and whether it must always be asked about. */
-  plan?(input: Record<string, unknown>): Promise<{ summary: string; danger?: boolean; refuse?: string }>;
+  plan?(input: Record<string, unknown>): Promise<Plan>;
+}
+
+export interface Plan {
+  summary: string;
+  /** Always asked about, in any mode. */
+  danger?: boolean;
+  /** Harmless enough to run unasked in "auto" mode. Anything that does not say so asks. */
+  safe?: boolean;
+  /** Could carry what the assistant knows out of the browser (typing, opening an address). */
+  carriesData?: boolean;
+  refuse?: string;
 }
 
 export type ChatEvent =
@@ -69,7 +86,7 @@ export type ChatEvent =
   | { kind: "done"; reason: "answered" | "stopped" | "max-steps" | "length" | "refused" | "error"; message?: string };
 
 export interface Policy {
-  /** "ask": every tool that acts is asked about. "auto": only dangerous ones are. */
+  /** "ask": every tool that acts is asked about. "auto": only tools that say they are safe run unasked. */
   mode: "ask" | "auto";
 }
 
@@ -150,6 +167,7 @@ export async function runChat(a: RunArgs): Promise<void> {
   const byName = new Map(a.tools.map((t) => [t.name, t]));
   history.push({ role: "user", text: a.userText.slice(0, MAX_USER_CHARS) });
   const max = a.maxSteps ?? MAX_STEPS;
+  let tainted = false; // has this conversation read private data from the person's accounts?
   for (let step = 0; step < max; step++) {
     if (a.signal?.aborted) return emit({ kind: "done", reason: "stopped" });
     let turn: ModelTurn;
@@ -187,9 +205,9 @@ export async function runChat(a: RunArgs): Promise<void> {
           return fail(`refused: ${plan.refuse}`);
         }
         summary = plan.summary;
-        const mustAsk = a.policy.mode === "ask" || plan.danger === true;
+        const mustAsk = a.policy.mode === "ask" || plan.danger === true || plan.safe !== true || (tainted && plan.carriesData === true);
         if (mustAsk) {
-          const ok = await a.confirm({ id: call.id, name: call.name, summary, danger: plan.danger === true });
+          const ok = await a.confirm({ id: call.id, name: call.name, summary, danger: plan.danger === true || (tainted && plan.carriesData === true) });
           if (a.signal?.aborted) return fail("stopped");
           if (!ok) {
             emit({ kind: "tool-denied", id: call.id, name: call.name, reason: "the person said no" });
@@ -203,6 +221,7 @@ export async function runChat(a: RunArgs): Promise<void> {
     emit({ kind: "tool-start", id: call.id, name: call.name, input: call.input, summary });
     try {
       const out = await tool.run(call.input, a.signal);
+      if (tool.private) tainted = true;
       const text = typeof out === "string" ? out : JSON.stringify(out);
       emit({ kind: "tool-end", id: call.id, name: call.name, ok: true, note: `${text.length} characters` });
       return { id: call.id, name: call.name, text: wrapResult(text), isError: false };

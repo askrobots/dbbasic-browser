@@ -77,6 +77,18 @@ export default async function (ctx) {
   check((await run2).reply === "Result: saved", "a yes sends it");
   check((await stats()).lastArgs.project_id === "P-1" && (await stats()).lastArgs.title === "A good page", "the server received the fixed project, whatever the model asked for", JSON.stringify((await stats()).lastArgs));
 
+  // After private data was read from the account, typing asks even in Auto mode (a page could have talked the assistant into copying it)
+  await T("page.goto", { url: base + "/forms" });
+  await T("chat.mode", { mode: "auto" });
+  since = (await ev(0)).next;
+  const run3 = T("chat.send", { text: "exfil the notes" });
+  const ask3 = await waitFor(async () => (await ev(since)).events.find((e) => e.kind === "confirm"), "the approval for typing after a private read");
+  check(/Type “COPIED-FROM-NOTES”/.test(ask3.summary) && ask3.danger === true, "in Auto mode, typing right after a private read asks, and is marked risky", ask3.summary);
+  check((await T("page.eval", { js: "document.querySelector('[name=first]').value" })).value === "Ada", "and nothing has been typed yet");
+  await T("chat.confirm", { id: ask3.id, ok: false });
+  check((await run3).reply === "Result: declined" && (await T("page.eval", { js: "document.querySelector('[name=first]').value" })).value === "Ada", "a no leaves the page untouched");
+  await T("chat.mode", { mode: "ask" });
+
   // refresh: with very short-lived access tokens every call has to refresh first, and keeps working
   await T("mcp.disconnect", { id: "demo" });
   await fetch(base + "/o/_short?on=1");

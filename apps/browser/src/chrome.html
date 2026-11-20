@@ -705,7 +705,7 @@
         $("chatSub").textContent = chatInfo.available ? chatInfo.model + (chatInfo.endpoint ? " @ " + chatInfo.endpoint : "") : "off";
         $("chatMode").value = chatInfo.mode;
         $("chatPriv").textContent = chatInfo.available
-          ? "Your messages and what the assistant reads from your pages go to " + (chatInfo.endpoint || (chatInfo.provider === "anthropic" ? "Anthropic" : "OpenAI")) + ". Passwords, card and code fields are never filled."
+          ? "Your messages, what the assistant reads from your pages, and from services you connect (contacts, notes…) go to " + (chatInfo.endpoint || (chatInfo.provider === "anthropic" ? "Anthropic" : "OpenAI")) + ". Passwords, card and code fields are never filled."
           : "";
         chatLog.textContent = "";
         chatSeen = 0;

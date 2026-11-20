@@ -862,7 +862,7 @@ app.whenReady().then(async () => {
         defaultId: 1,
         cancelId: 1,
         message: `Let the assistant send to ${where}?`,
-        detail: `Your messages, and whatever the assistant reads from your open pages (text, field names, addresses), go to ${model} at ${where}. It does not list or fill password, card number or one-time-code fields, but visible page text is visible to it. You approve each action before it happens. This question is asked once per model per session.`,
+        detail: `Your messages, and whatever the assistant reads from your open pages (text, field names, addresses), go to ${model} at ${where}. If you have connected services, what the assistant reads from them (for example contacts, notes and tasks) goes there too. It does not list or fill password, card number or one-time-code fields, but visible page text is visible to it. You approve each action before it happens. This question is asked once per model per session.`,
       };
       const r = mainWindow ? await dialog.showMessageBox(mainWindow, opts) : await dialog.showMessageBox(opts);
       return r.response === 0;

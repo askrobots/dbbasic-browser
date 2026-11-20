@@ -23,7 +23,7 @@ function scripted(turns: ModelTurn[]): ModelClient & { seen: ChatMsg[][] } {
 }
 
 const readTool = (out: unknown): ToolDef => ({ name: "peek", description: "", input_schema: { type: "object" }, risk: "read", run: async () => out });
-function actTool(log: string[], plan: Partial<{ summary: string; danger: boolean; refuse: string }> = {}): ToolDef {
+function actTool(log: string[], plan: Partial<{ summary: string; danger: boolean; safe: boolean; carriesData: boolean; refuse: string }> = {}): ToolDef {
   return { name: "poke", description: "", input_schema: { type: "object" }, risk: "act", plan: async () => ({ summary: "poke it", ...plan }), run: async () => (log.push("ran"), "poked") };
 }
 
@@ -67,11 +67,32 @@ describe("the chat loop", () => {
 
   it("in auto mode an ordinary action runs unasked but a dangerous one is still asked about", async () => {
     const log: string[] = [];
-    const a = await go(scripted([turn({ calls: [{ id: "1", name: "poke", input: {} }], stop: "tools" }), turn({ text: "done" })]), [actTool(log)], { mode: "auto" });
+    const a = await go(scripted([turn({ calls: [{ id: "1", name: "poke", input: {} }], stop: "tools" }), turn({ text: "done" })]), [actTool(log, { safe: true })], { mode: "auto" });
     expect(a.asked).toEqual([]);
     expect(log).toEqual(["ran"]);
     const b = await go(scripted([turn({ calls: [{ id: "1", name: "poke", input: {} }], stop: "tools" }), turn({ text: "done" })]), [actTool(log, { danger: true })], { mode: "auto" });
     expect(b.asked).toEqual([{ summary: "poke it", danger: true }]);
+  });
+
+  it("in auto mode only what says it is safe runs unasked: an action that says nothing asks", async () => {
+    const log: string[] = [];
+    const r = await go(scripted([turn({ calls: [{ id: "1", name: "poke", input: {} }], stop: "tools" }), turn({ text: "done" })]), [actTool(log)], { mode: "auto" });
+    expect(r.asked).toEqual([{ summary: "poke it", danger: false }]);
+  });
+
+  it("after private data was read from an account, an action that could carry it out asks even in auto mode, marked risky", async () => {
+    const log: string[] = [];
+    const secret: ToolDef = { ...readTool("Ada's phone number"), name: "contacts", private: true };
+    const typing = actTool(log, { safe: true, carriesData: true });
+    // before any private read: runs unasked
+    const before = await go(scripted([turn({ calls: [{ id: "1", name: "poke", input: {} }], stop: "tools" }), turn({ text: "done" })]), [typing], { mode: "auto" });
+    expect(before.asked).toEqual([]);
+    // after one: asks, and the card is marked risky
+    const after = await go(scripted([turn({ calls: [{ id: "1", name: "contacts", input: {} }], stop: "tools" }), turn({ calls: [{ id: "2", name: "poke", input: {} }], stop: "tools" }), turn({ text: "done" })]), [secret, typing], { mode: "auto" });
+    expect(after.asked).toEqual([{ summary: "poke it", danger: true }]);
+    // an action that cannot carry data out is unaffected
+    const harmless = await go(scripted([turn({ calls: [{ id: "1", name: "contacts", input: {} }], stop: "tools" }), turn({ calls: [{ id: "2", name: "poke", input: {} }], stop: "tools" }), turn({ text: "done" })]), [secret, actTool(log, { safe: true })], { mode: "auto" });
+    expect(harmless.asked).toEqual([]);
   });
 
   it("a refused plan never asks and never runs", async () => {
@@ -193,6 +214,28 @@ describe("the page tools", () => {
     const plan = await tool("type_text").plan!({ ref: "e1", text: "x" });
     expect(plan.refuse).toMatch(/password field/);
     expect(calls.some(([m]) => m === "page.type")).toBe(false);
+  });
+
+  it("in auto mode only a short list of clicks is safe: a link to a site that is open, a checkbox, a radio button; an ordinary button asks whatever it says", async () => {
+    const t = (info: Record<string, unknown>) => setup(info).tool("click").plan!({ ref: "e1" });
+    expect((await t({ found: true, tag: "a", text: "More", link: "https://shop.example/more" })).safe).toBe(true);
+    expect((await t({ found: true, tag: "a", text: "More", link: "https://elsewhere.example/?d=1" })).safe).toBe(false);
+    expect((await t({ found: true, tag: "input", type: "checkbox", label: "News" })).safe).toBe(true);
+    expect((await t({ found: true, tag: "input", type: "radio", label: "Mail" })).safe).toBe(true);
+    expect((await t({ found: true, tag: "button", type: "button", text: "Post" })).safe).toBe(false); // "Post" is not in any word list, and still asks
+    expect((await t({ found: true, tag: "button", type: "button", text: "Accept" })).safe).toBe(false);
+    expect((await t({ found: true, tag: "button", type: "submit", text: "Go", submits: true })).safe).toBe(false);
+  });
+
+  it("typing and opening addresses are flagged as able to carry data out; moving keys and going back are safe", async () => {
+    const { tool } = setup({ found: true, tag: "input", type: "text", label: "Name" });
+    expect(await tool("type_text").plan!({ ref: "e1", text: "x" })).toMatchObject({ safe: true, carriesData: true });
+    expect(await tool("go_to").plan!({ url: "https://shop.example/x" })).toMatchObject({ safe: true, carriesData: true });
+    expect(await tool("open_tab").plan!({ url: "https://shop.example/x" })).toMatchObject({ carriesData: true, danger: false });
+    expect((await tool("open_tab").plan!({ url: "https://shop.example/x" })).safe).toBeFalsy(); // a new tab always asks in auto mode
+    expect(await tool("press_key").plan!({ key: "Tab" })).toMatchObject({ safe: true });
+    expect(await tool("press_key").plan!({ key: "Enter" })).toMatchObject({ danger: true, safe: false });
+    expect(await tool("back").plan!({})).toMatchObject({ safe: true });
   });
 
   it("a click that submits a form, or says pay/delete/send, is dangerous; a plain link is not", async () => {

@@ -12,8 +12,8 @@ Nothing has been released yet, so everything below is under **Unreleased**.
   fields. Tokens stay in the main process, encrypted by the OS keychain (or in memory with `DBB_MCP_STORE=memory`).
   askrobots.com is built in; more servers go in `mcp-servers.json`. Scriptable as `mcp.*`.
 - **Assistant chat** (⌘J). A side panel to talk to an assistant about the page you are on and ask it to read, find, fill in
-  and open things, using the browser's own page tools. Every action waits for your OK (or, in Auto mode, only risky ones:
-  submitting, pressing Enter, opening a site that is not already open); password, card and one-time-code fields are never
+  and open things, using the browser's own page tools. Every action waits for your OK (or, in Auto mode, everything outside a short
+  allow-list asks, and after it has read private data from a connected service typing and opening addresses ask in every mode); password, card and one-time-code fields are never
   filled or listed by value; page text is treated as untrusted data. Works with Anthropic, OpenAI, or a model on this
   machine or your network (`DBB_AI_BASE_URL`). Asks before the first message to each model, announces every run in the
   event log, and is off while the caller network is on. Scriptable as `chat.*`.

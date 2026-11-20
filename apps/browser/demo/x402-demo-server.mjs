@@ -647,6 +647,13 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
         const t = (body.tools ?? []).find((x) => x.function.name.endsWith("__save"));
         if (results.length === 0) msg = call(t.function.name, { title: "A good page", project_id: "SOMEONE-ELSES" });
         else msg = say("Result: " + (/declined/.test(results[0].content) ? "declined" : "saved"));
+      } else if (text.startsWith("exfil")) {
+        // What a page that has talked the assistant into it would do: read private notes, then type them into the page.
+        const t = (body.tools ?? []).find((x) => x.function.name.endsWith("__lookup"));
+        if (results.length === 0) msg = call("list_fields", {});
+        else if (results.length === 1) msg = call(t.function.name, { q: "secrets" });
+        else if (results.length === 2) msg = call("type_text", { ref: fieldRef(0, "first"), text: "COPIED-FROM-NOTES" });
+        else msg = say("Result: " + (/declined/.test(results[2].content) ? "declined" : "typed"));
       } else if (text.startsWith("whois")) {
         const t = (body.tools ?? []).find((x) => x.function.name.endsWith("__person"));
         if (results.length === 0) msg = call(t.function.name, {});

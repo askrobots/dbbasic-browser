@@ -1,10 +1,13 @@
 /**
  * The tools the chat can use on the open tabs. Each one is a thin layer over the browser's own automation methods
  * (the same ones scripts use), run in-process through `run`. Reading tools just run; tools that change something say
- * what they are about to do first (see chat-core.ts), and some are always asked about:
- *  - clicking a button that submits a form, or whose words are about paying, buying, deleting or sending;
- *  - pressing Enter (it can submit a form);
- *  - opening an address on a site that is not already open (a page could try to smuggle what it read into an address).
+ * what they are about to do first (see chat-core.ts). In Auto mode only a short allow-list runs unasked:
+ *  - switching tab, going back, keys that only move (Tab, arrows, Page Up/Down…);
+ *  - typing into an ordinary field and choosing in a dropdown;
+ *  - clicking a link to a site that is already open, a checkbox or radio button, or a disclosure triangle.
+ * Everything else asks: any other click (a "Post" or "Accept" button need not say anything scary), Enter, opening an address on
+ * a site that is not open. Clicks that submit a form or are about paying, buying, deleting or sending are always marked risky.
+ * After the assistant has read private data from a connected account, typing and opening addresses ask in every mode.
  * Fields for passwords, card numbers and one-time codes are refused outright.
  */
 
@@ -113,7 +116,8 @@ export function pageTools(run: Runner): ToolDef[] {
       risk: "act",
       plan: async (input) => {
         const u = webAddress(str(input, "url"));
-        return { summary: `Open ${short(u.href, 160)} in a new tab`, danger: !(await openHosts()).has(u.host) };
+        const known = (await openHosts()).has(u.host);
+        return { summary: `Open ${short(u.href, 160)} in a new tab`, danger: !known, carriesData: true };
       },
       run: async (input) => run("tabs.new", { url: webAddress(str(input, "url")).href }),
     },
@@ -124,7 +128,8 @@ export function pageTools(run: Runner): ToolDef[] {
       risk: "act",
       plan: async (input) => {
         const u = webAddress(str(input, "url"));
-        return { summary: `Go to ${short(u.href, 160)}`, danger: !(await openHosts()).has(u.host) };
+        const known = (await openHosts()).has(u.host);
+        return { summary: `Go to ${short(u.href, 160)}`, danger: !known, safe: known, carriesData: true };
       },
       run: async (input) => run("page.goto", { ...tabParam(input), url: webAddress(str(input, "url")).href }),
     },
@@ -133,7 +138,7 @@ export function pageTools(run: Runner): ToolDef[] {
       description: "Go back one page in a tab.",
       input_schema: { type: "object", properties: tabProp, additionalProperties: false },
       risk: "act",
-      plan: async () => ({ summary: "Go back one page" }),
+      plan: async () => ({ summary: "Go back one page", safe: true }),
       run: async (input) => run("page.back", tabParam(input)),
     },
     {
@@ -141,7 +146,7 @@ export function pageTools(run: Runner): ToolDef[] {
       description: "Bring a tab to the front.",
       input_schema: { type: "object", properties: { tab: tabProp.tab }, required: ["tab"], additionalProperties: false },
       risk: "act",
-      plan: async (input) => ({ summary: `Switch to tab ${String(input.tab)}` }),
+      plan: async (input) => ({ summary: `Switch to tab ${String(input.tab)}`, safe: true }),
       run: async (input) => run("tabs.activate", tabParam(input)),
     },
     {
@@ -156,7 +161,17 @@ export function pageTools(run: Runner): ToolDef[] {
         const words = `${i.text ?? ""} ${i.label ?? ""}`;
         const danger = i.submits === true || DANGER.test(words);
         const kind = i.tag === "a" ? "link" : i.tag === "button" || i.type === "submit" ? "button" : (i.type ?? i.tag ?? "element");
-        return { summary: `Click ${kind} “${nameOf(i)}”${i.submits ? " (submits the form)" : ""}${i.link ? ` → ${short(i.link, 100)}` : ""}`, danger };
+        // Safe to run unasked: a link to a site that is already open, a checkbox or radio button, a disclosure triangle.
+        let toOpenSite = false;
+        if (i.link) {
+          try {
+            toOpenSite = (await openHosts()).has(new URL(i.link).host);
+          } catch {
+            /* not an address */
+          }
+        }
+        const safe = !danger && ((i.tag === "a" && toOpenSite) || i.type === "checkbox" || i.type === "radio" || i.tag === "summary");
+        return { summary: `Click ${kind} “${nameOf(i)}”${i.submits ? " (submits the form)" : ""}${i.link ? ` → ${short(i.link, 100)}` : ""}`, danger, safe };
       },
       run: async (input) => run("page.click", { ...tabParam(input), ref: str(input, "ref") }),
     },
@@ -170,7 +185,7 @@ export function pageTools(run: Runner): ToolDef[] {
         const gone = needFound(i);
         if (gone) return { summary: "", refuse: gone };
         if (i.sensitive) return { summary: "", refuse: `“${nameOf(i)}” is a ${i.sensitive} field. I never fill those; the person has to type it themselves.` };
-        return { summary: `Type “${short(String(input.text ?? ""), 80)}” into “${nameOf(i)}”` };
+        return { summary: `Type “${short(String(input.text ?? ""), 80)}” into “${nameOf(i)}”`, safe: true, carriesData: true };
       },
       run: async (input) => run("page.type", { ...tabParam(input), ref: str(input, "ref"), text: String(input.text ?? ""), clear: input.clear !== false }),
     },
@@ -184,7 +199,7 @@ export function pageTools(run: Runner): ToolDef[] {
         const gone = needFound(i);
         if (gone) return { summary: "", refuse: gone };
         if (i.sensitive) return { summary: "", refuse: `“${nameOf(i)}” is a ${i.sensitive} field.` };
-        return { summary: `Choose “${short(str(input, "option"), 60)}” in “${nameOf(i)}”` };
+        return { summary: `Choose “${short(str(input, "option"), 60)}” in “${nameOf(i)}”`, safe: true };
       },
       run: async (input) => {
         const r = (await run("page.eval", { js: CHOOSE_JS(str(input, "ref"), str(input, "option")), ...tabParam(input) })) as { value: { ok: boolean; why?: string; options?: string[]; chosen?: string } };
@@ -200,7 +215,7 @@ export function pageTools(run: Runner): ToolDef[] {
       plan: async (input) => {
         const k = str(input, "key");
         if (!KEYS.includes(k)) return { summary: "", refuse: `only these keys can be pressed: ${KEYS.join(", ")}` };
-        return { summary: k === "Enter" ? "Press Enter (this can submit a form)" : `Press ${k}`, danger: k === "Enter" };
+        return { summary: k === "Enter" ? "Press Enter (this can submit a form)" : `Press ${k}`, danger: k === "Enter", safe: k !== "Enter" };
       },
       run: async (input) => run("page.press", { ...tabParam(input), key: str(input, "key") }),
     },
