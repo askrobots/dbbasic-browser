@@ -8,7 +8,8 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ### Added
 - **Keep** (📥 next to the address). One click keeps a copy of the page you are on (a picture of what is on screen, and its
   text), saves it as a bookmark when askrobots is connected and puts the picture and the text in your askrobots Files (private, named
-  "<title> (<site>, <date>)"), and closes the tab, so a tab can go without losing what was in
+  "<title> (<site>, <date>)"; saving files is its own permission on the consent page, and a server without it still signs
+  you in, without that part), and closes the tab, so a tab can go without losing what was in
   it. Kept copies are listed under 🔖 › Kept copies, searched by their text, and open in a tab served by the browser itself
   (text and picture, nothing that runs), even when the original page has changed or gone. Pages with a sign-in form are not
   kept. Local only. The assistant can keep tabs too (with a one-line reason when told). Scriptable as `keep.*`.

@@ -23,7 +23,7 @@ export type Fetch = (url: string, init?: { method?: string; headers?: Record<str
 }>;
 
 export class OAuthError extends Error {
-  readonly code: "discovery" | "registration" | "denied" | "timeout" | "state" | "token" | "refresh" | "no-port" | "unsafe";
+  readonly code: "discovery" | "registration" | "denied" | "timeout" | "state" | "token" | "refresh" | "no-port" | "unsafe" | "scope";
   constructor(code: OAuthError["code"], message: string) {
     super(message);
     this.name = "OAuthError";

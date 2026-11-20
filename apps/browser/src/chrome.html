@@ -788,6 +788,7 @@
           row.append(dot, nm, btn);
           box.appendChild(row);
           if (sv.error && !sv.signedIn) { const er = document.createElement("div"); er.className = "er"; er.textContent = sv.error; box.appendChild(er); }
+          if (sv.signedIn && sv.missingScopes && sv.missingScopes.length) { const er = document.createElement("div"); er.className = "er"; er.textContent = sv.missingScopes.includes("files:upload") ? "Not allowed to save kept pages in your Files yet. Disconnect and connect again to allow it." : "Connect again to give the new permissions: " + sv.missingScopes.join(", "); box.appendChild(er); }
         }
       }
       function setChat(open) {

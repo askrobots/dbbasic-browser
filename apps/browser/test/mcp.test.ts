@@ -450,6 +450,73 @@ describe("signing in inside the browser's own tab", () => {
     expect(slow.captureRedirect("http://127.0.0.1:53682/callback?code=late&state=x")).toBeNull();
   });
 
+  it("asks for extra permissions the server does not publish; an older server that refuses them is asked again without", async () => {
+    for (const knows of [true, false]) {
+      const opened: string[] = [];
+      const regs: string[] = [];
+      let granted = "";
+      let svc!: McpService;
+      const f = fakeFetch((u, init) => {
+        const meta = META_DOCS(u, init);
+        if (meta.status !== 404) return meta;
+        if (u.pathname === "/o/register/") return (regs.push(JSON.parse(init.body ?? "{}").scope), { status: 201, json: { client_id: "cid-" + regs.length } });
+        if (u.pathname === "/o/token/") return { json: { access_token: "AT-x", refresh_token: "RT", expires_in: 3600, scope: granted } };
+        return { status: 404, json: {} };
+      });
+      svc = new McpService({
+        fetch: f, store: memStore(), servers: [{ ...SERVER, extraScopes: ["files:upload"] }], callerNetworkOn: () => false, announce: () => {}, now: () => 1,
+        openExternal: () => { throw new Error("no"); },
+        openTab: async (url) => {
+          opened.push(url);
+          const a = new URL(url);
+          const want = (a.searchParams.get("scope") ?? "").split(" ");
+          const back = new URL(a.searchParams.get("redirect_uri") as string);
+          if (!knows && want.includes("files:upload")) back.searchParams.set("error", "invalid_scope");
+          else (back.searchParams.set("code", "C"), (granted = want.join(" ")));
+          back.searchParams.set("state", a.searchParams.get("state") as string);
+          queueMicrotask(() => svc.captureRedirect(back.href));
+          return opened.length;
+        },
+        closeTab: async () => {},
+      });
+      await (await svc.connect("demo")).done;
+      expect(new URL(opened[0] as string).searchParams.get("scope")).toBe("mcp files:upload");
+      expect(svc.state()[0]).toMatchObject({ signedIn: true });
+      if (knows) {
+        expect(opened).toHaveLength(1);
+        expect(regs).toEqual(["mcp files:upload"]);
+        expect(svc.missingScopes("demo")).toEqual([]);
+        expect(svc.state()[0]?.missingScopes).toBeUndefined();
+      } else {
+        expect(opened).toHaveLength(2); // asked once more, without the extra
+        expect(new URL(opened[1] as string).searchParams.get("scope")).toBe("mcp");
+        expect(svc.state()[0]?.error).toBeUndefined();
+        expect(svc.missingScopes("demo")).toEqual(["files:upload"]);
+        expect(svc.state()[0]?.missingScopes).toEqual(["files:upload"]);
+      }
+    }
+  });
+
+  it("a sign-in from before an extra permission was asked for registers again, and keeps working until the new one is done", async () => {
+    const { f, st } = fakeServer();
+    const store = memStore();
+    const old = new McpService({ fetch: f, store, servers: [SERVER], callerNetworkOn: () => false, announce: () => {}, now: () => st.clock, openExternal: () => {} });
+    await signIn(old);
+    expect(st.registered).toBe(1);
+    let svc!: McpService;
+    svc = new McpService({
+      fetch: f, store, servers: [{ ...SERVER, extraScopes: ["files:upload"] }], callerNetworkOn: () => false, announce: () => {}, now: () => st.clock, openExternal: () => {},
+      openTab: async () => 3, closeTab: async () => {},
+    });
+    const r = await svc.connect("demo");
+    expect(st.registered).toBe(2); // the permissions changed
+    expect(await svc.token("demo")).toMatch(/^AT-/); // the old sign-in still works while the new one waits
+    svc.cancelConnect("demo");
+    await expect(r.done).rejects.toBeInstanceOf(OAuthError);
+    expect(svc.state()[0]?.signedIn).toBe(true);
+    expect(JSON.parse(store.text as string).servers.demo.clientId).toBe("cid-1"); // and the new client was not kept
+  });
+
   it("nothing is expected when no sign-in is waiting, and scripts can still ask for the address only", async () => {
     const t = inTab();
     expect(t.svc.captureRedirect("http://127.0.0.1:53682/callback?code=a&state=b")).toBeNull();
@@ -505,6 +572,8 @@ describe("where tokens are kept, and which servers there are", () => {
     expect(r.problems.length).toBe(4);
     expect(parseServerConfigs("not json").problems[0]).toMatch(/not valid JSON/);
     expect(parseServerConfigs(JSON.stringify([{ ...good, url: "http://127.0.0.1:9/mcp" }])).servers.length).toBe(1);
+    expect(parseServerConfigs(JSON.stringify([{ ...good, extraScopes: ["files:upload"] }])).servers[0]?.extraScopes).toEqual(["files:upload"]);
+    expect(parseServerConfigs(JSON.stringify([{ ...good, extraScopes: ["two words"] }])).servers).toEqual([]);
     const merged = loadServerConfigs("/f", () => JSON.stringify([{ ...good, id: "askrobots", name: "Mine" }])).servers;
     expect(merged.find((s) => s.id === "askrobots")?.name).toBe("Mine");
     expect(loadServerConfigs(undefined).servers).toEqual(DEFAULT_SERVERS);
@@ -521,5 +590,6 @@ describe("where tokens are kept, and which servers there are", () => {
     expect(a.fixedArgs?.create_link).toEqual({ is_public: false });
     expect(JSON.stringify(DEFAULT_SERVERS)).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/); // no personal ids in the shipped defaults
     expect(a.dropFields?.get_contact).toEqual(["notes", "interactions"]);
+    expect(a.extraScopes).toEqual(["files:upload"]); // saving kept pages in Files is its own permission
   });
 });

@@ -1008,6 +1008,10 @@ app.whenReady().then(async () => {
       const files: NonNullable<KeptRecord["remote"]>["files"] = [];
       let error: string | undefined;
       const upload = async (kind: "image" | "text", filename: string, body: Buffer) => {
+        if (mcp.missingScopes(BOOKMARK_SERVER).includes("files:upload")) {
+          error = "saving files was not allowed when you connected; connect again to allow it";
+          return;
+        }
         try {
           const out = await mcp.callDirect(BOOKMARK_SERVER, "upload_file", { filename, content_base64: body.toString("base64"), description }, { fixed: true });
           let id: string | undefined;

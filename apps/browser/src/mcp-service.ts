@@ -31,6 +31,11 @@ export interface McpServerConfig {
   fixedArgs?: Record<string, Record<string, unknown>>;
   /** Result fields removed before the model sees them, per tool. */
   dropFields?: Record<string, string[]>;
+  /**
+   * Permissions asked for at sign-in beyond the ones the server publishes (a server need not list every scope it has). If the
+   * server refuses them, the sign-in is tried once more without them, so an older server still works.
+   */
+  extraScopes?: string[];
 }
 
 export const DEFAULT_SERVERS: McpServerConfig[] = [
@@ -44,6 +49,8 @@ export const DEFAULT_SERVERS: McpServerConfig[] = [
     // Saved links are private. To keep them in one project, put its id in this entry's fixedArgs in mcp-servers.json.
     fixedArgs: { create_link: { is_public: false }, upload_file: { is_public: false, category: "browser/kept" } },
     dropFields: { get_contact: ["notes", "interactions"], list_contacts: ["notes", "interactions"] },
+    // Saving the pictures and text of kept pages in your Files is a separate permission, shown on the consent page.
+    extraScopes: ["files:upload"],
   },
 ];
 
@@ -77,8 +84,9 @@ export function parseServerConfigs(text: string): { servers: McpServerConfig[]; 
     const tools = strings(e.tools, 40);
     const readOnly = strings(e.readOnly ?? [], 40);
     const browserOnly = strings(e.browserOnly ?? [], 20);
-    if (!ok || !tools || !tools.length || !readOnly || !readOnly.every((r) => tools.includes(r)) || !browserOnly) {
-      problems.push(`${where} (${e.id}): url must be https, "tools" must list the tools to allow, and "readOnly" must be among them`);
+    const extraScopes = strings(e.extraScopes ?? [], 10);
+    if (!ok || !tools || !tools.length || !readOnly || !readOnly.every((r) => tools.includes(r)) || !browserOnly || !extraScopes || !extraScopes.every((x) => /^[\x21\x23-\x5b\x5d-\x7e]+$/.test(x))) {
+      problems.push(`${where} (${e.id}): url must be https, "tools" must list the tools to allow, "readOnly" must be among them, and "extraScopes" must be plain scope names`);
       continue;
     }
     servers.push({
@@ -90,6 +98,7 @@ export function parseServerConfigs(text: string): { servers: McpServerConfig[]; 
       ...(browserOnly && browserOnly.length ? { browserOnly } : {}),
       ...(isObj(e.fixedArgs) ? { fixedArgs: e.fixedArgs as Record<string, Record<string, unknown>> } : {}),
       ...(isObj(e.dropFields) ? { dropFields: e.dropFields as Record<string, string[]> } : {}),
+      ...(extraScopes.length ? { extraScopes } : {}),
     });
   }
   return { servers, problems };
@@ -169,7 +178,8 @@ export function createStore(path: string, enc: Encryption, files: Files): Store 
 // ---- the service -------------------------------------------------------------------------------------------------
 
 interface Saved {
-  servers: Record<string, { clientId?: string; issuer?: string; tokens?: Tokens }>;
+  /** `scope`: what the client was registered for, so asking for more registers again. */
+  servers: Record<string, { clientId?: string; issuer?: string; scope?: string; tokens?: Tokens }>;
 }
 
 export interface McpDeps {
@@ -198,6 +208,8 @@ export interface McpServerState {
   connecting: boolean;
   tools: string[];
   persistent: boolean;
+  /** Permissions this entry asks for that the current sign-in does not have (connect again to give them). */
+  missingScopes?: string[];
   error?: string;
 }
 
@@ -279,8 +291,18 @@ export class McpService {
       connecting: this.flows.has(c.id),
       tools: c.tools,
       persistent: this.saved.servers[c.id]?.tokens ? this.d.store.persistent : true, // only asked when signed in, so a closed panel never reaches the keychain
+      ...(this.missingScopes(c.id).length ? { missingScopes: this.missingScopes(c.id) } : {}),
       ...(this.errors.has(c.id) ? { error: this.errors.get(c.id) as string } : {}),
     }));
+  }
+
+  /** The entry's extra permissions the current sign-in lacks. Unknown (the server did not say what it granted) counts as none missing. */
+  missingScopes(id: string): string[] {
+    const c = this.d.servers.find((s) => s.id === id);
+    const granted = this.saved.servers[id]?.tokens?.scope;
+    if (!c?.extraScopes?.length || granted == null) return [];
+    const have = new Set(granted.split(/\s+/));
+    return c.extraScopes.filter((x) => !have.has(x));
   }
 
   private async metaFor(c: McpServerConfig): Promise<ServerMeta> {
@@ -313,7 +335,8 @@ export class McpService {
     this.expecting.delete(state as string);
     const err = u.searchParams.get("error");
     const code = u.searchParams.get("code");
-    if (err) e.reject(new OAuthError("denied", err === "access_denied" ? "sign-in was declined" : `the server refused the sign-in (${err.slice(0, 60)})`));
+    if (err === "invalid_scope") e.reject(new OAuthError("scope", "the server does not offer every permission asked for"));
+    else if (err) e.reject(new OAuthError("denied", err === "access_denied" ? "sign-in was declined" : `the server refused the sign-in (${err.slice(0, 60)})`));
     else if (code) e.resolve(code);
     else e.reject(new OAuthError("denied", "the server sent no code"));
     return { status: err || !code ? 400 : 200, html: DONE_PAGE(!err && !!code) };
@@ -348,17 +371,25 @@ export class McpService {
    * redirect itself; "system" opens the person's own browser and listens for the redirect on 127.0.0.1; "none" only returns the
    * address and listens, so a script can do what the person's browser would.
    */
-  async connect(id: string, opts: { open?: boolean; via?: "tab" | "system" | "none" } = {}): Promise<{ authorizeUrl: string; done: Promise<void> }> {
+  async connect(id: string, opts: { open?: boolean; via?: "tab" | "system" | "none"; withoutExtras?: boolean } = {}): Promise<{ authorizeUrl: string; done: Promise<void> }> {
     this.refuseInCallerMode();
     const c = this.cfg(id);
     const via = opts.via ?? (opts.open === false ? "none" : this.d.openTab ? "tab" : "system");
     this.flows.get(id)?.cancel();
     this.errors.delete(id);
-    const meta = await this.metaFor(c);
-    let entry = this.saved.servers[id] ?? (this.saved.servers[id] = {});
-    if (!entry.clientId || entry.issuer !== meta.issuer) {
-      entry = this.saved.servers[id] = { clientId: await register(meta, this.d.fetch, this.d.appName ?? "dbbasic-browser"), issuer: meta.issuer };
+    const found = await this.metaFor(c);
+    const extras = opts.withoutExtras ? [] : (c.extraScopes ?? []).filter((x) => !found.scopes.includes(x));
+    const meta: ServerMeta = extras.length ? { ...found, scopes: [...(found.scopes.length ? found.scopes : []), ...extras] } : found;
+    const scope = meta.scopes.join(" ");
+    const prev = this.saved.servers[id] ?? (this.saved.servers[id] = {});
+    let entry: Saved["servers"][string] = prev;
+    if (!prev.clientId || prev.issuer !== meta.issuer) {
+      entry = this.saved.servers[id] = { clientId: await register(meta, this.d.fetch, this.d.appName ?? "dbbasic-browser"), issuer: meta.issuer, scope };
       this.persist();
+    } else if ((prev.scope ?? found.scopes.join(" ")) !== scope) {
+      // Asking for different permissions: registered again, in case the server holds a client to what it registered with. The
+      // new client is kept only once this sign-in works, so a current sign-in (and its refreshes) is untouched until then.
+      entry = { clientId: await register(meta, this.d.fetch, this.d.appName ?? "dbbasic-browser"), issuer: meta.issuer, scope };
     }
     const clientId = entry.clientId as string;
     const { verifier, challenge } = newPkce();
@@ -378,20 +409,26 @@ export class McpService {
     let tabId: number | null = null;
     this.flows.set(id, { cancel: waiter.cancel });
     const done = (async () => {
+      let again = false;
       try {
         const code = await waiter.code;
         const tokens = await exchangeCode(meta, this.d.fetch, { clientId, code, verifier, redirect }, this.now());
-        this.saved.servers[id] = { ...entry, clientId, tokens };
+        this.saved.servers[id] = { clientId, issuer: entry.issuer ?? meta.issuer, scope: entry.scope ?? scope, tokens };
         this.persist();
         this.toolCache.delete(id);
+        this.clients.delete(id);
         this.d.announce({ kind: "mcp-signed-in", server: c.id, host: new URL(c.url).host });
       } catch (e) {
-        this.errors.set(id, e instanceof Error ? e.message : String(e));
-        throw e;
+        if (e instanceof OAuthError && e.code === "scope" && extras.length) again = true; // an older server: sign in without the extras
+        else {
+          this.errors.set(id, e instanceof Error ? e.message : String(e));
+          throw e;
+        }
       } finally {
         this.flows.delete(id);
         if (tabId != null) await this.d.closeTab?.(tabId).catch(() => {});
       }
+      if (again) await (await this.connect(id, { ...opts, withoutExtras: true })).done;
     })();
     done.catch(() => {}); // the caller decides whether to look; the error is also kept in state()
     try {
