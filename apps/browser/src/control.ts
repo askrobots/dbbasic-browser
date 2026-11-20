@@ -371,6 +371,9 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
     case "bookmarks.add":
       d.assertNotCallerNet("bookmarks");
       return d.bookmarks.add(str(p.url, "url"), typeof p.title === "string" ? p.title : "");
+    case "bookmarks.search":
+      d.assertNotCallerNet("bookmarks");
+      return d.bookmarks.search(str(p.q, "q"));
     case "bookmarks.has":
       return { saved: d.bookmarks.has(str(p.url, "url")) };
 

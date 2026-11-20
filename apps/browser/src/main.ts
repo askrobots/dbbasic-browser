@@ -881,9 +881,17 @@ app.whenReady().then(async () => {
     },
     changed: (state) => mainWindow?.webContents.send("bookmarks:changed", state),
   });
-  // Loaded when the person opens the list (and right after saving or signing in), not in the background.
+  // Loaded once when the browser opens (so ☆ knows which pages are saved from the start), when the person opens the list, and
+  // right after saving or signing in. Only for a person at the window with a saved sign-in: reading it can raise the system
+  // keychain prompt, which a scripted or background run must never wait behind.
+  if (!background && process.env.DBB_CONTROL !== "1" && existsSync(mcpAuthPath)) {
+    const loadOnce = () => setTimeout(() => { if (!callerNet.enabled) void bookmarks.refresh(); }, 1200);
+    if (mainWindow?.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", loadOnce);
+    else loadOnce();
+  }
   ipcMain.handle("bookmarks:state", () => bookmarks.state());
   ipcMain.handle("bookmarks:refresh", () => (callerNet.enabled ? bookmarks.state() : bookmarks.refresh()));
+  ipcMain.handle("bookmarks:search", (_e, q: unknown) => (callerNet.enabled ? { items: [], error: "switched off while the caller network is on" } : bookmarks.search(String(q ?? ""))));
   ipcMain.handle("bookmarks:add", (_e, url: unknown, title: unknown) => bookmarks.add(String(url ?? ""), String(title ?? "")));
   ipcMain.handle("mcp:state", () => mcp.state());
   ipcMain.handle("mcp:connect", async (_e, id: unknown) => {

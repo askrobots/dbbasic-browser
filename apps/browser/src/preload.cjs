@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld("x402", {
     state: () => ipcRenderer.invoke("bookmarks:state"),
     refresh: () => ipcRenderer.invoke("bookmarks:refresh"),
     add: (url, title) => ipcRenderer.invoke("bookmarks:add", url, title),
+    search: (q) => ipcRenderer.invoke("bookmarks:search", q),
     onChanged: sub("bookmarks:changed"),
   },
   /** What the browser is using (memory and CPU per tab, cache, disk). */

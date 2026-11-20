@@ -1,8 +1,10 @@
 /**
  * Bookmarks are the person's saved links on a connected service (askrobots), read and saved over its MCP connection.
  *
- * - The list is kept in a local copy, so it shows at once and when offline, and is fetched from the service when the person
- *   opens the list, right after saving, and right after signing in. Nothing runs in the background.
+ * - The list is kept in a local copy, so it shows at once and when offline, and is fetched from the service once when the
+ *   browser opens (if a sign-in is saved), when the person opens the list, right after saving, and right after signing in.
+ * - Whether the page you are on is saved is decided from that copy, in the browser: the addresses you visit are never sent
+ *   to the service to ask.
  * - Reading never reaches the keychain on its own: until the connection has been used in this session, only the local copy
  *   is shown (on macOS, unlocking a saved sign-in can raise a system password prompt).
  * - Saving the page you are on is one click with no dialog after it (the star fills in); it goes where the server's entry says
@@ -156,10 +158,26 @@ export class BookmarksService {
     return this.inFlight;
   }
 
+  /**
+   * Search all of the person's links on the service (the local list holds only the newest ones). Only what the person typed
+   * into the bookmarks search is sent. Results are not added to the local list.
+   */
+  async search(query: string): Promise<{ items: Bookmark[]; error?: string }> {
+    const q = query.trim().slice(0, 200);
+    if (q.length < 2) return { items: [] };
+    if (!this.d.connected()) return { items: [], error: "Connect askrobots.com to search all your bookmarks." };
+    try {
+      return { items: parseLinks(await this.d.call("list_links", { search: q, limit: LIMIT }, { fixed: false })) };
+    } catch (e) {
+      return { items: [], error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   /** Save an address as a bookmark (the person's own click), then refresh. */
   async add(url: string, title: string): Promise<{ ok: boolean; already?: boolean; message?: string }> {
     if (!/^https?:\/\//i.test(url)) return { ok: false, message: "only web pages can be saved" };
     if (!this.d.connected()) return { ok: false, message: "Connect askrobots.com in the assistant panel first." };
+    if (this.source !== "service") await this.refresh(); // never save twice because the list had not been loaded yet
     if (this.has(url)) return { ok: true, already: true };
     try {
       await this.d.call("create_link", { url, title: title.slice(0, 255) || url }, { fixed: true });

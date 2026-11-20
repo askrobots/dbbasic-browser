@@ -49,11 +49,29 @@ export default async function (ctx) {
   check((await server()).filter((l) => l.url === base + "/forms").length === 1, "clicking a filled star never saves the page twice (it opens the list)");
   await cdp.ev(`setBm(false)`);
 
+  // a page that is not saved, on a site that has a saved page: the star says so
+  await T("page.goto", { url: base + "/hits" });
+  await waitFor(async () => /site/.test(await q(`return document.getElementById('starBtn').className`)), "the same-site hint");
+  const hint = await q(`const b = document.getElementById('starBtn'); return b.textContent + '|' + b.title`);
+  check(/^☆\|You have \d+ bookmarks on this site/.test(hint), "a page that is not saved, on a site with saved pages, shows that you have bookmarks there (and ☆ still saves this page)", hint);
+
   // a link saved somewhere else shows up the next time the list is opened
   await fetch(base + "/o/_addlink?url=" + encodeURIComponent(base + "/headers?elsewhere=1") + "&title=" + encodeURIComponent("Saved on the website"));
   await cdp.ev(`setBm(true)`);
   await waitFor(async () => q(`return /Saved on the website/.test(document.getElementById('bmPanel').textContent)`), "the link saved elsewhere");
   check(true, "a link saved on the website shows up when the list is opened");
+  await cdp.ev(`setBm(false)`);
+
+  // searching looks through all the links on the service, not just the newest 100 the list holds
+  await fetch(base + "/o/_seed");
+  await cdp.ev(`setBm(true)`);
+  await waitFor(async () => q(`return /Showing your newest 100/.test(document.getElementById('bmPanel').textContent)`), "the full newest-100 list");
+  check(!(await T("bookmarks.list")).items.some((b) => /Ancient/.test(b.title)), "an old link is not among the newest 100 the list holds");
+  await q(`const i = document.getElementById('bmSearch'); i.value = 'ancient'; i.dispatchEvent(new Event('input'));`);
+  await waitFor(async () => q(`return [...document.querySelectorAll('#bmPanel .bm')].some((r) => /Ancient Yahoo archive/.test(r.textContent))`), "the old link found by searching askrobots");
+  check(true, "searching the bookmarks finds an old link by asking askrobots, beyond the newest 100");
+  const direct = await T("bookmarks.search", { q: "ancient" });
+  check(direct.items.length === 1 && direct.items[0].title === "Ancient Yahoo archive", "and scripts can search the same way", JSON.stringify(direct.items.map((b) => b.title)));
   await cdp.ev(`setBm(false)`);
 
   // the assistant can save a tab and close it (Auto mode: both are on the safe list, so no questions)

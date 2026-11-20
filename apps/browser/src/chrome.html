@@ -84,6 +84,7 @@
       /* ---- bookmarks ---- */
       #starBtn { min-width: 34px; font-size: 16px; line-height: 1; }
       #starBtn.saved { color: #f0c674; }
+      #starBtn.site { color: #f0c674; box-shadow: inset 0 0 0 1px #8a6a1a; } /* this page is not saved, another on the same site is */
       #bmPanel { position: fixed; top: 84px; right: 10px; width: 420px; max-height: calc(100vh - 100px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12.5px; }
       #bmPanel.open { display: block; }
       #bmPanel h4 { margin: 0 0 4px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
@@ -817,7 +818,7 @@
       // ---- bookmarks (askrobots links) -------------------------------------------------------------------
       // One click on ☆ saves the page; the star fills in, and there is no dialog after it. The list loads when you open it.
       let bm = { items: [], connected: false, updatedAt: null, source: "none", limit: 100 };
-      let bmKeys = new Set(), bmOpen = false, bmLoading = false, bmQuery = "";
+      let bmKeys = new Set(), bmOpen = false, bmLoading = false, bmQuery = "", bmRemote = { q: "", items: [], busy: false, error: "" }, bmTimer = null;
       const normUrl = (u) => { try { const x = new URL(u); x.hash = ""; x.hostname = x.hostname.toLowerCase(); let v = x.href; if (x.pathname !== "/" && v.endsWith("/") && !x.search) v = v.slice(0, -1); if (x.pathname === "/" && !x.search) v = x.protocol + "//" + x.host; return v; } catch { return String(u || "").trim(); } };
       function bmApply(state) { if (!state) return; bm = state; bmKeys = new Set((state.items || []).map((b) => normUrl(b.url))); paintStar(); if (bmOpen) renderBm(); }
       function paintStar() {
@@ -825,10 +826,14 @@
         const u = active && !active.reader ? active.url : "";
         const web = /^https?:\/\//i.test(u || "");
         const saved = web && bmKeys.has(normUrl(u));
+        // Not this page, but something else on the same site is saved: say so (the star stays a click to save this page).
+        let host = ""; try { host = web ? new URL(u).host.replace(/^www\./, "") : ""; } catch {}
+        const onSite = !saved && host ? bm.items.filter((x) => { try { return new URL(x.url).host.replace(/^www\./, "") === host; } catch { return false; } }) : [];
         b.textContent = saved ? "★" : "☆";
         b.classList.toggle("saved", saved);
+        b.classList.toggle("site", onSite.length > 0);
         b.disabled = !web;
-        b.title = !web ? "Only web pages can be saved" : saved ? "In your askrobots bookmarks" : "Save this page to your askrobots bookmarks (one click)";
+        b.title = !web ? "Only web pages can be saved" : saved ? "In your askrobots bookmarks" : onSite.length ? "You have " + (onSite.length === 1 ? "a bookmark" : onSite.length + " bookmarks") + " on this site (" + onSite.slice(0, 3).map((x) => x.title).join(", ") + "). Click to save this page too." : "Save this page to your askrobots bookmarks (one click)";
       }
       $("starBtn").onclick = async () => {
         if (!active || !/^https?:\/\//i.test(active.url || "")) return;
@@ -857,11 +862,27 @@
           box.append(n, go);
           if (!bm.items.length) return;
         }
-        const q = document.createElement("input"); q.id = "bmSearch"; q.placeholder = "Search bookmarks"; q.value = bmQuery;
-        q.oninput = () => { bmQuery = q.value; renderBm(); };
+        const q = document.createElement("input"); q.id = "bmSearch"; q.placeholder = "Search all your bookmarks"; q.value = bmQuery;
+        q.oninput = () => {
+          bmQuery = q.value; renderBm();
+          // The local list has only the newest links: also search all of them on askrobots, once typing pauses.
+          clearTimeout(bmTimer);
+          const want = bmQuery.trim();
+          if (want.length < 2 || !bm.connected) { bmRemote = { q: "", items: [], busy: false, error: "" }; return; }
+          bmTimer = setTimeout(async () => {
+            bmRemote = { q: want, items: [], busy: true, error: "" }; if (bmOpen) renderBm();
+            const r = await window.x402.bookmarks.search(want);
+            if (bmQuery.trim() !== want) return; // typing moved on
+            bmRemote = { q: want, items: r.items || [], busy: false, error: r.error || "" };
+            if (bmOpen) renderBm();
+          }, 350);
+        };
         box.appendChild(q);
         const needle = bmQuery.trim().toLowerCase();
-        const list = bm.items.filter((b) => !needle || (b.title + " " + b.url + " " + (b.tags || []).join(" ")).toLowerCase().includes(needle));
+        const local = bm.items.filter((b) => !needle || (b.title + " " + b.url + " " + (b.tags || []).join(" ")).toLowerCase().includes(needle));
+        const seen = new Set(local.map((b) => normUrl(b.url)));
+        const remote = needle && bmRemote.q.toLowerCase() === needle ? bmRemote.items.filter((b) => !seen.has(normUrl(b.url))) : [];
+        const list = local.concat(remote);
         for (const b of list) {
           const row = document.createElement("div"); row.className = "bm"; row.title = b.url;
           const tt = document.createElement("div"); tt.className = "t"; tt.textContent = b.title;
@@ -871,13 +892,15 @@
           row.onauxclick = (ev) => { if (ev.button === 1) newTab(b.url, false); };
           box.appendChild(row);
         }
-        if (!list.length && bm.items.length) { const n = document.createElement("div"); n.className = "note"; n.textContent = "Nothing matches."; box.appendChild(n); }
+        if (needle && bmRemote.busy) { const n = document.createElement("div"); n.className = "note"; n.textContent = "Searching all your links on askrobots…"; box.appendChild(n); }
+        if (needle && bmRemote.error) { const n = document.createElement("div"); n.className = "err"; n.textContent = bmRemote.error; box.appendChild(n); }
+        if (!list.length && bm.items.length && !bmRemote.busy) { const n = document.createElement("div"); n.className = "note"; n.textContent = "Nothing matches."; box.appendChild(n); }
         if (!bm.items.length && bm.connected && !bmLoading) { const n = document.createElement("div"); n.className = "note"; n.textContent = "No bookmarks yet. ☆ next to the address saves the page you are on."; box.appendChild(n); }
-        if (bm.items.length >= bm.limit) { const n = document.createElement("div"); n.className = "note"; n.textContent = "Showing your newest " + bm.limit + ". Search on askrobots.com for older ones."; box.appendChild(n); }
+        if (bm.items.length >= bm.limit && !needle) { const n = document.createElement("div"); n.className = "note"; n.textContent = "Showing your newest " + bm.limit + ". Searching looks through all of them."; box.appendChild(n); }
         if (focusSearch) { const el = $("bmSearch"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
       }
       async function loadBm() { bmLoading = true; renderBm(); try { bmApply(await window.x402.bookmarks.refresh()); } finally { bmLoading = false; if (bmOpen) renderBm(); } }
-      function setBm(open) { bmOpen = open; if (!open) bmQuery = ""; $("bmPanel").classList.toggle("open", open); if (open) { renderBm(); loadBm(); } }
+      function setBm(open) { bmOpen = open; if (!open) { bmQuery = ""; bmRemote = { q: "", items: [], busy: false, error: "" }; clearTimeout(bmTimer); } $("bmPanel").classList.toggle("open", open); if (open) { renderBm(); loadBm(); } }
       $("bmBtn").onclick = () => setBm(!bmOpen);
       window.x402.bookmarks.onChanged(bmApply);
       window.x402.bookmarks.state().then(bmApply);

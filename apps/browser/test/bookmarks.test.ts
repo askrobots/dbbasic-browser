@@ -102,6 +102,12 @@ describe("saving with one click", () => {
     expect(svc.has("https://new.example/page")).toBe(true);
   });
 
+  it("loads the list before saving when it has not been loaded yet, so a page is never saved twice", async () => {
+    const { svc, calls } = make();
+    expect(await svc.add("https://facebook.com/", "Facebook")).toEqual({ ok: true, already: true });
+    expect(calls.map(([t]) => t)).toEqual(["list_links"]);
+  });
+
   it("does not save twice, refuses what is not a web page, and says to connect when not signed in", async () => {
     const { svc, calls } = make();
     await svc.refresh();
@@ -111,3 +117,17 @@ describe("saving with one click", () => {
     expect(await make({ signedIn: false }).svc.add("https://x.example", "X")).toMatchObject({ ok: false, message: expect.stringMatching(/Connect askrobots/) });
   });
 });
+
+describe("searching all the links", () => {
+  it("sends only what was typed, to the service's own search, and leaves the local list alone", async () => {
+    const { svc, calls } = make();
+    await svc.refresh();
+    const r = await svc.search("  face ");
+    expect(calls.at(-1)).toEqual(["list_links", { search: "face", limit: LIMIT }, { fixed: false }]);
+    expect(r.items.length).toBeGreaterThan(0);
+    expect(svc.state().items).toHaveLength(3);
+    expect(await svc.search("f")).toEqual({ items: [] }); // too short: nothing sent
+    expect(await make({ signedIn: false }).svc.search("face")).toMatchObject({ items: [], error: expect.stringMatching(/Connect/) });
+  });
+});
+

@@ -575,6 +575,12 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     return;
   }
   if (path === "/o/_links") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.links ?? [])); return; }
+  if (path === "/o/_seed") { // many old links, with one at the very end that the newest-100 list cannot reach
+    oauth.links ??= [];
+    for (let i = 0; i < 105; i++) oauth.links.push({ id: "old" + i, url: `${origin}/free?old=${i}`, title: `Old link ${i}`, tags: "", is_public: false, project_id: null, created_at: "2025-01-01T00:00:00Z" });
+    oauth.links.push({ id: "ancient", url: `${origin}/headers?ancient=1`, title: "Ancient Yahoo archive", tags: "archive", is_public: false, project_id: null, created_at: "2024-01-01T00:00:00Z" });
+    res.writeHead(200).end("ok"); return;
+  }
   if (path === "/o/_addlink") { oauth.links ??= []; oauth.links.unshift({ id: "s" + Date.now(), url: url.searchParams.get("url"), title: url.searchParams.get("title") || "added elsewhere", tags: "", is_public: false, project_id: null, created_at: new Date().toISOString() }); res.writeHead(200).end("ok"); return; }
   if (path === "/o/_short") { oauth.shortLived = url.searchParams.get("on") === "1"; res.writeHead(200).end("ok"); return; }
   if (path === "/o/_stats") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ registered: oauth.registered, issued: oauth.issued, refreshed: oauth.refreshed, revoked: oauth.revoked, lastRegistration: oauth.lastRegistration, calls: oauth.calls, lastArgs: oauth.lastArgs })); return; }
