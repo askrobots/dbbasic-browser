@@ -6,6 +6,12 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **Bookmarks from askrobots.com.** ☆ next to the address saves the page you are on with one click (no dialog; the star fills
+  in), as a private link on askrobots, where the server's entry says saved links go. 🔖 opens the list of your links, newest
+  first, searchable, loaded from askrobots when you open it and kept as a local copy. The assistant can save a tab as a
+  bookmark and close tabs, so it can tidy up for you (both run unasked in Auto mode; in Ask mode each step asks).
+- **Tab shortcuts**: ⌘⇧] and ⌘⇧[ switch tabs (as do Ctrl+Tab and ⌘⌥→/←), ⌘1–⌘8 go to that tab and ⌘9 to the last, and ⌘N
+  opens a tab (there is one window for now).
 - **A reload button** in the toolbar (⌘R as before); while a page is loading it is a Stop button.
 - **Resource status** (◔ in the toolbar). Memory and CPU per tab, what the browser costs in total (pages, browser, graphics),
   the cache, and what the data folder is made of, with a Clear cache button and Close per tab; amber when a tab is using over

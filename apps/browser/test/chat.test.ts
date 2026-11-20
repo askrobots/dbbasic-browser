@@ -310,6 +310,33 @@ describe("the page tools", () => {
     expect(webAddress("https://example.com/a").host).toBe("example.com");
   });
 
+  it("close_tab names the tab it will close and runs unasked in auto mode; an unknown tab is refused", async () => {
+    const { tool, calls } = setup({});
+    const plan = await tool("close_tab").plan!({ tab: 1 });
+    expect(plan).toMatchObject({ summary: "Close tab “Cart” (shop.example)", safe: true });
+    expect((await tool("close_tab").plan!({ tab: 9 })).refuse).toMatch(/no tab 9/);
+    await tool("close_tab").run({ tab: 1 });
+    expect(calls.at(-1)).toEqual(["tabs.close", { tab: 1 }]);
+  });
+
+  it("save_bookmark saves the tab's address and title, says when it was already saved, and refuses non-web pages", async () => {
+    const calls: Array<[string, Record<string, unknown>]> = [];
+    let already = false;
+    const run = async (method: string, params: Record<string, unknown>): Promise<unknown> => {
+      calls.push([method, params]);
+      if (method === "tabs.list") return [{ id: 1, url: "https://shop.example/cart", title: "Cart", active: true }, { id: 2, url: "about:blank", title: "", active: false }];
+      if (method === "bookmarks.add") return already ? { ok: true, already: true } : { ok: true };
+      return {};
+    };
+    const tool = pageTools(run).find((x) => x.name === "save_bookmark")!;
+    expect(await tool.plan!({})).toMatchObject({ summary: "Save “Cart” to your bookmarks (https://shop.example/cart)", safe: true, carriesData: true });
+    expect(await tool.run({})).toBe("saved");
+    expect(calls.find(([m]) => m === "bookmarks.add")).toEqual(["bookmarks.add", { url: "https://shop.example/cart", title: "Cart" }]);
+    already = true;
+    expect(await tool.run({})).toBe("already in the bookmarks");
+    expect((await tool.plan!({ tab: 2 })).refuse).toMatch(/only web pages/);
+  });
+
   it("read_page says which page it read", async () => {
     const { tool } = setup({});
     const out = (await tool("read_page").run({})) as string;

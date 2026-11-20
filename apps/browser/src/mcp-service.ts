@@ -476,6 +476,42 @@ export class McpService {
     }
   }
 
+  /** True once the saved sign-ins have been read this session (so asking about them costs nothing). */
+  isLoaded(): boolean {
+    return this.loaded !== null;
+  }
+
+  /** Signed in to this server. Reads the saved sign-ins if that has not happened yet (which may reach the keychain). */
+  isSignedIn(id: string): boolean {
+    return !!this.saved.servers[id]?.tokens;
+  }
+
+  /**
+   * Call one of a server's allowed tools for the browser itself (not for the assistant): the bookmarks list, for example.
+   * `fixed` applies the entry's fixed arguments (used when saving, so a saved link goes where the entry says). Fields the entry
+   * drops are dropped here too.
+   */
+  async callDirect(id: string, tool: string, args: Record<string, unknown>, opts: { fixed: boolean }): Promise<string> {
+    this.refuseInCallerMode();
+    const c = this.cfg(id);
+    if (!c.tools.includes(tool)) throw new Error(`${tool} is not one of the tools allowed for ${c.name}`);
+    if (!this.isSignedIn(id)) throw new Error(`not signed in to ${c.name}`);
+    const fixed = opts.fixed ? (c.fixedArgs?.[tool] ?? {}) : {};
+    let res;
+    try {
+      res = await this.client(id).callTool(tool, { ...args, ...fixed });
+    } catch (e) {
+      if (e instanceof McpAuthError) {
+        this.errors.set(id, "you were signed out; connect again");
+        throw new Error(`${c.name} wants a fresh sign-in; connect again in the assistant panel`);
+      }
+      throw e;
+    }
+    const text = dropKeys(res.text, c.dropFields?.[tool] ?? []);
+    if (res.isError) throw new Error(text.slice(0, 300) || `${c.name} reported an error`);
+    return text;
+  }
+
   private client(id: string): McpClient {
     let c = this.clients.get(id);
     if (!c) {

@@ -2,7 +2,7 @@
  * The tools the chat can use on the open tabs. Each one is a thin layer over the browser's own automation methods
  * (the same ones scripts use), run in-process through `run`. Reading tools just run; tools that change something say
  * what they are about to do first (see chat-core.ts). In Auto mode only a short allow-list runs unasked:
- *  - switching tab, going back, keys that only move (Tab, arrows, Page Up/Down…);
+ *  - switching tab, going back, keys that only move (Tab, arrows, Page Up/Down…), closing a tab, saving a tab as a bookmark;
  *  - typing into an ordinary field and choosing in a dropdown;
  *  - clicking a link to a site that is already open, a checkbox or radio button, or a disclosure triangle.
  * Everything else asks: any other click (a "Post" or "Accept" button need not say anything scary), Enter, opening an address on
@@ -152,6 +152,48 @@ export function pageTools(run: Runner): ToolDef[] {
       risk: "act",
       plan: async (input) => ({ summary: `Switch to tab ${String(input.tab)}`, safe: true }),
       run: async (input) => run("tabs.activate", tabParam(input)),
+    },
+    {
+      name: "close_tab",
+      origin: "browser",
+      description: "Close a tab by its id from list_tabs. Use it to tidy up when the person asks; save what they want to keep first (save_bookmark).",
+      input_schema: { type: "object", properties: { tab: tabProp.tab }, required: ["tab"], additionalProperties: false },
+      risk: "act",
+      plan: async (input) => {
+        const tabs = (await run("tabs.list", {})) as Array<{ id: number; url: string; title: string }>;
+        const t = tabs.find((x) => x.id === input.tab);
+        if (!t) return { summary: "", refuse: `there is no tab ${String(input.tab)}; call list_tabs` };
+        let host = t.url;
+        try {
+          host = new URL(t.url).host;
+        } catch {
+          /* keep the address */
+        }
+        return { summary: `Close tab “${short(t.title || host, 60)}” (${short(host, 40)})`, safe: true };
+      },
+      run: async (input) => run("tabs.close", tabParam(input)),
+    },
+    {
+      name: "save_bookmark",
+      origin: "browser",
+      description: "Save a tab's page to the person's bookmarks (their saved links on askrobots). Leave out tab for the one they are looking at.",
+      input_schema: { type: "object", properties: tabProp, additionalProperties: false },
+      risk: "act",
+      plan: async (input) => {
+        const tabs = (await run("tabs.list", {})) as Array<{ id: number; url: string; title: string; active: boolean }>;
+        const t = typeof input.tab === "number" ? tabs.find((x) => x.id === input.tab) : tabs.find((x) => x.active);
+        if (!t) return { summary: "", refuse: "there is no such tab; call list_tabs" };
+        if (!/^https?:\/\//i.test(t.url)) return { summary: "", refuse: "only web pages can be saved" };
+        return { summary: `Save “${short(t.title || t.url, 60)}” to your bookmarks (${short(t.url, 80)})`, safe: true, carriesData: true };
+      },
+      run: async (input) => {
+        const tabs = (await run("tabs.list", {})) as Array<{ id: number; url: string; title: string; active: boolean }>;
+        const t = typeof input.tab === "number" ? tabs.find((x) => x.id === input.tab) : tabs.find((x) => x.active);
+        if (!t) throw new Error("there is no such tab");
+        const r = (await run("bookmarks.add", { url: t.url, title: t.title })) as { ok: boolean; already?: boolean; message?: string };
+        if (!r.ok) throw new Error(r.message || "could not save it");
+        return r.already ? "already in the bookmarks" : "saved";
+      },
     },
     {
       name: "click",

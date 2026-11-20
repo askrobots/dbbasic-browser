@@ -81,6 +81,21 @@
       .cred .who { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
       .cred .who small { display: block; color: #7a7a82; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; }
       .cred .x { cursor: pointer; opacity: .5; padding: 0 4px; } .cred .x:hover { opacity: 1; color: #ff9a9a; }
+      /* ---- bookmarks ---- */
+      #starBtn { min-width: 34px; font-size: 16px; line-height: 1; }
+      #starBtn.saved { color: #f0c674; }
+      #bmPanel { position: fixed; top: 84px; right: 10px; width: 420px; max-height: calc(100vh - 100px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12.5px; }
+      #bmPanel.open { display: block; }
+      #bmPanel h4 { margin: 0 0 4px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+      #bmPanel h4 .sp { flex: 1; }
+      #bmPanel .sub { color: #8a8a90; font-size: 11px; margin-bottom: 8px; }
+      #bmPanel input { width: 100%; box-sizing: border-box; padding: 6px 9px; margin: 2px 0 8px; border-radius: 6px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; font-size: 12px; }
+      #bmPanel .bm { display: block; padding: 6px 4px; border-radius: 6px; cursor: pointer; }
+      #bmPanel .bm:hover { background: #26262b; }
+      #bmPanel .bm .t { color: #e8e8ea; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #bmPanel .bm .h { color: #7a7a82; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #bmPanel .note { color: #8a8a90; font-size: 11.5px; line-height: 1.5; padding: 6px 2px; }
+      #bmPanel .err { color: #ff9a9a; font-size: 11.5px; padding: 4px 2px; }
       /* ---- resource status ---- */
       #resBtn { font-variant-numeric: tabular-nums; white-space: nowrap; }
       #resBtn.warn { color: #f0c674; border-color: #5a4514; background: #2a1f0a; }
@@ -179,9 +194,11 @@
       <button class="btn" id="fwd">›</button>
       <button class="btn" id="reload" title="Reload (⌘R)">⟳</button>
       <input id="url" placeholder="Search askrobots.com or enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
+      <button class="btn" id="starBtn" title="Save this page to your askrobots bookmarks (one click)">☆</button>
       <button class="btn" id="galleryBtn" title="Open the local x402 test gallery (http://127.0.0.1:8899/) — start it with: node apps/browser/demo/x402-demo-server.mjs">🧪 x402 tests</button>
       <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
       <div id="ctlChip" style="display:none"></div>
+      <button class="btn" id="bmBtn" title="Your bookmarks (askrobots links)">🔖</button>
       <button class="btn" id="resBtn" title="What the browser is using: memory, CPU, data, disk">◔ …</button>
       <button class="btn" id="chatBtn" title="Assistant chat (⌘J)">💬 Chat</button>
       <button class="btn" id="readerBtn" title="AI Reader — a clean reading view with a TL;DR (⌘⇧R)">📖 Reader</button>
@@ -196,6 +213,7 @@
     <div id="offerbar"></div>
     <div id="vaultPanel"></div>
     <div id="resPanel"></div>
+    <div id="bmPanel"></div>
     <div id="main">
       <div id="pages"></div>
       <div id="chat">
@@ -355,7 +373,7 @@
       }
 
       // The address bar shows where a reader view came from, never the data: URL it is built on.
-      function setUrlBar(t) { urlInput.value = t.reader ? "📖 Reader · " + t.reader : t.url; }
+      function setUrlBar(t) { urlInput.value = t.reader ? "📖 Reader · " + t.reader : t.url; if (typeof paintStar === "function") paintStar(); }
 
       function tabLabel(t) {
         if (t.reader) return "📖 " + (t.title || hostOf(t.reader));
@@ -795,6 +813,75 @@
       });
 
 
+
+      // ---- bookmarks (askrobots links) -------------------------------------------------------------------
+      // One click on ☆ saves the page; the star fills in, and there is no dialog after it. The list loads when you open it.
+      let bm = { items: [], connected: false, updatedAt: null, source: "none", limit: 100 };
+      let bmKeys = new Set(), bmOpen = false, bmLoading = false, bmQuery = "";
+      const normUrl = (u) => { try { const x = new URL(u); x.hash = ""; x.hostname = x.hostname.toLowerCase(); let v = x.href; if (x.pathname !== "/" && v.endsWith("/") && !x.search) v = v.slice(0, -1); if (x.pathname === "/" && !x.search) v = x.protocol + "//" + x.host; return v; } catch { return String(u || "").trim(); } };
+      function bmApply(state) { if (!state) return; bm = state; bmKeys = new Set((state.items || []).map((b) => normUrl(b.url))); paintStar(); if (bmOpen) renderBm(); }
+      function paintStar() {
+        const b = $("starBtn"); if (!b) return;
+        const u = active && !active.reader ? active.url : "";
+        const web = /^https?:\/\//i.test(u || "");
+        const saved = web && bmKeys.has(normUrl(u));
+        b.textContent = saved ? "★" : "☆";
+        b.classList.toggle("saved", saved);
+        b.disabled = !web;
+        b.title = !web ? "Only web pages can be saved" : saved ? "In your askrobots bookmarks" : "Save this page to your askrobots bookmarks (one click)";
+      }
+      $("starBtn").onclick = async () => {
+        if (!active || !/^https?:\/\//i.test(active.url || "")) return;
+        if (bmKeys.has(normUrl(active.url))) { setBm(true); return; } // already saved: show the list
+        const b = $("starBtn"); b.textContent = "★"; b.classList.add("saved");
+        const r = await window.x402.bookmarks.add(active.url, active.title || "");
+        if (!r.ok) { paintStar(); toast("skipped", r.message || "Could not save the bookmark"); return; }
+        bmApply(await window.x402.bookmarks.state());
+      };
+      function relTime(ms) { if (!ms) return "never"; const s = Math.round((Date.now() - ms) / 1000); return s < 60 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago"; }
+      function renderBm() {
+        const box = $("bmPanel");
+        const focusSearch = document.activeElement && document.activeElement.id === "bmSearch";
+        box.textContent = "";
+        const h = document.createElement("h4"); const t = document.createElement("span"); t.textContent = "Bookmarks"; const sp = document.createElement("span"); sp.className = "sp";
+        const rf = document.createElement("button"); rf.className = "sbtn quiet"; rf.textContent = bmLoading ? "Loading…" : "Refresh"; rf.disabled = bmLoading; rf.onclick = () => loadBm();
+        const x = document.createElement("button"); x.className = "sbtn quiet"; x.textContent = "✕"; x.onclick = () => setBm(false);
+        h.append(t, sp, rf, x); box.appendChild(h);
+        const sub = document.createElement("div"); sub.className = "sub";
+        sub.textContent = "Your links on askrobots.com · " + (bm.source === "service" ? "updated " + relTime(bm.updatedAt) : bm.source === "copy" ? "saved copy from " + relTime(bm.updatedAt) : "not loaded yet");
+        box.appendChild(sub);
+        if (bm.error) { const e = document.createElement("div"); e.className = "err"; e.textContent = bm.error; box.appendChild(e); }
+        if (!bm.connected && !bmLoading) {
+          const n = document.createElement("div"); n.className = "note"; n.textContent = "Connect askrobots.com to see and save your bookmarks.";
+          const go = document.createElement("button"); go.className = "sbtn"; go.textContent = "Open the assistant to connect"; go.onclick = () => { setBm(false); setChat(true); };
+          box.append(n, go);
+          if (!bm.items.length) return;
+        }
+        const q = document.createElement("input"); q.id = "bmSearch"; q.placeholder = "Search bookmarks"; q.value = bmQuery;
+        q.oninput = () => { bmQuery = q.value; renderBm(); };
+        box.appendChild(q);
+        const needle = bmQuery.trim().toLowerCase();
+        const list = bm.items.filter((b) => !needle || (b.title + " " + b.url + " " + (b.tags || []).join(" ")).toLowerCase().includes(needle));
+        for (const b of list) {
+          const row = document.createElement("div"); row.className = "bm"; row.title = b.url;
+          const tt = document.createElement("div"); tt.className = "t"; tt.textContent = b.title;
+          const hh = document.createElement("div"); hh.className = "h"; let host = b.url; try { host = new URL(b.url).host; } catch {} hh.textContent = host + (b.tags && b.tags.length ? " · " + b.tags.join(", ") : "");
+          row.append(tt, hh);
+          row.onclick = (ev) => { if (ev.metaKey || ev.ctrlKey) newTab(b.url, false); else { setBm(false); go(b.url); } };
+          row.onauxclick = (ev) => { if (ev.button === 1) newTab(b.url, false); };
+          box.appendChild(row);
+        }
+        if (!list.length && bm.items.length) { const n = document.createElement("div"); n.className = "note"; n.textContent = "Nothing matches."; box.appendChild(n); }
+        if (!bm.items.length && bm.connected && !bmLoading) { const n = document.createElement("div"); n.className = "note"; n.textContent = "No bookmarks yet. ☆ next to the address saves the page you are on."; box.appendChild(n); }
+        if (bm.items.length >= bm.limit) { const n = document.createElement("div"); n.className = "note"; n.textContent = "Showing your newest " + bm.limit + ". Search on askrobots.com for older ones."; box.appendChild(n); }
+        if (focusSearch) { const el = $("bmSearch"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+      }
+      async function loadBm() { bmLoading = true; renderBm(); try { bmApply(await window.x402.bookmarks.refresh()); } finally { bmLoading = false; if (bmOpen) renderBm(); } }
+      function setBm(open) { bmOpen = open; if (!open) bmQuery = ""; $("bmPanel").classList.toggle("open", open); if (open) { renderBm(); loadBm(); } }
+      $("bmBtn").onclick = () => setBm(!bmOpen);
+      window.x402.bookmarks.onChanged(bmApply);
+      window.x402.bookmarks.state().then(bmApply);
+
       // ---- resource status -----------------------------------------------------------------------------
       // The operating system's own numbers for each page's process, so something that hogs the machine has a name.
       const fmtMB = (mb) => mb == null ? "—" : mb >= 1024 ? (mb / 1024).toFixed(1) + " GB" : Math.round(mb) + " MB";
@@ -856,6 +943,7 @@
         if (cmd === "new") openNewTab();
         else if (cmd === "close") closeTab(active);
         else if (cmd === "focus-url") { urlInput.focus(); urlInput.select(); }
+        else if (cmd.startsWith("tab:")) { const n = Number(cmd.slice(4)); const t = n === 9 ? tabs[tabs.length - 1] : tabs[n - 1]; if (t) switchTo(t); }
         else if (cmd === "next") cycleTab(1);
         else if (cmd === "prev") cycleTab(-1);
         else if (cmd === "reload") { try { active.wv.reload(); } catch {} }

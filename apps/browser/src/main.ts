@@ -34,6 +34,7 @@ import { registerVault } from "./vault-service.js";
 import { handle as handleControl, getTabs, setTabs, startControl, type ApprovalPolicy, type ControlDeps, type ControlHandle, type TabInfo } from "./control.js";
 import { ChatService } from "./chat-service.js";
 import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
+import { BookmarksService } from "./bookmarks-service.js";
 import { diskUsage, type DiskUsage } from "./disk-usage.js";
 import { macFootprints } from "./process-memory.js";
 
@@ -576,6 +577,8 @@ function buildMenu(): void {
       label: "File",
       submenu: [
         { label: "New Tab", accelerator: "CmdOrCtrl+T", click: tabCmd("new") },
+        // There is one window, so ⌘N opens a tab, as people expect from it (a separate window is a task of its own).
+        { label: "New Tab (⌘N)", accelerator: "CmdOrCtrl+N", click: tabCmd("new"), visible: false },
         { label: "Close Tab", accelerator: "CmdOrCtrl+W", click: tabCmd("close") },
         { label: "Open Location", accelerator: "CmdOrCtrl+L", click: tabCmd("focus-url") },
         // Escape hatch for sites that refuse embedded-Chromium browsers (see Help ▸ How we identify ourselves).
@@ -588,6 +591,13 @@ function buildMenu(): void {
         { label: "Previous Tab", accelerator: "Ctrl+Shift+Tab", click: tabCmd("prev") },
         { label: "Next Tab (alt)", accelerator: "CmdOrCtrl+Alt+Right", click: tabCmd("next"), visible: false },
         { label: "Previous Tab (alt)", accelerator: "CmdOrCtrl+Alt+Left", click: tabCmd("prev"), visible: false },
+        // ⌘⇧] and ⌘⇧[, as in Safari and Chrome. Some keyboard layouts report the shifted key as } and {, so both are listened for.
+        { label: "Next Tab (⌘⇧])", accelerator: "CmdOrCtrl+Shift+]", click: tabCmd("next"), visible: false },
+        { label: "Previous Tab (⌘⇧[)", accelerator: "CmdOrCtrl+Shift+[", click: tabCmd("prev"), visible: false },
+        { label: "Next Tab (⌘})", accelerator: "CmdOrCtrl+}", click: tabCmd("next"), visible: false },
+        { label: "Previous Tab (⌘{)", accelerator: "CmdOrCtrl+{", click: tabCmd("prev"), visible: false },
+        // ⌘1 to ⌘8 go to that tab, ⌘9 to the last one.
+        ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({ label: n === 9 ? "Last Tab" : `Tab ${n}`, accelerator: `CmdOrCtrl+${n}`, click: tabCmd(`tab:${n}`), visible: false })),
       ],
     },
     { role: "editMenu" },
@@ -848,9 +858,33 @@ app.whenReady().then(async () => {
       await askChrome("tab.close", { id }).catch(() => {});
     },
     callerNetworkOn: () => callerNet.enabled,
-    announce: (e) => emit(e),
+    announce: (e) => {
+      emit(e);
+      // A new sign-in brings the bookmarks in at once; signing out shows the local copy again.
+      if (e.kind === "mcp-signed-in" && e.server === BOOKMARK_SERVER) void bookmarks.refresh();
+      if (e.kind === "mcp-signed-out" && e.server === BOOKMARK_SERVER) mainWindow?.webContents.send("bookmarks:changed", bookmarks.state());
+    },
   });
   mcpCapture = (url) => mcp.captureRedirect(url);
+
+  // Bookmarks: the person's saved links on askrobots, over the same connection, with a local copy (see bookmarks-service.ts).
+  const BOOKMARK_SERVER = "askrobots";
+  const bookmarksPath = join(app.getPath("userData"), "bookmarks.json");
+  const bookmarks = new BookmarksService({
+    call: (tool, args, opts) => mcp.callDirect(BOOKMARK_SERVER, tool, args, opts),
+    connected: () => mcp.isSignedIn(BOOKMARK_SERVER),
+    ready: () => mcp.isLoaded(),
+    loadCopy: () => (existsSync(bookmarksPath) ? readFileSync(bookmarksPath, "utf8") : null),
+    saveCopy: (text) => {
+      writeFileSync(bookmarksPath, text, { mode: 0o600 });
+      chmodSync(bookmarksPath, 0o600);
+    },
+    changed: (state) => mainWindow?.webContents.send("bookmarks:changed", state),
+  });
+  // Loaded when the person opens the list (and right after saving or signing in), not in the background.
+  ipcMain.handle("bookmarks:state", () => bookmarks.state());
+  ipcMain.handle("bookmarks:refresh", () => (callerNet.enabled ? bookmarks.state() : bookmarks.refresh()));
+  ipcMain.handle("bookmarks:add", (_e, url: unknown, title: unknown) => bookmarks.add(String(url ?? ""), String(title ?? "")));
   ipcMain.handle("mcp:state", () => mcp.state());
   ipcMain.handle("mcp:connect", async (_e, id: unknown) => {
     try {
@@ -1007,6 +1041,7 @@ app.whenReady().then(async () => {
         chat,
         mcp,
         resources,
+        bookmarks,
         setAiProvider: (p) => (p === "anthropic" || p === "openai" ? setAiProvider(p) : false),
         spent: () => formatUsd(engine.policy.spentUsdMicro()),
         receipts: () => JSON.parse(JSON.stringify(engine.ledger.all(), (_k, v) => (typeof v === "bigint" ? v.toString() : v))),

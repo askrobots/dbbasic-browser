@@ -32,6 +32,7 @@ import type { SettleContext } from "./settle-service.js";
 import type { ExtensionRegistry } from "./extensions.js";
 import type { ChatService } from "./chat-service.js";
 import type { McpService } from "./mcp-service.js";
+import type { BookmarksService } from "./bookmarks-service.js";
 
 export interface TabInfo {
   id: number;
@@ -71,6 +72,8 @@ export interface ControlDeps {
   mcp: McpService;
   /** What the browser is using: memory and CPU per tab, cache and disk. */
   resources: { state(): Promise<unknown>; clearCache(): Promise<unknown> };
+  /** Bookmarks: saved links on askrobots (see bookmarks-service.ts). */
+  bookmarks: BookmarksService;
   downloads(): unknown;
   getNetPolicy(): { blockWebSockets: boolean };
   /** Methods added by local extensions (see extensions.ts), reached as ext.<name>. */
@@ -357,6 +360,19 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       return { cleared: true };
     case "chat.mode":
       return { mode: d.chat.setMode(p.mode) };
+
+    // ---- bookmarks ------------------------------------------------------------------
+    case "bookmarks.list":
+      if (p.refresh === true) {
+        d.assertNotCallerNet("bookmarks");
+        return d.bookmarks.refresh();
+      }
+      return d.bookmarks.state();
+    case "bookmarks.add":
+      d.assertNotCallerNet("bookmarks");
+      return d.bookmarks.add(str(p.url, "url"), typeof p.title === "string" ? p.title : "");
+    case "bookmarks.has":
+      return { saved: d.bookmarks.has(str(p.url, "url")) };
 
     // ---- resources ------------------------------------------------------------------
     case "resources.state":
