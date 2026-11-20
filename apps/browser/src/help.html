@@ -143,8 +143,10 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><td>page.back / forward / reload</td><td><code>{wait?}</code></td></tr>
     <tr><td>page.text / html</td><td><code>{selector?}</code> → page text / HTML</td></tr>
     <tr><td>page.eval</td><td><code>{js}</code> → <code>{value}</code> (JSON-serializable)</td></tr>
-    <tr><td>page.click</td><td><code>{selector}</code> or <code>{x, y}</code> — a <b>real</b> trusted click</td></tr>
-    <tr><td>page.type</td><td><code>{selector?, text, clear?}</code> — real text input; replaces content unless <code>clear:false</code></td></tr>
+    <tr><td>page.forms</td><td><code>{includeHidden?, limit?}</code> → the page's <code>fields</code>, <code>buttons</code> and <code>forms</code>. Each field has a <code>ref</code> (a short name such as <code>e3</code> that click, hover and type accept), its label, type, <code>required</code>, <code>group</code>, options and current value. Passwords, card and one-time-code fields, hidden fields and files are listed with <code>sensitive: true</code>, the reason and whether they are filled, and <b>never their value</b>. Only the top document is read; <code>frames</code> says how many frames there are</td></tr>
+    <tr><td>page.find</td><td><code>{text? | label?, role?, includeHidden?, limit?}</code> → <code>{total, matches}</code>: elements whose words, label, placeholder or name match (best match first), each with a <code>ref</code>, role, text, address for links, and position. A <code>ref</code> that has left the page is an error (<code>no-element</code>), never a click on something else; refs do not survive a navigation</td></tr>
+    <tr><td>page.click</td><td><code>{ref | selector}</code> or <code>{x, y}</code> — a <b>real</b> trusted click</td></tr>
+    <tr><td>page.type</td><td><code>{ref? | selector?, text, clear?}</code> — real text input; replaces content unless <code>clear:false</code></td></tr>
     <tr><td>page.press</td><td><code>{key}</code> — <code>Enter</code>, <code>Tab</code>, <code>Escape</code>, arrows, or a character</td></tr>
     <tr><td>page.waitFor</td><td><code>{selector?, text?, url?, timeoutMs?}</code> — all given conditions must hold</td></tr>
     <tr><td>page.screenshot</td><td>→ <code>{png (base64), width, height}</code></td></tr>
@@ -159,7 +161,7 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><td>net.answer</td><td><code>{id, status, headers?, bodyBase64 | bodyText, statusText?}</code> — answer a request. A 3xx goes back to the page, which asks again, so every hop is yours. The body is the body to show: transport headers and <code>Set-Cookie</code> are dropped (state is yours)</td></tr>
     <tr><td>net.fail</td><td><code>{id, kind, detail?}</code> — refuse a request; <code>kind</code> is one of the failure kinds below. The load ends with that reason and <code>source: "caller"</code></td></tr>
     <tr><td>page.load</td><td><code>{url, status, headers?, bodyBase64 | bodyText, redirects?, settle?}</code> — load a main document you already fetched, at its final address, so relative links resolve and the facts list the redirects</td></tr>
-    <tr><td>page.hover</td><td><code>{selector | x,y}</code> — move the real pointer without clicking (hover states, link addresses)</td></tr>
+    <tr><td>page.hover</td><td><code>{ref | selector | x,y}</code> — move the real pointer without clicking (hover states, link addresses)</td></tr>
     <tr><td>net.policy</td><td><code>{blockWebSockets?}</code> — refuse WebSockets before any connection is opened (they bypass the network layer); no params reads the policy</td></tr>
     <tr><td>downloads.list</td><td>every download this session: name, host, bytes, state, saved path, amount paid</td></tr>
     <tr><td>reader.open / ai.status / ai.provider</td><td>the AI Reader — see <a href="#reader">above</a></td></tr>

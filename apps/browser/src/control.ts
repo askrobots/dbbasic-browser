@@ -19,6 +19,7 @@
  *   - The toolbar shows a visible 🤖 chip whenever it is on.
  */
 
+import { FIND_JS, FORMS_JS, elementExpr, pointOf } from "./page-tools";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -178,6 +179,17 @@ async function front(d: ControlDeps, t: TabInfo): Promise<WebContents> {
   return wc;
 }
 
+/** Which element a call names: a ref (from page.forms / page.find) or a CSS selector. */
+function targetOf(p: Record<string, unknown>): { ref?: string; selector?: string } {
+  if (p.ref != null) return { ref: str(typeof p.ref === "number" ? String(p.ref) : p.ref, "ref") };
+  return { selector: str(p.selector, "selector") };
+}
+function noElement(p: Record<string, unknown>): RpcError {
+  return p.ref != null
+    ? new RpcError("no-element", `ref ${String(p.ref)} is not on the page any more (ask page.forms or page.find again)`)
+    : new RpcError("no-element", `nothing matches ${String(p.selector)}`);
+}
+
 const KEYS: Record<string, string> = { Enter: "Enter", Tab: "Tab", Escape: "Escape", Backspace: "Backspace", Delete: "Delete", ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown", " ": "Space" };
 
 export async function handle(d: ControlDeps, method: string, p: Record<string, unknown>): Promise<unknown> {
@@ -220,6 +232,18 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
     }
     case "page.html":
       return { html: await evalIn(guest(resolveTab(p)), "document.documentElement.outerHTML") };
+    case "page.forms": {
+      // The fields and buttons of the page, with refs that click/hover/type accept. Sensitive values are never returned.
+      const r = await evalIn(guest(resolveTab(p)), FORMS_JS({ includeHidden: p.includeHidden === true, limit: Number(p.limit) || 200 }));
+      return r;
+    }
+    case "page.find": {
+      const text = p.text == null ? undefined : str(p.text, "text");
+      const label = p.label == null ? undefined : str(p.label, "label");
+      const role = p.role == null ? undefined : str(p.role, "role");
+      if (text == null && label == null && role == null) throw new RpcError("bad-params", 'pass at least one of "text", "label", "role"');
+      return evalIn(guest(resolveTab(p)), FIND_JS({ text, label, role, includeHidden: p.includeHidden === true, limit: Number(p.limit) || 20 }));
+    }
     case "page.screenshot": {
       const t = resolveTab(p);
       const wc = await front(d, t);
@@ -232,13 +256,12 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       const t = resolveTab(p);
       const wc = await front(d, t);
       let x = Number(p.x), y = Number(p.y);
-      if (p.selector != null) {
-        const sel = str(p.selector, "selector");
-        const pt = (await evalIn(wc, `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; e.scrollIntoView({block:"center", inline:"center"}); const r = e.getBoundingClientRect(); return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) }; })()`)) as { x: number; y: number } | null;
-        if (!pt) throw new RpcError("no-element", `nothing matches ${sel}`);
+      if (p.ref != null || p.selector != null) {
+        const pt = (await evalIn(wc, pointOf(targetOf(p)))) as { x: number; y: number } | null;
+        if (!pt) throw noElement(p);
         ({ x, y } = pt);
         await sleep(50); // let scroll settle
-      } else if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RpcError("bad-params", 'pass "selector" or both "x" and "y"');
+      } else if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RpcError("bad-params", 'pass "ref", "selector" or both "x" and "y"');
       wc.sendInputEvent({ type: "mouseMove", x, y });
       wc.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
       wc.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
@@ -249,13 +272,12 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       const t = resolveTab(p);
       const wc = await front(d, t);
       let x = Number(p.x), y = Number(p.y);
-      if (p.selector != null) {
-        const sel = str(p.selector, "selector");
-        const pt = (await evalIn(wc, `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; e.scrollIntoView({block:"center", inline:"center"}); const r = e.getBoundingClientRect(); return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) }; })()`)) as { x: number; y: number } | null;
-        if (!pt) throw new RpcError("no-element", `nothing matches ${sel}`);
+      if (p.ref != null || p.selector != null) {
+        const pt = (await evalIn(wc, pointOf(targetOf(p)))) as { x: number; y: number } | null;
+        if (!pt) throw noElement(p);
         ({ x, y } = pt);
         await sleep(50);
-      } else if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RpcError("bad-params", 'pass "selector" or both "x" and "y"');
+      } else if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RpcError("bad-params", 'pass "ref", "selector" or both "x" and "y"');
       wc.sendInputEvent({ type: "mouseMove", x, y });
       return { hovered: { x, y } };
     }
@@ -263,10 +285,9 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       const t = resolveTab(p);
       const wc = await front(d, t);
       const text = typeof p.text === "string" ? p.text : str(p.text, "text");
-      if (p.selector != null) {
-        const sel = str(p.selector, "selector");
-        const ok = await evalIn(wc, `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return false; e.scrollIntoView({block:"center"}); e.focus(); ${p.clear !== false ? "if (e.select) e.select();" : ""} return true; })()`);
-        if (!ok) throw new RpcError("no-element", `nothing matches ${sel}`);
+      if (p.ref != null || p.selector != null) {
+        const ok = await evalIn(wc, `(() => { const e = ${elementExpr(targetOf(p))}; if (!e) return false; e.scrollIntoView({block:"center"}); e.focus(); ${p.clear !== false ? "if (e.select) e.select();" : ""} return true; })()`);
+        if (!ok) throw noElement(p);
       }
       await wc.insertText(text); // replaces the selection when clear (default), else appends
       return { typed: text.length };

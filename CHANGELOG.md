@@ -6,6 +6,10 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **Form tools.** `page.forms` lists a page's fields and buttons (labels, types, options, values) and `page.find` looks
+  elements up by their words, label or role. Both return refs that `page.click`, `page.hover` and `page.type` accept; a
+  ref to something that has left the page is an error, never a wrong click. Passwords, card and one-time-code fields,
+  hidden fields and files are never reported by value.
 - **Tabs.** One page per tab with its own payment inspector; a ⚡ marks tabs that paid. Shortcuts: ⌘T, ⌘W, ⌘L, ⌘R,
   Ctrl+Tab. `target=_blank` links open as tabs.
 - **Password manager.** `@dbbasic/vault` is a small, dependency-free encrypted vault (scrypt + AES-256-GCM, exact-origin

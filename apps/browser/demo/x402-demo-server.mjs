@@ -522,6 +522,35 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     return;
   }
 
+  // A form with every kind of field the form tools have to understand, including ones that must never be reported.
+  if (path === "/forms") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>forms</title><body style="font:16px system-ui;padding:24px">
+<h1>Sign up</h1>
+<form id="signup" method="post" action="/forms/submit?token=abc">
+  <label for="fn">First name</label> <input id="fn" name="first" required autocomplete="given-name" value="Ada"><br>
+  <label>Email <input type="email" name="email" placeholder="you@example.com"></label><br>
+  <input name="phone" aria-label="Phone number"><br>
+  <select name="country" aria-label="Country"><option value="us">United States</option><option value="ca" selected>Canada</option></select><br>
+  <fieldset><legend>Contact by</legend>
+    <label><input type="radio" name="via" value="mail" checked> Mail</label>
+    <label><input type="radio" name="via" value="sms"> Text</label></fieldset>
+  <label><input type="checkbox" name="news"> Send me news</label><br>
+  <textarea name="note" aria-label="Note">hello</textarea><br>
+  <input type="password" name="pw" aria-label="Password" value="hunter2-secret"><br>
+  <input name="cardnumber" aria-label="Card" autocomplete="cc-number" value="4111111111111111"><br>
+  <input name="code" autocomplete="one-time-code" aria-label="Code" value="123456"><br>
+  <input type="hidden" name="csrf" value="csrf-secret-value">
+  <input name="display-none" aria-label="Sneaky" style="display:none" value="x">
+  <button type="submit" id="go">Create account</button>
+  <button type="button" id="cancel">Cancel</button>
+</form>
+<p><a href="/free" id="lnk">Read the news</a> <a href="/headers">Headers</a></p>
+<div contenteditable="true" aria-label="Rich note" id="rich">edit me</div>
+<script>window.clicks = 0; document.getElementById("cancel").addEventListener("click", () => window.clicks++); document.getElementById("signup").addEventListener("submit", (e) => { e.preventDefault(); window.submitted = true; });</script>`);
+    return;
+  }
+
   // Header echo: shows exactly what the browser sends (user agent, client hints, fetch metadata...).
   if (path === "/headers") {
     res.writeHead(200, { "content-type": "application/json" });
