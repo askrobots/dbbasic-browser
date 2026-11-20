@@ -30,6 +30,7 @@ const ALLOWED_NAMES = [
   "DBB_AI_MODEL", // overrides the model for whichever provider is selected
   "DBB_AI_MODEL_ANTHROPIC",
   "DBB_AI_MODEL_OPENAI",
+  "DBB_AI_BASE_URL", // an OpenAI-compatible endpoint: a model on this machine or on your network
 ] as const;
 const ALLOWED = new Set<string>(ALLOWED_NAMES);
 
@@ -111,6 +112,29 @@ export interface AiConfig {
   keys: Partial<Record<Provider, string>>;
   available: Provider[];
   sources: Record<string, string>;
+  /** An OpenAI-compatible endpoint (a local or network model) used instead of api.openai.com. */
+  baseUrl?: string;
+}
+
+/**
+ * A model endpoint must be https, or plain http only to this machine or a private network (where "a model on my own
+ * hardware" lives). Anything else is ignored, so page text never goes over plain http across the internet.
+ */
+export function parseBaseUrl(v: string | undefined): string | null {
+  if (!v) return null;
+  let u: URL;
+  try {
+    u = new URL(v);
+  } catch {
+    return null;
+  }
+  if (u.username || u.password) return null;
+  if (u.protocol === "https:") return u.href.replace(/\/$/, "");
+  if (u.protocol !== "http:") return null;
+  const h = u.hostname.replace(/^\[|\]$/g, "");
+  const priv =
+    h === "localhost" || h === "::1" || h.endsWith(".local") || /^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+  return priv ? u.href.replace(/\/$/, "") : null;
 }
 
 /** Pick the provider (Anthropic by default) and model. Returns null when no usable key exists. */
@@ -119,14 +143,17 @@ export function resolveAi(loaded: Loaded): AiConfig | null {
   const keys: Partial<Record<Provider, string>> = {};
   if (values.ANTHROPIC_API_KEY) keys.anthropic = values.ANTHROPIC_API_KEY;
   if (values.OPENAI_API_KEY) keys.openai = values.OPENAI_API_KEY;
-  const available = (Object.keys(keys) as Provider[]).sort((a, b) => (a === "anthropic" ? -1 : b === "anthropic" ? 1 : 0));
+  const baseUrl = parseBaseUrl(values.DBB_AI_BASE_URL);
+  const names = new Set<Provider>(Object.keys(keys) as Provider[]);
+  if (baseUrl) names.add("openai"); // a local or network endpoint needs no key
+  const available = [...names].sort((a, b) => (a === "anthropic" ? -1 : b === "anthropic" ? 1 : 0));
   if (available.length === 0) return null;
 
   const wanted = values.DBB_AI_PROVIDER as Provider | undefined;
   const provider: Provider = wanted && available.includes(wanted) ? wanted : (available[0] as Provider);
   const model =
     (provider === "anthropic" ? values.DBB_AI_MODEL_ANTHROPIC : values.DBB_AI_MODEL_OPENAI) || values.DBB_AI_MODEL || DEFAULT_MODELS[provider];
-  return { provider, model, keys, available, sources };
+  return { provider, model, keys, available, sources, ...(baseUrl ? { baseUrl } : {}) };
 }
 
 /** Everything the UI may know: no key material. */
@@ -136,6 +163,8 @@ export interface AiDescription {
   model?: string;
   available: Provider[];
   keySources: Partial<Record<Provider, string>>;
+  /** Host (and port) of a local or network endpoint, when one is in use. Never a key. */
+  endpoint?: string;
 }
 
 export function describeAi(cfg: AiConfig | null): AiDescription {
@@ -143,7 +172,8 @@ export function describeAi(cfg: AiConfig | null): AiDescription {
   const keySources: Partial<Record<Provider, string>> = {};
   if (cfg.sources.ANTHROPIC_API_KEY) keySources.anthropic = cfg.sources.ANTHROPIC_API_KEY;
   if (cfg.sources.OPENAI_API_KEY) keySources.openai = cfg.sources.OPENAI_API_KEY;
-  return { configured: true, provider: cfg.provider, model: cfg.model, available: cfg.available, keySources };
+  const endpoint = cfg.baseUrl && cfg.provider === "openai" ? new URL(cfg.baseUrl).host : undefined;
+  return { configured: true, provider: cfg.provider, model: cfg.model, available: cfg.available, keySources, ...(endpoint ? { endpoint } : {}) };
 }
 
 /** Remove any key (or a recognisable fragment of one) from text before it is logged or shown. */

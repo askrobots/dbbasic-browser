@@ -209,9 +209,9 @@ async function callAnthropic(cfg: AiConfig, msg: string, deps: Deps): Promise<{ 
 }
 
 async function callOpenAI(cfg: AiConfig, msg: string, deps: Deps): Promise<{ text: string; usage: Usage }> {
-  const key = cfg.keys.openai;
+  const key = cfg.keys.openai ?? (cfg.baseUrl ? "none" : undefined);
   if (!key && !deps.openai) throw new AiError("no-key", "no OpenAI API key is configured");
-  const client: OpenAILike = deps.openai ?? (new OpenAI({ apiKey: key, timeout: 60_000, maxRetries: 1 }) as unknown as OpenAILike);
+  const client: OpenAILike = deps.openai ?? (new OpenAI({ apiKey: key, ...(cfg.baseUrl ? { baseURL: cfg.baseUrl } : {}), timeout: 60_000, maxRetries: 1 }) as unknown as OpenAILike);
   const base: Record<string, unknown> = {
     model: cfg.model,
     max_completion_tokens: 4096,

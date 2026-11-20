@@ -173,3 +173,42 @@ export const FIND_JS = (q: { text?: string; label?: string; role?: string; inclu
   out.sort((a, b) => b.score - a.score);
   return { total, matches: out.slice(0, limit).map(({ score, ...m }) => m) };
 })()`;
+
+/** What a ref points at, so a person can be told what is about to be clicked or typed into (and so secrets are refused). */
+export const REF_INFO_JS = (ref: string): string => `(() => {
+  ${LIB}
+  ${SENSITIVE}
+  const el = byRef(${JSON.stringify(ref)});
+  if (!el) return { found: false };
+  const tag = el.tagName.toLowerCase();
+  const type = (el.getAttribute("type") || "").toLowerCase();
+  const inForm = !!el.form;
+  const submits = (tag === "button" && (type === "" || type === "submit") && inForm) || (tag === "input" && (type === "submit" || type === "image"));
+  return {
+    found: true, tag, type: type || null,
+    role: el.getAttribute("role") || null,
+    text: clean(el.innerText || el.value || "", 120),
+    label: labelOf(el) || null,
+    name: el.getAttribute("name") || null,
+    sensitive: sensitiveReason(el),
+    submits,
+    link: tag === "a" ? el.href : null,
+  };
+})()`;
+
+/** Choose an option of a <select> by its value or its visible words, with the events a page expects. */
+export const CHOOSE_JS = (ref: string, want: string): string => `(() => {
+  ${LIB}
+  const el = byRef(${JSON.stringify(ref)});
+  if (!el) return { ok: false, why: "not-found" };
+  if (el.tagName !== "SELECT") return { ok: false, why: "not-a-select" };
+  const w = ${JSON.stringify(want)}.trim().toLowerCase();
+  const opts = [...el.options];
+  const hit = opts.find((o) => o.value.toLowerCase() === w) || opts.find((o) => clean(o.label || o.textContent).toLowerCase() === w) || opts.find((o) => clean(o.label || o.textContent).toLowerCase().includes(w));
+  if (!hit || hit.disabled) return { ok: false, why: "no-such-option", options: opts.slice(0, 40).map((o) => clean(o.label || o.textContent, 60)) };
+  el.focus();
+  el.value = hit.value;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return { ok: true, chosen: clean(hit.label || hit.textContent, 80), value: hit.value };
+})()`;
