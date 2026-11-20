@@ -748,6 +748,26 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
   }
 
   // A page worth keeping: distinctive words to search for, and colour so the picture of it is not blank.
+  // Search suggestions for the address bar (OpenSearch suggestions JSON), and what it was asked, so a test can check that
+  // addresses are never sent.
+  if (path === "/suggest") {
+    const q = url.searchParams.get("q") || "";
+    (globalThis.__suggestAsked ||= []).push(q);
+    res.writeHead(200, { "content-type": "application/x-suggestions+json" });
+    res.end(JSON.stringify([q, q ? [q + " recipe", q + " history", q] : []]));
+    return;
+  }
+  if (path === "/suggest/_asked") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify(globalThis.__suggestAsked || []));
+    return;
+  }
+  // A page with its own ⌘K search box, like askrobots'.
+  if (path === "/cmdk") {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end(`<!doctype html><title>Command K</title><body style="font:16px system-ui;padding:30px"><input id="box" placeholder="Ask (⌘K)"><script>document.addEventListener("keydown",(e)=>{window.__keys=(window.__keys||[]).concat(e.key+(e.metaKey?"+meta":""));if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();document.getElementById("box").focus();window.__cmdk=(window.__cmdk||0)+1;}});</script>`);
+    return;
+  }
   if (path === "/keep-me") {
     res.writeHead(200, { "content-type": "text/html" });
     res.end(`<!doctype html><title>Marmalade notes</title><body style="font:18px system-ui;padding:40px;background:#fdf3d8"><h1 style="color:#b5651d">Marmalade notes</h1><p>The quick brown zebra keeps a secret recipe for marmalade: Seville oranges, sugar, and patience.</p><p>Second paragraph with <b>bold</b> words &amp; an ampersand.</p>`);

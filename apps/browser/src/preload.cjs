@@ -62,6 +62,10 @@ contextBridge.exposeInMainWorld("x402", {
     remove: (id) => ipcRenderer.invoke("keep:remove", id),
   },
   /** Bookmarks: saved links on askrobots. */
+  omnibox: {
+    suggest: (o) => ipcRenderer.invoke("omnibox:suggest", o || {}),
+    remote: (text) => ipcRenderer.invoke("omnibox:remote", String(text || "")),
+  },
   bookmarks: {
     state: () => ipcRenderer.invoke("bookmarks:state"),
     refresh: () => ipcRenderer.invoke("bookmarks:refresh"),

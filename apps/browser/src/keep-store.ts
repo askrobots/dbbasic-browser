@@ -168,6 +168,25 @@ export class KeepStore {
     return out.slice(0, limit);
   }
 
+  /** Every record, newest first, without reading the text (for the address bar, which asks on every key). */
+  async records(limit = 500): Promise<KeptRecord[]> {
+    let ids: string[];
+    try {
+      ids = (await fs.readdir(this.dir)).filter((n) => ID_RE.test(n));
+    } catch {
+      return [];
+    }
+    const out: KeptRecord[] = [];
+    for (const id of ids) {
+      try {
+        out.push(JSON.parse(await fs.readFile(join(this.dir, id, "record.json"), "utf8")) as KeptRecord);
+      } catch {
+        /* a half-written copy */
+      }
+    }
+    return out.sort((a, b) => b.keptAt - a.keptAt).slice(0, limit);
+  }
+
   /** Change a kept copy's record (for example once it has been saved to the person's account). */
   async update(id: string, patch: Partial<Omit<KeptRecord, "id">>): Promise<KeptRecord | null> {
     const g = await this.get(id);

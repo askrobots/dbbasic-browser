@@ -37,6 +37,7 @@ import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 import { BookmarksService } from "./bookmarks-service.js";
 import { KEPT_SCHEME, KeepStore, keptFilename, keptPageHtml, keptUrl, parseKeptUrl, type KeptRecord } from "./keep-store.js";
 import { diskUsage, type DiskUsage } from "./disk-usage.js";
+import { parseSuggestions, remoteAllowed, suggest, type OmniTab } from "./omnibox.js";
 import { macFootprints } from "./process-memory.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1049,6 +1050,38 @@ app.whenReady().then(async () => {
   ipcMain.handle("keep:tab", (_e, o: unknown) => keepTab((o && typeof o === "object" ? o : {}) as { tab?: number }));
   ipcMain.handle("keep:list", (_e, q: unknown) => keep.list(String(q ?? "")));
   ipcMain.handle("keep:remove", (_e, id: unknown) => keep.remove(String(id ?? "")));
+
+  // The address bar: suggestions from open tabs, saved links and kept copies (all local), and search suggestions from the
+  // search site for text that is not an address. Those go without cookies (so they are not tied to your account) and not at
+  // all while the caller network is on.
+  let keptCache: { at: number; list: Array<{ id: string; url: string; title: string; view: string }> } | null = null;
+  ipcMain.handle("omnibox:suggest", async (_e, o: unknown) => {
+    const q = (o && typeof o === "object" ? o : {}) as { text?: unknown; tabs?: unknown; activeTab?: unknown; autofill?: unknown };
+    const text = String(q.text ?? "").slice(0, 500);
+    const tabs: OmniTab[] = (Array.isArray(q.tabs) ? q.tabs : []).slice(0, 300).flatMap((t) => (t && typeof t === "object" && typeof (t as OmniTab).id === "number" ? [{ id: (t as OmniTab).id, url: String((t as OmniTab).url ?? ""), title: String((t as OmniTab).title ?? "") }] : []));
+    if (!keptCache || Date.now() - keptCache.at > 5000) keptCache = { at: Date.now(), list: (await keep.records()).map((r) => ({ id: r.id, url: r.url, title: r.title, view: keptUrl(r.id) })) };
+    const bm = bookmarks.state();
+    return suggest({ text, tabs, ...(typeof q.activeTab === "number" ? { activeTab: q.activeTab } : {}), bookmarks: [...bm.items, ...bm.known], kept: keptCache.list, autofill: q.autofill !== false });
+  });
+  const SUGGEST_URL = process.env.DBB_SUGGEST_URL || "https://askrobots.com/suggest/opensearch?q=%s";
+  const suggestCache = new Map<string, { at: number; list: string[] }>();
+  ipcMain.handle("omnibox:remote", async (_e, t: unknown) => {
+    const text = String(t ?? "").trim();
+    if (callerNet.enabled || !remoteAllowed(text)) return [];
+    const key = text.toLowerCase();
+    const hit = suggestCache.get(key);
+    if (hit && Date.now() - hit.at < 120_000) return hit.list;
+    try {
+      const res = await fetch(SUGGEST_URL.replace("%s", encodeURIComponent(text)), { headers: { "user-agent": USER_AGENT, accept: "application/x-suggestions+json, application/json" }, credentials: "omit", signal: AbortSignal.timeout(1500) });
+      if (!res.ok) return [];
+      const list = parseSuggestions((await res.text()).slice(0, 20_000), text);
+      if (suggestCache.size > 200) suggestCache.clear();
+      suggestCache.set(key, { at: Date.now(), list });
+      return list;
+    } catch {
+      return [];
+    }
+  });
 
   // The in-browser chat: a model, the page tools (run in-process, the same methods scripts use) and the person's say.
   const chat = new ChatService({

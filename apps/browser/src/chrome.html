@@ -85,6 +85,16 @@
       #starBtn { min-width: 34px; font-size: 16px; line-height: 1; }
       #starBtn.saved { color: #f0c674; }
       #starBtn.site { color: #f0c674; box-shadow: inset 0 0 0 1px #8a6a1a; } /* this page is not saved, another on the same site is */
+      #omni { position: fixed; z-index: 30; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 9px; box-shadow: 0 12px 40px rgba(0,0,0,.6); padding: 5px; display: none; font-size: 13px; max-height: 70vh; overflow: auto; }
+      #omni.open { display: block; }
+      #omni .or { display: flex; align-items: baseline; gap: 9px; padding: 6px 9px; border-radius: 6px; cursor: pointer; color: #e8e8ea; white-space: nowrap; overflow: hidden; }
+      #omni .or.sel { background: #2f3a52; }
+      #omni .or .ic { width: 18px; text-align: center; flex: none; color: #9a9aa2; }
+      #omni .or .tt { overflow: hidden; text-overflow: ellipsis; }
+      #omni .or .u { color: #8a8a90; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+      #omni .or .k { color: #9cc3ff; font-size: 11px; flex: none; margin-left: auto; }
+      #omni .of { color: #6f6f76; font-size: 11px; padding: 6px 9px 3px; border-top: 1px solid #2c2c32; margin-top: 4px; display: flex; gap: 8px; }
+      #omni .of a { color: #8fb3e8; cursor: pointer; }
       #bmPanel { position: fixed; top: 84px; right: 10px; width: 420px; max-height: calc(100vh - 100px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12.5px; }
       #bmPanel.open { display: block; }
       #bmPanel h4 { margin: 0 0 4px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
@@ -258,6 +268,7 @@
     <script>
       const $ = (id) => document.getElementById(id);
       const urlInput = $("url");
+      let omniEditing = false; // true while you are typing in the address bar (pages loading meanwhile do not overwrite it)
 
       // ---- tabs ------------------------------------------------------------
       // One <webview> per tab. Each tab owns its inspector rows so payment history
@@ -335,7 +346,7 @@
         const onNav = (e) => {
           if (!shown(e.url)) return;
           tab.url = e.url;
-          if (tab === active) urlInput.value = e.url;
+          if (tab === active && !omniEditing) urlInput.value = e.url;
         };
         wv.addEventListener("did-navigate", onNav);
         wv.addEventListener("did-navigate-in-page", (e) => { if (e.isMainFrame) onNav(e); });
@@ -378,7 +389,7 @@
       }
 
       // The address bar shows where a reader view came from, never the data: URL it is built on.
-      function setUrlBar(t) { urlInput.value = t.reader ? "📖 Reader · " + t.reader : t.url; if (typeof paintStar === "function") paintStar(); }
+      function setUrlBar(t) { if (omniEditing && document.activeElement === urlInput && t === active) return; /* never overwrite what you are typing */ urlInput.value = t.reader ? "📖 Reader · " + t.reader : t.url; if (typeof paintStar === "function") paintStar(); }
 
       function tabLabel(t) {
         if (t.reader) return "📖 " + (t.title || hostOf(t.reader));
@@ -1075,7 +1086,129 @@
         if (tab.ready) { try { Promise.resolve(tab.wv.loadURL(u)).catch(() => {}); } catch { tab.wv.src = u; } }
         else tab.pending = u; // applied on dom-ready
       }
-      urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") go(urlInput.value); });
+      // ---- the address bar's suggestions -------------------------------------------------------------------------
+      // Open tabs, saved links and kept copies come from this computer; search suggestions from askrobots only for text that is
+      // not an address (and can be switched off). A site you use is completed inline: "slash" → slashdot.org.
+      const omni = document.createElement("div"); omni.id = "omni"; document.body.appendChild(omni);
+      let omniRows = [], omniSel = 0, omniTyped = "", omniSeq = 0, omniRemote = [], omniLocal = [], omniRemoteTimer = null, omniFilled = null;
+      const omniRemoteOn = () => { try { return localStorage.getItem("omniRemote") !== "off"; } catch { return true; } };
+      function omniClose() { omni.classList.remove("open"); omniRows = []; omniSeq++; clearTimeout(omniRemoteTimer); }
+      function omniEnd() { omniEditing = false; omniClose(); }
+      const searchFor = (text) => SEARCH_URL.replace("%s", encodeURIComponent(text.trim()).replace(/%20/g, "+"));
+      function omniRender() {
+        omniRows = omniLocal.length ? [omniLocal[0], ...omniLocal.slice(1).filter((r) => r.kind !== "ask"), ...omniRemote.map((t) => ({ kind: "suggest", text: t })), ...omniLocal.filter((r) => r.kind === "ask")] : [];
+        if (!omniRows.length || document.activeElement !== urlInput) { omni.classList.remove("open"); return; }
+        if (omniSel >= omniRows.length) omniSel = 0;
+        const b = urlInput.getBoundingClientRect();
+        omni.style.left = b.left + "px"; omni.style.top = (b.bottom + 4) + "px"; omni.style.width = Math.max(b.width, 420) + "px";
+        omni.textContent = "";
+        omniRows.forEach((r, i) => {
+          const el = document.createElement("div"); el.className = "or" + (i === omniSel ? " sel" : ""); el.dataset.kind = r.kind;
+          const [ic, tt, u, k] =
+            r.kind === "go" ? ["↗", r.title, "", "Go"] :
+            r.kind === "search" ? ["🔍", r.text, "", "Search askrobots"] :
+            r.kind === "suggest" ? ["🔍", r.text, "", ""] :
+            r.kind === "tab" ? ["⇥", r.title, r.url, "Switch to tab"] :
+            r.kind === "bookmark" ? ["★", r.title, r.url, ""] :
+            r.kind === "kept" ? ["📥", r.title, r.original, "Kept copy"] :
+            ["✨", r.text, "", "Ask the assistant"];
+          for (const [cls, txt] of [["ic", ic], ["tt", tt], ["u", u], ["k", k]]) { if (!txt && cls !== "u") continue; const s2 = document.createElement("span"); s2.className = cls; s2.textContent = txt; el.appendChild(s2); }
+          el.addEventListener("mousedown", (e) => e.preventDefault()); // keep the focus in the address bar
+          el.addEventListener("click", () => omniPick(r));
+          el.addEventListener("mousemove", () => { if (omniSel !== i) { omniSel = i; omniPaintSel(); } });
+          omni.appendChild(el);
+        });
+        const f = document.createElement("div"); f.className = "of";
+        const on = omniRemoteOn();
+        f.append(document.createTextNode("↑↓ pick · Enter open · Esc close · search suggestions from askrobots.com: " + (on ? "on" : "off") + " "));
+        const a = document.createElement("a"); a.textContent = on ? "turn off" : "turn on";
+        a.addEventListener("mousedown", (e) => e.preventDefault());
+        a.addEventListener("click", () => { try { localStorage.setItem("omniRemote", on ? "off" : "on"); } catch {} omniRemote = []; omniRender(); if (!on) omniFetchRemote(omniTyped, omniSeq); });
+        f.appendChild(a); omni.appendChild(f);
+        omni.classList.add("open");
+      }
+      function omniPaintSel() { [...omni.querySelectorAll(".or")].forEach((el, i) => el.classList.toggle("sel", i === omniSel)); }
+      function omniFetchRemote(text, seq) {
+        clearTimeout(omniRemoteTimer);
+        if (!omniRemoteOn()) return;
+        omniRemoteTimer = setTimeout(async () => {
+          let list = [];
+          try { list = await window.x402.omnibox.remote(text); } catch {}
+          if (seq !== omniSeq) return;
+          omniRemote = list; omniRender();
+        }, 150);
+      }
+      async function omniUpdate(autofill) {
+        const text = omniTyped, seq = ++omniSeq;
+        clearTimeout(omniRemoteTimer);
+        if (!text.trim()) { omniLocal = []; omniRemote = []; omniRender(); return; }
+        let r = { autofill: null, rows: [] };
+        try { r = await window.x402.omnibox.suggest({ text, tabs: tabs.map((t) => ({ id: t.id, url: t.url, title: t.title })), activeTab: active && active.id, autofill }); } catch {}
+        if (seq !== omniSeq || urlInput.value !== text) return; // you typed on meanwhile
+        if (r.autofill) {
+          // complete inline: what you typed stays, the rest of the site name is selected, so typing on replaces it
+          const typedHost = text.trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+          if (r.autofill.startsWith(typedHost.toLowerCase()) && text === text.trimStart()) {
+            urlInput.value = text + r.autofill.slice(typedHost.length);
+            urlInput.setSelectionRange(text.length, urlInput.value.length);
+            omniFilled = urlInput.value;
+          }
+        }
+        if (!r.autofill) omniFilled = null;
+        omniLocal = r.rows; omniRemote = []; omniSel = 0;
+        omniRender();
+        omniFetchRemote(text, seq);
+      }
+      function omniPick(r) {
+        omniEnd();
+        if (r.kind === "tab") { const t = tabs.find((x) => x.id === r.id); if (t) { switchTo(t); return; } }
+        if (r.kind === "ask") { setUrlBar(active); setChat(true); chatIn.value = r.text; chatSend(); return; }
+        if (r.kind === "search" || r.kind === "suggest") { go(searchFor(r.text)); return; }
+        go(r.url);
+      }
+      urlInput.addEventListener("input", (e) => {
+        omniEditing = true;
+        omniTyped = urlInput.value;
+        omniUpdate(!/^delete/.test(e.inputType || "")); // no completing while you delete
+      });
+      urlInput.addEventListener("blur", () => setTimeout(() => { if (document.activeElement !== urlInput) { omniClose(); omniEditing = false; } }, 0));
+      urlInput.addEventListener("keydown", (e) => {
+        const open = omni.classList.contains("open") && omniRows.length;
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          if (!open) return;
+          e.preventDefault();
+          omniSel = (omniSel + (e.key === "ArrowDown" ? 1 : -1) + omniRows.length) % omniRows.length;
+          omniPaintSel();
+          return;
+        }
+        if (e.key === "Escape") {
+          if (open) { omniClose(); if (urlInput.value !== omniTyped && omniEditing) urlInput.value = omniTyped; }
+          else { omniEditing = false; setUrlBar(active); urlInput.select(); }
+          return;
+        }
+        if (e.key === "Enter" && !e.isComposing) {
+          e.preventDefault();
+          if (open && omniSel > 0) { omniPick(omniRows[omniSel]); return; }
+          if (omniRows[0] && omniRows[0].kind === "go" && omniFilled && urlInput.value === omniFilled) { omniPick(omniRows[0]); return; } // the completed site, with its own scheme
+          const v = urlInput.value;
+          omniEnd();
+          go(v);
+        }
+      });
+      // ⌘K belongs to the page (askrobots' own search box uses it): when the address bar or the browser has the focus — as
+      // right after a new tab — hand it to the page instead of swallowing it.
+      document.addEventListener("keydown", (e) => {
+        if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || (e.key || "").toLowerCase() !== "k") return;
+        if (document.activeElement === chatIn || !active || !active.ready) return;
+        e.preventDefault();
+        omniEnd(); setUrlBar(active);
+        try {
+          active.wv.focus();
+          const mods = [e.metaKey ? "meta" : "control"];
+          active.wv.sendInputEvent({ type: "keyDown", keyCode: "K", modifiers: mods });
+          active.wv.sendInputEvent({ type: "keyUp", keyCode: "K", modifiers: mods });
+        } catch {}
+      });
       // Reload, which becomes Stop while the page is loading.
       function paintReload() {
         const b = $("reload");
