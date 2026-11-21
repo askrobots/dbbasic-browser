@@ -67,7 +67,7 @@ export default async function (ctx) {
   let since = (await ev(0)).next;
   const run = T("chat.send", { text: "keep this page" });
   const ask = await waitFor(async () => (await ev(since)).events.find((e) => e.kind === "confirm"), "the approval for the write");
-  check(ask.danger === true && /Ask Demo notes to save/.test(ask.summary) && /"project_id":"P-1"/.test(ask.summary), "a write is asked about even in Auto mode, and the question shows the forced project, not the model's", ask.summary);
+  check(ask.danger === true && /^Ask Demo notes to save:\n/.test(ask.summary) && /\nproject_id: P-1(\n|$)/.test(ask.summary), "a write is asked about even in Auto mode, and the question shows the forced project, not the model's", ask.summary);
   await T("chat.confirm", { id: ask.id, ok: false });
   check((await run).reply === "Result: declined" && (await stats()).lastArgs?.title !== "A good page", "a no means nothing was sent to the server");
   await T("chat.mode", { mode: "ask" });

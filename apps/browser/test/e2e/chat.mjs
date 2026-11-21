@@ -117,6 +117,8 @@ export default async function (ctx) {
   await c.ev(`toggleChat()`);
   await sleep(300);
   check(await q(`return document.getElementById('chat').classList.contains('open') && (/@/.test(document.getElementById('chatSub').textContent) || (!document.getElementById('chatModel').hidden && document.getElementById('chatModel').selectedOptions[0].textContent.includes('${new URL(base).host}'))) && /go to/.test(document.getElementById('chatPriv').textContent)`), "the panel opens and names the model and where your words go", await q(`return JSON.stringify([document.getElementById('chat').className, document.getElementById('chatSub').textContent, document.getElementById('chatPriv').textContent])`));
+  const fits = await q(`const p = document.getElementById('chat').getBoundingClientRect(); return JSON.stringify(['chatModel', 'chatMode', 'chatClear', 'chatClose'].map((id) => { const r = document.getElementById(id).getBoundingClientRect(); return [id, Math.round(r.left), Math.round(r.right), Math.round(p.right)]; }))`);
+  check(JSON.parse(fits).every(([id, l, r, pr]) => (id === 'chatModel' && r === 0) || (r <= pr + 1 && r > l)), "the panel's header fits: the model picker, the mode, New and close are all inside it", fits);
   check(await q(`return !!document.getElementById('chatEmpty')`), "an empty conversation shows a short hint");
   await c.ev(`(() => { const i = document.getElementById('chatIn'); i.value = 'fill the form'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); })()`);
   const waitDom = async (js, what) => { for (let i = 0; i < 150; i++) { if (await q(js)) return true; await sleep(50); } throw new Error("timed out waiting for " + what); };

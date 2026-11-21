@@ -159,8 +159,11 @@
       #chat { width: 380px; flex: none; background: #17171b; border-left: 1px solid #000; display: none; flex-direction: column; min-height: 0; }
       #chat.open { display: flex; }
       #chatHead { display: flex; align-items: center; gap: 6px; padding: 9px 12px; border-bottom: 1px solid #2a2a30; font-weight: 600; }
-      #chatHead .sub { color: #8a8a90; font-weight: 400; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-      #chatModel { max-width: 150px; text-overflow: ellipsis; }
+      #chatHead .sub { color: #8a8a90; font-weight: 400; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 0; min-width: 0; }
+      #chatHead > span:first-child, #chatHead .sbtn { flex-shrink: 0; }
+      #chatHead select { flex: 0 1 auto; min-width: 0; }
+      #chatMode { max-width: 96px; }
+      #chatModel { max-width: 140px; text-overflow: ellipsis; }
       #chatHead select { background: #131316; color: #c8c8ce; border: 1px solid #2a2a30; border-radius: 6px; font-size: 11px; padding: 2px 4px; }
       #chatConn { padding: 6px 12px; border-bottom: 1px solid #2a2a30; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
       #chatConn:empty { display: none; }
@@ -179,7 +182,9 @@
       #chatLog .note { color: #8a8a90; font-size: 11.5px; text-align: center; padding: 2px 6px; }
       #chatLog .ask { background: #1a2033; border: 1px solid #3a5a9a; border-radius: 9px; padding: 9px 10px; font-size: 12.5px; color: #cde0ff; }
       #chatLog .ask.danger { background: #2a1f0a; border-color: #8a6a1a; color: #f4dca0; }
-      #chatLog .ask .what { margin: 4px 0 8px; color: #fff; word-break: break-word; }
+      #chatLog .ask .what { margin: 4px 0 8px; color: #fff; word-break: break-word; white-space: pre-wrap; max-height: 260px; overflow-y: auto; }
+      #chatLog .m.a a { color: #8ab4ff; text-decoration: underline; cursor: pointer; word-break: break-all; }
+      #chatLog .step { white-space: pre-wrap; }
       #chatLog .ask .tag { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; opacity: .85; }
       #chatLog .ask .row2 { display: flex; gap: 6px; }
       #chatLog .ask.done { opacity: .6; } #chatLog .ask.done .row2 { display: none; }
@@ -814,6 +819,20 @@
         chatLog.scrollTop = chatLog.scrollHeight;
         return d;
       };
+      // Web addresses in the assistant's replies become links that open in a new tab (https only; the text stays text).
+      function linkify(el, text) {
+        let at = 0;
+        for (const m of text.matchAll(/https:\/\/[^\s<>"'`]+/g)) {
+          const url = m[0].replace(/[.,;:!?)\]]+$/, "");
+          el.append(text.slice(at, m.index));
+          const a = document.createElement("a"); a.href = url; a.textContent = url; a.title = "Open in a new tab";
+          a.onclick = (ev) => { ev.preventDefault(); newTab(url); };
+          el.append(a);
+          at = m.index + url.length;
+        }
+        el.append(text.slice(at));
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
       function chatSetBusy(b) {
         chatBusy = b;
         $("chatSend").textContent = b ? "Stop" : "Send";
@@ -833,7 +852,7 @@
         chatSeen = e.seq;
         const empty = $("chatEmpty"); if (empty) empty.remove();
         if (e.kind === "user") chatPush("m u", e.text);
-        else if (e.kind === "text") chatPush("m a", e.text);
+        else if (e.kind === "text") linkify(chatPush("m a", ""), e.text);
         else if (e.kind === "tool-start") { const d = chatPush("step", "▸ " + e.summary); d.dataset.id = e.id; }
         else if (e.kind === "tool-end") chatPush("step " + (e.ok ? "ok" : "bad"), (e.ok ? "  ✓ " : "  ✗ ") + e.name + " — " + e.note);
         else if (e.kind === "tool-denied") chatPush("step bad", "  ✗ not done — " + e.reason);

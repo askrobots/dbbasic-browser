@@ -4,7 +4,7 @@ import { request } from "node:http";
 import { describe, expect, it } from "vitest";
 import { McpAuthError, McpClient, parseEventStream } from "../src/mcp-client";
 import { OAuthError, REDIRECT_PORTS, authorizeUrl, discover, exchangeCode, listenForCode, newPkce, refreshTokens, register, revoke, type Fetch, type ServerMeta } from "../src/mcp-oauth";
-import { DEFAULT_SERVERS, McpService, createStore, dropKeys, loadServerConfigs, parseServerConfigs, type McpServerConfig, type Store } from "../src/mcp-service";
+import { DEFAULT_SERVERS, McpService, createStore, dropKeys, loadServerConfigs, parseServerConfigs, writeSummary, type McpServerConfig, type Store } from "../src/mcp-service";
 
 type Handler = (url: URL, init: { method?: string; headers?: Record<string, string>; body?: string }) => { status?: number; json?: unknown; text?: string; headers?: Record<string, string> };
 
@@ -289,7 +289,7 @@ describe("signing in and using a server's tools", () => {
     expect((w.input_schema as { required: string[] }).required).toEqual(["title"]);
     const plan = await w.plan!({ title: "x" });
     expect(plan.danger).toBe(true); // asked about even in Auto mode
-    expect(plan.summary).toMatch(/Ask Demo to write_thing .*"project_id":"P-1"/);
+    expect(plan.summary).toBe("Ask Demo to write_thing:\ntitle: x\nproject_id: P-1"); // every argument, the forced one too, one per line
     expect(tools.find((t) => t.name === "demo__read_thing")!.risk).toBe("read");
   });
 
@@ -580,6 +580,24 @@ describe("where tokens are kept, and which servers there are", () => {
     expect(loadServerConfigs("/f", () => JSON.stringify([{ ...good, id: "askrobots", extraScopes: [] }])).servers.find((s) => s.id === "askrobots")?.extraScopes).toEqual([]); // unless the entry says otherwise
     expect(loadServerConfigs(undefined).servers).toEqual(DEFAULT_SERVERS);
     expect(loadServerConfigs("/missing", () => { throw new Error("ENOENT"); }).servers).toEqual(DEFAULT_SERVERS);
+  });
+
+  it("says what a write sends, in words, one argument per line", () => {
+    expect(writeSummary("askrobots.com", "create_task", { title: "Visit the moon terrain", instructions: "Around Nov 2027", urgency: "low" })).toBe(
+      "Add a task on askrobots.com:\ntitle: Visit the moon terrain\ninstructions: Around Nov 2027\nurgency: low",
+    );
+    expect(writeSummary("askrobots.com", "create_note", { content: "x", is_public: false })).toBe("Add a note on askrobots.com:\ncontent: x\nis_public: no");
+    expect(writeSummary("askrobots.com", "stop_timer", {})).toBe("Stop the timer on askrobots.com");
+    expect(writeSummary("X", "frob", { a: { b: 1 }, skip: "", n: null })).toBe('Ask X to frob:\na: {"b":1}');
+    expect(writeSummary("X", "frob", { long: "y".repeat(5000) }).length).toBeLessThan(1300);
+  });
+
+  it("writes that only add are asked about but not marked risky; a personal entry keeps that list", async () => {
+    const a = DEFAULT_SERVERS.find((s) => s.id === "askrobots")!;
+    expect(a.addsOnly).not.toContain("update_task"); // changes what exists: risky
+    expect(a.addsOnly!.every((t) => a.tools.includes(t) && !a.readOnly.includes(t))).toBe(true);
+    const mine = loadServerConfigs("/f", () => JSON.stringify([{ id: "askrobots", name: "mine", url: "https://askrobots.com/api/mcp/", tools: ["list_tasks", "create_task", "update_task"], readOnly: ["list_tasks"] }])).servers[0]!;
+    expect(mine.addsOnly).toEqual(["create_task"]); // only the ones this entry allows
   });
 
   it("the built-in askrobots entry reads, saves links as private, names no one's project, and drops contact notes", () => {

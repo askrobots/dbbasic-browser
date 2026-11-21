@@ -27,6 +27,11 @@ export interface McpServerConfig {
   readOnly: string[];
   /** Tools the browser itself may call (saving a kept copy, for example) that the assistant is never offered. */
   browserOnly?: string[];
+  /**
+   * Writes that only add something new (a task, a note, a comment) and change nothing that exists. They are still asked
+   * about every time, but not marked risky. Every other write is.
+   */
+  addsOnly?: string[];
   /** Arguments forced on a tool, whatever the model sends (and hidden from the model). */
   fixedArgs?: Record<string, Record<string, unknown>>;
   /** Result fields removed before the model sees them, per tool. */
@@ -52,6 +57,7 @@ export const DEFAULT_SERVERS: McpServerConfig[] = [
       "create_link", "create_task", "add_task_comment", "update_task", "create_note", "create_article", "create_contact", "start_timer", "stop_timer",
     ],
     browserOnly: ["upload_file"],
+    addsOnly: ["create_link", "create_task", "add_task_comment", "create_note", "create_article", "create_contact", "start_timer", "stop_timer"],
     readOnly: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links", "list_articles", "get_article", "get_running_timer"],
     // Saved links are private. To keep them in one project, put its id in this entry's fixedArgs in mcp-servers.json.
     // Every write is asked about each time (none is readOnly), and what the assistant makes stays private.
@@ -92,8 +98,9 @@ export function parseServerConfigs(text: string): { servers: McpServerConfig[]; 
     const tools = strings(e.tools, 40);
     const readOnly = strings(e.readOnly ?? [], 40);
     const browserOnly = strings(e.browserOnly ?? [], 20);
+    const addsOnly = strings(e.addsOnly ?? [], 40);
     const extraScopes = strings(e.extraScopes ?? [], 10);
-    if (!ok || !tools || !tools.length || !readOnly || !readOnly.every((r) => tools.includes(r)) || !browserOnly || !extraScopes || !extraScopes.every((x) => /^[\x21\x23-\x5b\x5d-\x7e]+$/.test(x))) {
+    if (!ok || !tools || !tools.length || !readOnly || !readOnly.every((r) => tools.includes(r)) || !browserOnly || !addsOnly || !extraScopes || !extraScopes.every((x) => /^[\x21\x23-\x5b\x5d-\x7e]+$/.test(x))) {
       problems.push(`${where} (${e.id}): url must be https, "tools" must list the tools to allow, "readOnly" must be among them, and "extraScopes" must be plain scope names`);
       continue;
     }
@@ -104,6 +111,7 @@ export function parseServerConfigs(text: string): { servers: McpServerConfig[]; 
       tools,
       readOnly,
       ...(browserOnly && browserOnly.length ? { browserOnly } : {}),
+      ...(addsOnly && addsOnly.length ? { addsOnly: addsOnly.filter((x) => tools.includes(x) && !readOnly.includes(x)) } : {}),
       ...(isObj(e.fixedArgs) ? { fixedArgs: e.fixedArgs as Record<string, Record<string, unknown>> } : {}),
       ...(isObj(e.dropFields) ? { dropFields: e.dropFields as Record<string, string[]> } : {}),
       ...(Array.isArray(e.extraScopes) ? { extraScopes } : {}), // an empty list is kept: it means "none", not "the built-in ones"
@@ -125,8 +133,12 @@ export function loadServerConfigs(file: string | undefined, read: (p: string) =>
   for (const s of extra.servers) {
     // A file entry replaces the built-in one with the same id, but keeps the permissions it asks for unless it names its own
     // (otherwise a personal copy made earlier silently loses a permission added later).
+    // Likewise which writes only add (that only takes away a "risky" label; they are still asked about), limited to the
+    // writes this entry allows.
     const built = byId.get(s.id);
-    byId.set(s.id, built?.extraScopes && !s.extraScopes ? { ...s, extraScopes: built.extraScopes } : s);
+    let merged = built?.extraScopes && !s.extraScopes ? { ...s, extraScopes: built.extraScopes } : s;
+    if (built?.addsOnly && !s.addsOnly) merged = { ...merged, addsOnly: built.addsOnly.filter((x) => s.tools.includes(x) && !s.readOnly.includes(x)) };
+    byId.set(s.id, merged);
   }
   return { servers: [...byId.values()], problems: extra.problems };
 }
@@ -245,10 +257,33 @@ export function dropKeys(text: string, keys: string[]): string {
   return JSON.stringify(strip(v));
 }
 
-const compactArgs = (a: Record<string, unknown>): string => {
-  const s = JSON.stringify(a);
-  return s.length > 160 ? `${s.slice(0, 159)}…` : s;
+/** What a write is, in words, for the approval question. */
+const ACTIONS: Record<string, string> = {
+  create_link: "Save a link",
+  create_task: "Add a task",
+  add_task_comment: "Comment on a task",
+  update_task: "Change a task",
+  create_note: "Add a note",
+  create_article: "Add an article",
+  create_contact: "Add a contact",
+  start_timer: "Start the timer",
+  stop_timer: "Stop the timer",
 };
+
+/**
+ * The approval question for a write: what it does and every argument it sends, one per line, in full (up to a limit), so
+ * the person reads what will be sent rather than a cut-off blob. Forced arguments are included: they are sent too.
+ */
+export function writeSummary(server: string, tool: string, args: Record<string, unknown>): string {
+  const head = ACTIONS[tool] ? `${ACTIONS[tool]} on ${server}` : `Ask ${server} to ${tool}`;
+  const lines = Object.entries(args)
+    .filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => {
+      const text = typeof v === "string" ? v : typeof v === "boolean" ? (v ? "yes" : "no") : JSON.stringify(v);
+      return `${k}: ${text.length > 1200 ? `${text.slice(0, 1199)}…` : text}`;
+    });
+  return lines.length ? `${head}:\n${lines.join("\n")}` : head;
+}
 
 export class McpService {
   private meta = new Map<string, ServerMeta>();
@@ -679,7 +714,7 @@ export class McpService {
         return text;
       },
     };
-    if (!reads) def.plan = async (input) => ({ summary: `Ask ${c.name} to ${t.name} ${compactArgs({ ...input, ...fixed })}`, danger: true });
+    if (!reads) def.plan = async (input) => ({ summary: writeSummary(c.name, t.name, { ...input, ...fixed }), danger: !(c.addsOnly ?? []).includes(t.name) });
     return def;
   }
 }
