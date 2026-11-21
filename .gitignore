@@ -11,3 +11,6 @@ dist/
 # Branded dev copy of Electron.app (scripts/launch.mjs)
 .bundle/
 apps/browser/standalone/
+
+# Local notes for Claude (personal ids, never published)
+CLAUDE.local.md
