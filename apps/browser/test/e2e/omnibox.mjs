@@ -165,7 +165,11 @@ export default async function (ctx) {
   await key("Enter");
   await waitFor(async () => (await cards()).length >= 3, "the list in the chat");
   const c2 = (await cards())[2];
-  check(/2 found/.test(c2.s) && c2.items.length === 2 && c2.links.length === 1 && c2.links[0] === `${base}/links/l1/`, "a list shows each thing found, linked to its page only when that page is on the service's own site", JSON.stringify(c2));
+  // The stand-in holds l1 (its page on the service) and l2 (its page elsewhere), plus whatever earlier suites saved there
+  // when the suites share one demo server (one at a time, as in CI).
+  const found = Number((/(\d+) found/.exec(c2.s) || [])[1]);
+  check(found >= 2 && c2.items.length === found && c2.items.includes("Headers echo") && c2.items.includes("Free page") && c2.links.includes(`${base}/links/l1/`) && c2.links.every((l) => l.startsWith(base + "/")),
+    "a list shows each thing found, linked to its page only when that page is on the service's own site", JSON.stringify(c2));
   await cdp.ev(`setChat(false)`);
 
   await type("/wipe");
