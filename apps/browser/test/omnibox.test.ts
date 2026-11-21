@@ -71,6 +71,24 @@ describe("the address bar", () => {
     expect(r.rows.filter((x) => x.kind === "bookmark").map((x) => (x as { url: string }).url)).toEqual(["https://slashdot.org/story/1"]);
   });
 
+  it("suggests pages from history too, after tabs and saved links, without repeating them", () => {
+    const history = [
+      { url: "https://www.houstonchronicle.com/news/space/article/moon-mars-22521312.php", title: "Texas A&M Space Institute aims for the Moon and Mars" },
+      { url: "https://slashdot.org/", title: "Slashdot" }, // also saved: shown once, as the saved link
+      { url: "https://example.com/other", title: "Nothing to do with it" },
+    ];
+    const r = suggest({ text: "mars", tabs, bookmarks, history, kept });
+    expect(r.rows[1]).toEqual({ kind: "history", url: history[0]!.url, title: history[0]!.title });
+    const s = suggest({ text: "slashdot", tabs, bookmarks, history, kept });
+    expect(s.rows.filter((x) => x.kind === "history")).toEqual([]);
+    expect(s.rows.findIndex((x) => x.kind === "bookmark")).toBeGreaterThan(0);
+    // a site you have only visited still completes as you type it
+    expect(suggest({ text: "houston", tabs: [], bookmarks: [], history, kept: [] }).autofill).toBe("houstonchronicle.com");
+    // at most five, in the order given (the most visited and most recent first)
+    const many = Array.from({ length: 9 }, (_, i) => ({ url: `https://notes.example/p${i}`, title: `Marmot note ${i}` }));
+    expect(suggest({ text: "marmot", tabs: [], bookmarks: [], history: many, kept: [] }).rows.filter((x) => x.kind === "history").map((x) => (x as { url: string }).url)).toEqual(many.slice(0, 5).map((m) => m.url));
+  });
+
   it("reads OpenSearch suggestions, without the text itself, duplicates or junk", () => {
     expect(parseSuggestions('["slash", ["slashdot", "slash", "Slashdot", "slashfilm", 3, ""]]', "slash")).toEqual(["slashdot", "slashfilm"]);
     expect(parseSuggestions("not json", "x")).toEqual([]);

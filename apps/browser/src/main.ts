@@ -33,7 +33,8 @@ import { READER_CSP } from "./reader.js";
 import { registerVault } from "./vault-service.js";
 import { handle as handleControl, getTabs, setTabs, startControl, type ApprovalPolicy, type ControlDeps, type ControlHandle, type TabInfo } from "./control.js";
 import { parseSavedChoice } from "./chat-model-choice.js";
-import { HistoryService } from "./history.js";
+import { HistoryCopy } from "./history-copy.js";
+import { forgetMatch, HistoryService } from "./history.js";
 import { ChatService } from "./chat-service.js";
 import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 import { BookmarksService } from "./bookmarks-service.js";
@@ -217,6 +218,8 @@ let control: ControlHandle | null = null;
 let mcpCapture: (url: string) => { status: number; html: string } | null = () => null;
 /** Browsing history on the askrobots account (see history.ts); set once the connection exists. Tabs report to it. */
 let history: HistoryService | null = null;
+/** The copy of that history kept here for the address bar (see history-copy.ts). */
+let historyCopy: HistoryCopy | null = null;
 /** The page's visible text and whether a password field shows, read in an isolated world the page cannot reach. */
 async function readForHistory(wc: Electron.WebContents): Promise<void> {
   if (!history || wc.isDestroyed()) return;
@@ -1044,7 +1047,8 @@ app.whenReady().then(async () => {
       // History: a new sign-in (perhaps someone else) or a sign-out empties what was waiting; a sign-in reads the settings.
       if ((e.kind === "mcp-signed-in" || e.kind === "mcp-signed-out") && e.server === BOOKMARK_SERVER) {
         history?.resetAccount();
-        if (e.kind === "mcp-signed-in") void history?.loadSettings();
+        historyCopy?.clear();
+        if (e.kind === "mcp-signed-in") void history?.loadSettings().then(() => historyCopy?.sync());
       }
     },
   });
@@ -1066,6 +1070,8 @@ app.whenReady().then(async () => {
   });
   // History on the askrobots account: recorded only while signed in with the "history" permission (see history.ts).
   const historyOn = () => mcp.isLoaded() && mcp.isSignedIn(BOOKMARK_SERVER) && !mcp.missingScopes(BOOKMARK_SERVER).includes("history");
+  let sentSeen = 0;
+  let copyTimer: ReturnType<typeof setTimeout> | null = null;
   history = new HistoryService({
     call: (tool, args) => mcp.callDirect(BOOKMARK_SERVER, tool, args, { fixed: false }),
     connected: historyOn,
@@ -1076,12 +1082,45 @@ app.whenReady().then(async () => {
     changed: (st) => {
       mainWindow?.webContents.send("history:changed", st);
       if (st.queued >= 20) void history?.flush();
+      // visits just sent: read them back into the copy (with their ids), so the address bar knows them
+      if (st.sent !== sentSeen) {
+        sentSeen = st.sent;
+        if (st.sent > 0) copySoon();
+      }
     },
     // Tests run their stand-in server on this machine; nobody else's pages on 127.0.0.1 are ever recorded.
     allowPrivateHosts: process.env.DBB_HISTORY_LOCAL_TEST === "1",
   });
   const historyTimer = setInterval(() => void history?.flush(), 30_000);
   historyTimer.unref();
+  // The copy for the address bar: addresses, titles and times only (never the text), in a file only you can read. It is
+  // brought up to date when the browser opens, after visits are sent, after a forget, and every 5 minutes (to see what
+  // your other computers added or forgot). Deleted on sign-out.
+  const historyCopyPath = join(app.getPath("userData"), "history-copy.json");
+  historyCopy = new HistoryCopy({
+    call: (tool, args) => mcp.callDirect(BOOKMARK_SERVER, tool, args, { fixed: false }),
+    connected: () => historyOn() && !callerNet.enabled,
+    load: () => (existsSync(historyCopyPath) ? readFileSync(historyCopyPath, "utf8") : null),
+    save: (text) => {
+      if (text === null) return rmSync(historyCopyPath, { force: true });
+      writeFileSync(historyCopyPath, text, { mode: 0o600 });
+      chmodSync(historyCopyPath, 0o600);
+    },
+    now: () => Date.now(),
+  });
+  function copySoon(): void {
+    if (copyTimer) clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => void historyCopy?.sync(), 1500);
+  }
+  setInterval(() => void historyCopy?.sync(), 5 * 60_000).unref();
+  // A forget, here and in the copy (at once, then as the account says).
+  const forgetHistory = async (scope: "url" | "last_hour" | "site", target?: string) => {
+    if (!history) return { forgotten: 0 };
+    const out = await history.forget(scope, target);
+    historyCopy?.remove(forgetMatch(scope, target, Date.now()));
+    copySoon();
+    return out;
+  };
   // Quitting ends every open visit; the browser waits up to 3 seconds for them to reach the account, then quits anyway
   // (whatever has not gone by then is not kept).
   let historySentOnQuit = false;
@@ -1111,7 +1150,7 @@ app.whenReady().then(async () => {
     const r = mainWindow ? await dialog.showMessageBox(mainWindow, opts) : await dialog.showMessageBox(opts);
     if (r.response !== 0) return { ok: false, cancelled: true };
     try {
-      const out = await history.forget(scope as "url" | "last_hour" | "site", t || undefined);
+      const out = await forgetHistory(scope as "url" | "last_hour" | "site", t || undefined);
       return { ok: true, ...out };
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) };
@@ -1129,7 +1168,7 @@ app.whenReady().then(async () => {
   // right after saving or signing in. Only for a person at the window with a saved sign-in: reading it can raise the system
   // keychain prompt, which a scripted or background run must never wait behind.
   if (!background && process.env.DBB_CONTROL !== "1" && existsSync(mcpAuthPath)) {
-    const loadOnce = () => setTimeout(() => { if (!callerNet.enabled) void bookmarks.refresh().then(() => history?.loadSettings()); }, 1200);
+    const loadOnce = () => setTimeout(() => { if (!callerNet.enabled) void bookmarks.refresh().then(() => history?.loadSettings()).then(() => historyCopy?.sync()); }, 1200);
     if (mainWindow?.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", loadOnce);
     else loadOnce();
   }
@@ -1311,7 +1350,7 @@ app.whenReady().then(async () => {
     }
     if (!keptCache || Date.now() - keptCache.at > 5000) keptCache = { at: Date.now(), list: (await keep.records()).map((r) => ({ id: r.id, url: r.url, title: r.title, view: keptUrl(r.id) })) };
     const bm = bookmarks.state();
-    return suggest({ text, tabs, ...(typeof q.activeTab === "number" ? { activeTab: q.activeTab } : {}), bookmarks: [...bm.items, ...bm.known], kept: keptCache.list, autofill: q.autofill !== false });
+    return suggest({ text, tabs, ...(typeof q.activeTab === "number" ? { activeTab: q.activeTab } : {}), bookmarks: [...bm.items, ...bm.known], history: historyCopy?.pages() ?? [], kept: keptCache.list, autofill: q.autofill !== false });
   });
   // Run a "/" command you typed. Anything the server says may destroy or change things in a way it does not call harmless
   // asks once more (the second Enter), decided here, not by the window.
@@ -1417,13 +1456,17 @@ app.whenReady().then(async () => {
         vault: vaultSvc,
         eventsSince: (n) => ({ events: eventLog.filter((e) => (e.seq as number) > n), next: eventSeq }),
         history: {
-          state: () => history?.state() ?? null,
+          state: () => (history ? { ...history.state(), copy: historyCopy?.state() } : null),
           flush: async () => {
             await history?.flush();
             return history?.state() ?? null;
           },
           pause: (on) => history?.setPaused(on) ?? Promise.resolve(null),
-          forget: (scope, target) => history?.forget(scope, target) ?? Promise.resolve({ forgotten: 0 }),
+          forget: (scope, target) => forgetHistory(scope, target),
+          syncCopy: async () => {
+            await historyCopy?.sync();
+            return historyCopy?.state() ?? null;
+          },
           never: (host) => history?.neverRecord(host) ?? Promise.resolve(null),
         },
         contextMenu: {

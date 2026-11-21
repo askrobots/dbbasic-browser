@@ -1300,6 +1300,7 @@
             r.kind === "suggest" ? ["🔍", r.text, "", ""] :
             r.kind === "tab" ? ["⇥", r.title, r.url, "Switch to tab"] :
             r.kind === "bookmark" ? ["★", r.title, r.url, ""] :
+            r.kind === "history" ? ["🕘", r.title, r.url, "History"] :
             r.kind === "kept" ? ["📥", r.title, r.original, "Kept copy"] :
             r.kind === "cmd" ? ["/", r.line, r.preview || r.description || "", r.readOnly ? "" : r.destructive ? "asks first" : "saves on askrobots"] :
             r.kind === "notice" ? ["ⓘ", r.text, "", r.connect ? "Connect" : ""] :

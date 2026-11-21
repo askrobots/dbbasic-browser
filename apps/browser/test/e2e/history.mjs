@@ -42,6 +42,7 @@ export default async function (ctx) {
   await visit(base + "/forms", 3); // a password field shows: never recorded
   await visit(base + "/free", 0.5); // a glance: not a visit
   await visit(base + "/readable", 3);
+  await visit(base + "/links", 3);
   await T("page.goto", { url: base + "/tiny" });
   const after = await T("history.flush");
   const v = (await stored()).visits;
@@ -50,7 +51,9 @@ export default async function (ctx) {
   check(!urls.some((u) => u.includes("/forms")), "a page with a password field is never recorded");
   check(!urls.some((u) => u.endsWith("/free")), "a glance of under two seconds is not a visit");
   const h = v.find((x) => x.url === base + "/headers");
-  check(h && h.seconds_on_page >= 2 && /^\d{4}-\d\d-\d\dT/.test(h.visited_at) && h.title && h.text && h.text.length > 20, "a visit has its title, start time, seconds on the page and the page's visible text", JSON.stringify({ ...h, text: h?.text?.slice(0, 60) }));
+  check(h && h.seconds_on_page >= 2 && /^\d{4}-\d\d-\d\dT/.test(h.visited_at) && h.text && h.text.length > 20, "a visit has its start time, seconds on the page and the page's visible text", JSON.stringify({ ...h, text: h?.text?.slice(0, 60) }));
+  check(h && !h.title, "a page without a title is kept without one (not its address, which would bring the parameters back)", JSON.stringify(h?.title));
+  check(v.find((x) => x.url === base + "/links")?.title === "Links", "a page's title is kept", JSON.stringify(v.map((x) => x.title)));
   check(after.queued === 0 && after.sent >= 2, "nothing is left waiting once sent", JSON.stringify(after));
 
   // ---- pause ------------------------------------------------------------------------------------------------------
@@ -80,9 +83,42 @@ export default async function (ctx) {
   const tools = await T("mcp.tools");
   check(!JSON.stringify(tools).match(/add_history|forget_history|list_history|history_settings/), "the assistant is never given the tools that record, list or forget history", JSON.stringify(tools.map((t) => t.name ?? t)));
 
+  // ---- the address bar suggests from history (a copy kept here, so typing sends nothing) ---------------------------
+  const typeUrl = (text) => c.ev(`(() => { const u = document.getElementById('url'); u.focus(); u.value = ${JSON.stringify(text)}; u.dispatchEvent(new InputEvent('input', { inputType: 'insertText' })); return true; })()`);
+  const omniRows = () => c.ev(`[...document.querySelectorAll('#omni.open .or')].map((r) => ({ kind: r.dataset.kind, title: r.querySelector('.tt').textContent, url: (r.querySelector('.u') || {}).textContent || '' }))`);
+  const closeOmni = () => c.ev(`(() => { const u = document.getElementById('url'); u.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); u.blur(); return true; })()`);
+  const copySt = await T("history.syncCopy");
+  check(copySt && copySt.visits >= 2, "the browser keeps a copy of the history list for the address bar", JSON.stringify(copySt));
+  const lookups = (await stored()).visits.length;
+  await typeUrl("links");
+  const hr = await waitFor(async () => (await omniRows()).find((r) => r.kind === "history") || null, "a history row", 40).catch(() => null);
+  check(hr && hr.title === "Links" && hr.url === base + "/links", "typing a page's title suggests it from history", JSON.stringify(await omniRows()));
+  await closeOmni();
+  await typeUrl("readable");
+  const hr2 = await waitFor(async () => (await omniRows()).find((r) => r.kind === "history") || null, "a history row by address", 40).catch(() => null);
+  check(hr2 && hr2.url === base + "/readable", "and part of its address does too", JSON.stringify(await omniRows()));
+  await closeOmni();
+  await fetch(base + "/o/_history/other?" + new URLSearchParams({ url: "https://moon.example/mars-institute", title: "Space institute aims for the Moon and Mars" }));
+  await T("history.syncCopy");
+  await typeUrl("mars institute");
+  const other = await waitFor(async () => (await omniRows()).find((r) => r.kind === "history") || null, "the other computer's page", 40).catch(() => null);
+  check(other && other.url === "https://moon.example/mars-institute", "a page visited on another computer is suggested too", JSON.stringify(await omniRows()));
+  await closeOmni();
+  check((await stored()).visits.length === lookups + 1, "and typing sent nothing to the account (only the other computer's visit was added)");
+
   // ---- forget and never-record -----------------------------------------------------------------------------------
   const f = await T("history.forget", { scope: "url", target: base + "/readable#x" });
   check(f.forgotten >= 1 && !(await stored()).visits.some((x) => x.url === base + "/readable"), "forgetting a page deletes it from the account", JSON.stringify(f));
+  await typeUrl("readable");
+  await sleep(600);
+  check(!(await omniRows()).some((r) => r.kind === "history"), "and the address bar stops suggesting it at once", JSON.stringify(await omniRows()));
+  await closeOmni();
+  await fetch(base + "/o/_history/forget-other?" + new URLSearchParams({ url: "https://moon.example/mars-institute" }));
+  await T("history.syncCopy");
+  await typeUrl("mars institute");
+  await sleep(600);
+  check(!(await omniRows()).some((r) => r.kind === "history"), "a page forgotten on another computer goes from the suggestions here too", JSON.stringify(await omniRows()));
+  await closeOmni();
   await T("history.never", { host: "127.0.0.1" });
   check((await stored()).never.includes("127.0.0.1"), "never-record is saved on the account");
   const n1 = (await stored()).visits.length;
@@ -95,4 +131,5 @@ export default async function (ctx) {
   await T("mcp.disconnect", { id: "askrobots" });
   st = await waitFor(async () => { const s = await T("history.state"); return !s.on ? s : null; }, "history to switch off");
   check(st.on === false && st.queued === 0, "signing out switches history off and keeps nothing waiting", JSON.stringify(st));
+  check(st.copy && st.copy.visits === 0, "and deletes the address bar's copy of history", JSON.stringify(st.copy));
 }

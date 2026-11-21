@@ -69,6 +69,8 @@ export interface ControlDeps {
     pause(on: boolean): Promise<unknown>;
     forget(scope: "url" | "last_hour" | "site", target?: string): Promise<unknown>;
     never(host: string): Promise<unknown>;
+    /** Bring the address bar's copy of history up to date now (otherwise it happens on its own). */
+    syncCopy(): Promise<unknown>;
   };
   getApproval(): ApprovalPolicy;
   setApproval(p: ApprovalPolicy): void;
@@ -544,6 +546,8 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
     }
     case "history.never":
       return d.history.never(str(p.host, "host"));
+    case "history.syncCopy":
+      return d.history.syncCopy();
 
     case "menu.pick": {
       if (typeof p.id !== "string" || !p.id) throw new RpcError("bad-params", "id is required (an item id from menu.last)");

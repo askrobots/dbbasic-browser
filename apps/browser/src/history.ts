@@ -123,6 +123,41 @@ export interface HistoryState {
   error?: string;
 }
 
+/**
+ * A page without a title shows its address as the title, parameters and all. That is not a title (and would keep the
+ * parameters cleanHistoryUrl drops), so it becomes "".
+ */
+export function realTitle(title: string, rawUrl: string): string {
+  const t = title.trim();
+  if (!t) return "";
+  const bare = (u: string) => u.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/\/$/, "");
+  if (bare(t) === bare(rawUrl) || /^[a-z][a-z0-9+.-]*:\/\//i.test(t) || bare(rawUrl).startsWith(bare(t)) && /[/:]/.test(t)) return "";
+  return t;
+}
+
+/** Which visits a forget covers (for the copy kept here: see history-copy.ts). `at` is when the visit was, in ms. */
+export function forgetMatch(scope: "url" | "last_hour" | "site" | "all", target: string | undefined, now: number): (v: { url: string; at: number }) => boolean {
+  if (scope === "all") return () => true;
+  if (scope === "last_hour") return (v) => v.at >= now - 3600_000;
+  if (scope === "url") {
+    const url = target ? cleanHistoryUrl(target) : null;
+    return (v) => !!url && v.url === url;
+  }
+  let site = "";
+  try {
+    site = target ? bareHost(target.includes("://") ? new URL(target).hostname : target) : "";
+  } catch {
+    site = "";
+  }
+  return (v) => {
+    try {
+      return !!site && onNeverList(new URL(v.url).hostname, [site]);
+    } catch {
+      return false;
+    }
+  };
+}
+
 export interface HistoryDeps {
   /** Call one of the account's history tools; resolves to the tool's text. */
   call(tool: string, args: Record<string, unknown>): Promise<string>;
@@ -139,6 +174,8 @@ export interface HistoryDeps {
 
 interface Open {
   url: string;
+  /** The address as the tab had it (only to tell a missing title, which shows as the address, from a real one). */
+  raw: string;
   title: string;
   startedAt: number;
   text?: string;
@@ -183,12 +220,12 @@ export class HistoryService {
     const cur = this.open.get(tab);
     if (cur && clean && cur.url === clean) return; // the same page (a fragment change, a dropped parameter)
     this.left(tab);
-    if (clean) this.open.set(tab, { url: clean, title, startedAt: this.d.now() });
+    if (clean) this.open.set(tab, { url: clean, title: realTitle(title, url), startedAt: this.d.now(), raw: url });
   }
 
   title(tab: number, title: string): void {
     const cur = this.open.get(tab);
-    if (cur) cur.title = title;
+    if (cur) cur.title = realTitle(title, cur.raw);
   }
 
   /** What the page says (its visible text), and whether a password field is showing. */

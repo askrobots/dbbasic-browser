@@ -72,8 +72,8 @@ export default async function (ctx) {
   await q(`[...document.querySelectorAll('#omni .of a')][0].click(); return true`);
   await type("plum jam");
   await sleep(500);
+  const sent = await asked(); // (read before turning them back on, which asks for what is typed then, by design)
   await q(`[...document.querySelectorAll('#omni .of a')][0].click(); return true`); // back on
-  const sent = await asked();
   check(sent.includes("pear tart") && !sent.some((x) => /127\.0\.0\.1|intranet|localhost|plum/.test(x)), "only searches are sent for suggestions: never an address, and nothing while switched off", JSON.stringify(sent));
   await key("Escape");
   await key("Escape");

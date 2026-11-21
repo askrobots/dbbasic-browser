@@ -79,6 +79,21 @@ function setup(o: { connected?: boolean; caller?: boolean; reply?: (tool: string
   return { svc, calls, st, tick, visit };
 }
 
+describe("history: titles", () => {
+  it("a page without a title (shown as its address, parameters and all) is kept with no title", async () => {
+    const { svc, calls, tick } = setup();
+    svc.shown(1, "http://example.com:8080/headers?utm_source=news#top", "example.com:8080/headers?utm_source=news#top");
+    tick(3);
+    svc.shown(2, "https://example.com/a", "https://example.com/a");
+    svc.shown(3, "https://example.com/b", "Example: the B page");
+    tick(3);
+    svc.leaveAll();
+    await svc.flush();
+    const sent = calls[0]!.args.visits as Array<{ url: string; title?: string }>;
+    expect(sent.map((v) => v.title)).toEqual([undefined, undefined, "Example: the B page"]);
+  });
+});
+
 describe("history: recording and sending", () => {
   it("a visit becomes one record with its cleaned address, title, start time, seconds and text", async () => {
     const { svc, calls, visit } = setup();

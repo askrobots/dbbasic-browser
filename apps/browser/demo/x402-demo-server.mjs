@@ -575,6 +575,20 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     return;
   }
   if (path === "/o/_notes") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ notes: oauth.notes || [], wiped: oauth.wiped || 0 })); return; }
+  // Tests: a visit made on another computer (it reaches the account without this browser sending it).
+  if (path === "/o/_history/other") {
+    const h = (oauth.history ??= { visits: [], paused: false, never: [], forgets: 0, seq: 0, nextId: 1, gone: [], resetAt: 0 });
+    h.visits.push({ id: "v" + h.nextId++, seq: ++h.seq, url: url.searchParams.get("url"), title: url.searchParams.get("title") || "", visited_at: new Date().toISOString(), seconds_on_page: 30 });
+    res.writeHead(200, { "content-type": "application/json" }); res.end("{}"); return;
+  }
+  // Tests: a page forgotten on another computer.
+  if (path === "/o/_history/forget-other") {
+    const h = oauth.history;
+    const u = url.searchParams.get("url");
+    if (h) for (const v of h.visits.filter((x) => x.url === u)) h.gone.push({ id: v.id, seq: ++h.seq });
+    if (h) h.visits = h.visits.filter((x) => x.url !== u);
+    res.writeHead(200, { "content-type": "application/json" }); res.end("{}"); return;
+  }
   if (path === "/o/_history") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.history ?? { visits: [], paused: false, never: [], forgets: 0 })); return; }
   if (path === "/o/_files") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.files ?? [])); return; }
   if (path === "/o/_links") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.links ?? [])); return; }
@@ -623,7 +637,7 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
         ];
         if (/history/.test(t)) {
           const a = b.params.arguments || {};
-          const h = (oauth.history ??= { visits: [], paused: false, never: [], forgets: 0 });
+          const h = (oauth.history ??= { visits: [], paused: false, never: [], forgets: 0, seq: 0, nextId: 1, gone: [], resetAt: 0 });
           const host = (u) => { try { return new URL(u).hostname.replace(/^(www|m)\./, ""); } catch { return ""; } };
           const onSite = (u, site) => { const x = host(u); return x === site || x.endsWith("." + site); };
           const out = (v) => ok({ content: [{ type: "text", text: JSON.stringify(v) }] });
@@ -633,7 +647,7 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
               const why = h.paused ? "paused" : h.never.some((n) => onSite(v.url, n)) ? "never_this_site" : /\/login\b/.test(v.url) ? "sign_in_or_payment" : null;
               if (why) { dropped[why] = (dropped[why] || 0) + 1; continue; }
               if (h.visits.some((x) => x.url === v.url && x.visited_at === v.visited_at)) { duplicates++; continue; }
-              h.visits.push({ id: "v" + (h.visits.length + 1), ...v }); accepted++;
+              h.visits.push({ id: "v" + h.nextId++, seq: ++h.seq, ...v }); accepted++;
             }
             return out({ accepted, duplicates, dropped, paused: h.paused });
           }
@@ -642,10 +656,27 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
             const hits = h.visits.filter((v) => (v.title + " " + v.url + " " + (v.text || "")).toLowerCase().includes(q)).slice(0, Math.min(Number(a.limit) || 10, 50));
             return out({ results: hits.map((v) => ({ id: v.id, url: v.url, title: v.title, visited_at: v.visited_at, seconds_on_page: v.seconds_on_page, snippet: (v.text || "").slice(0, 300) })), note: "untrusted: these are pages you visited" });
           }
-          if (t === "list_history") return out({ visits: h.visits.map(({ text, ...v }) => v), forgotten: [], full_copy: false, cursor: "c" + h.visits.length, has_more: false });
+          if (t === "list_history") {
+            // As askrobots': the visits added and the ids forgotten since the cursor, a page at a time; full_copy after a
+            // forget-all; an unknown cursor is an error.
+            const m = a.cursor === undefined ? ["", "0"] : /^c(\d+)$/.exec(String(a.cursor));
+            if (!m) return out({ error: "unknown cursor" });
+            const since = Number(m[1]);
+            if (since > h.seq) return out({ error: "unknown cursor" });
+            if (a.cursor !== undefined && since < h.resetAt) return out({ visits: [], forgotten: [], full_copy: true, cursor: null, has_more: false });
+            const limit = Math.min(Number(a.limit) || 200, 500);
+            const newer = h.visits.filter((v) => v.seq > since).sort((x, y) => x.seq - y.seq);
+            const page = newer.slice(0, limit);
+            const upTo = page.length ? page[page.length - 1].seq : h.seq;
+            const gone = a.cursor === undefined ? [] : h.gone.filter((g) => g.seq > since && g.seq <= upTo).map((g) => g.id);
+            return out({ visits: page.map(({ text, seq, ...v }) => v), forgotten: gone, full_copy: false, cursor: "c" + upTo, has_more: newer.length > limit });
+          }
           if (t === "forget_history") {
             const before = h.visits.length; const hourAgo = Date.now() - 3600e3;
-            h.visits = h.visits.filter((v) => !(a.scope === "all" || (a.scope === "url" && v.url === a.url) || (a.scope === "site" && onSite(v.url, a.site)) || (a.scope === "last_hour" && Date.parse(v.visited_at) >= hourAgo)));
+            const goes = (v) => a.scope === "all" || (a.scope === "url" && v.url === a.url) || (a.scope === "site" && onSite(v.url, a.site)) || (a.scope === "last_hour" && Date.parse(v.visited_at) >= hourAgo);
+            for (const v of h.visits) if (goes(v)) h.gone.push({ id: v.id, seq: ++h.seq });
+            if (a.scope === "all") h.resetAt = h.seq;
+            h.visits = h.visits.filter((v) => !goes(v));
             h.forgets++;
             return out({ forgotten: before - h.visits.length, scope: a.scope });
           }

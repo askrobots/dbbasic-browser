@@ -6,6 +6,11 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **The address bar suggests pages from your history**, next to open tabs, saved links and kept copies: type a few words
+  of a page's title or address. History from all your computers is suggested, since it lives on your askrobots account.
+  The browser keeps a copy of the list here (addresses, titles and times, never the pages' text, in a file only you can
+  read), so typing sends nothing anywhere. It is kept up to date when the browser opens, after visits are sent and every
+  five minutes; a page forgotten on any computer goes from the suggestions; signing out deletes the copy.
 - **⌘← and ⌘→ go back and forward** (Alt+← and Alt+→ on Linux and Windows), from the page or the browser's own
   window, as in other browsers. Never inside a text field, where they move the cursor, and not when the page uses the key
   itself.
