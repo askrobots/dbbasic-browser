@@ -170,6 +170,53 @@ describe("history: recording and sending", () => {
     expect(svc.state().queued).toBe(0);
   });
 
+  it("a page kept open is sent once it has been open 30 seconds, once, with the seconds so far", async () => {
+    const { svc, calls, tick } = setup();
+    svc.shown(1, "https://www.houstonchronicle.com/news/article/x-22521312.php?taid=1&utm_source=twitter", "A story");
+    svc.text(1, "https://www.houstonchronicle.com/news/article/x-22521312.php", "Story text", false);
+    tick(10);
+    await svc.flush();
+    expect(calls).toHaveLength(0); // not yet
+    tick(25);
+    await svc.flush();
+    expect(calls[0]!.args.visits).toEqual([{ url: "https://www.houstonchronicle.com/news/article/x-22521312.php", title: "A story", visited_at: "2026-11-21T10:00:00.000Z", seconds_on_page: 35, text: "Story text" }]);
+    tick(100);
+    svc.left(1);
+    await svc.flush();
+    expect(calls).toHaveLength(1); // leaving it later adds nothing
+  });
+
+  it("pages already open when history switches on (signing in, resuming) count from that moment", async () => {
+    const { svc, calls, tick } = setup();
+    svc.shown(1, "https://example.com/open-before");
+    tick(60);
+    svc.resetAccount(); // signed in
+    tick(5);
+    svc.left(1);
+    await svc.flush();
+    expect(calls[0]!.args.visits).toMatchObject([{ url: "https://example.com/open-before", visited_at: "2026-11-21T10:01:00.000Z", seconds_on_page: 5 }]);
+    const p = setup();
+    p.svc.shown(1, "https://example.com/read");
+    await p.svc.setPaused(true);
+    p.tick(40);
+    await p.svc.flush(); // paused: not sent, however long it is open
+    await p.svc.setPaused(false);
+    p.tick(4);
+    p.svc.left(1);
+    await p.svc.flush();
+    const adds = p.calls.filter((c) => c.tool === "add_history");
+    expect(adds.map((c) => c.args.visits)).toMatchObject([[{ url: "https://example.com/read", seconds_on_page: 4 }]]);
+  });
+
+  it("quitting ends every open visit", () => {
+    const { svc, tick } = setup();
+    svc.shown(1, "https://example.com/a");
+    svc.shown(2, "https://example.com/b");
+    tick(5);
+    svc.leaveAll();
+    expect(svc.state().queued).toBe(2);
+  });
+
   it("sends in batches of 100", async () => {
     const { svc, calls, visit } = setup();
     for (let i = 0; i < 250; i++) visit(1, `https://example.com/p${i}`, 3);

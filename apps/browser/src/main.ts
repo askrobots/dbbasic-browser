@@ -956,6 +956,8 @@ app.whenReady().then(async () => {
       readSoon(2500);
     });
     wc.on("page-title-updated", (_e, title) => history?.title(id, title));
+    // (Read soon after the document is ready too: pages full of ads may not finish loading for minutes.)
+    wc.on("dom-ready", () => readSoon(2500));
     wc.on("did-finish-load", () => readSoon(1500));
     wc.on("destroyed", () => {
       if (readTimer) clearTimeout(readTimer);
@@ -1080,9 +1082,16 @@ app.whenReady().then(async () => {
   });
   const historyTimer = setInterval(() => void history?.flush(), 30_000);
   historyTimer.unref();
-  app.on("before-quit", () => {
-    for (const wc of webContents.getAllWebContents()) if (wc.getType() === "webview") history?.left(wc.id);
-    void history?.flush(); // best effort: whatever has not gone by the time the browser exits is not kept
+  // Quitting ends every open visit; the browser waits up to 3 seconds for them to reach the account, then quits anyway
+  // (whatever has not gone by then is not kept).
+  let historySentOnQuit = false;
+  app.on("before-quit", (e) => {
+    if (historySentOnQuit || !history) return;
+    history.leaveAll();
+    if (!history.state().on || history.state().queued === 0) return;
+    e.preventDefault();
+    historySentOnQuit = true;
+    void Promise.race([history.flush(), new Promise((r) => setTimeout(r, 3000))]).finally(() => app.quit());
   });
   ipcMain.handle("history:state", () => history?.state());
   ipcMain.handle("history:pause", (_e, on: unknown) => history?.setPaused(on === true));

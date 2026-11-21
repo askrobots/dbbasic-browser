@@ -10,12 +10,17 @@
  *  - Addresses lose their fragment, user info and every query parameter except the few that say which page it is
  *    (YouTube's v and list, Hacker News' id). askrobots keeps the same list, as a backstop.
  *  - Text: the page's visible text, at most 50,000 bytes.
+ *  - A visit is sent when the tab leaves the page, or once it has been open SEND_OPEN_AFTER seconds (a page you keep
+ *    reading is still history; it is then sent with the seconds so far, once). Quitting sends every open page.
  *  - Visits wait in a small in-memory queue (sent in batches, kept while offline). Signing out or in again empties it,
  *    so one person's pages never go to another person's account. Forgetting also takes matching visits out of the queue.
+ *    Pages already open when history switches on (signing in, resuming) count from that moment.
  *  - Nothing here goes to the search site: only the askrobots account's own history tools.
  */
 
 export const MIN_SECONDS = 2;
+/** A page still open after this long is sent without waiting for the tab to leave it. */
+export const SEND_OPEN_AFTER = 30;
 export const MAX_TEXT_BYTES = 50_000;
 export const QUEUE_CAP = 1000;
 export const BATCH = 100;
@@ -138,6 +143,8 @@ interface Open {
   startedAt: number;
   text?: string;
   hasPassword?: boolean;
+  /** Already queued while still open (see SEND_OPEN_AFTER); leaving it adds nothing more. */
+  queued?: boolean;
 }
 
 export class HistoryService {
@@ -197,10 +204,42 @@ export class HistoryService {
     const cur = this.open.get(tab);
     if (!cur) return;
     this.open.delete(tab);
-    const seconds = Math.round((this.d.now() - cur.startedAt) / 1000);
-    if (seconds < MIN_SECONDS) return;
+    if (this.enqueue(cur)) this.emit();
+  }
+
+  /** Every tab leaves its page (the browser is quitting). */
+  leaveAll(): void {
+    for (const tab of [...this.open.keys()]) this.left(tab);
+  }
+
+  /** Queue pages that have been open SEND_OPEN_AFTER seconds or more, once each. */
+  private queueLongOpen(): void {
     if (!this.d.connected() || this.d.callerNetworkOn() || this.paused) return;
-    if (skipReason({ url: cur.url, title: cur.title, hasPassword: !!cur.hasPassword }, this.never, this.d.allowPrivateHosts)) return;
+    let any = false;
+    for (const cur of this.open.values()) {
+      if (cur.queued || this.d.now() - cur.startedAt < SEND_OPEN_AFTER * 1000) continue;
+      if (this.enqueue(cur)) any = true;
+      cur.queued = true; // (also when skipped: the answer will not change while it stays open)
+    }
+    if (any) this.emit();
+  }
+
+  /** Pages open right now start counting again from this moment (history has just switched on). */
+  private restartOpen(): void {
+    const now = this.d.now();
+    for (const cur of this.open.values()) {
+      cur.startedAt = now;
+      cur.queued = false;
+    }
+  }
+
+  /** Add one visit to the queue if it is one we record. True when it was added. */
+  private enqueue(cur: Open): boolean {
+    if (cur.queued) return false;
+    const seconds = Math.round((this.d.now() - cur.startedAt) / 1000);
+    if (seconds < MIN_SECONDS) return false;
+    if (!this.d.connected() || this.d.callerNetworkOn() || this.paused) return false;
+    if (skipReason({ url: cur.url, title: cur.title, hasPassword: !!cur.hasPassword }, this.never, this.d.allowPrivateHosts)) return false;
     this.queue.push({
       url: cur.url,
       ...(cur.title ? { title: cur.title.slice(0, 500) } : {}),
@@ -209,12 +248,13 @@ export class HistoryService {
       ...(cur.text ? { text: cur.text } : {}),
     });
     if (this.queue.length > QUEUE_CAP) this.queue.splice(0, this.queue.length - QUEUE_CAP); // the oldest go first
-    this.emit();
+    return true;
   }
 
   /** Send what is waiting, in batches. Failures leave the visits queued for the next try. */
   flush(): Promise<void> {
     if (this.flushing) return this.flushing;
+    this.queueLongOpen();
     // (The lock is cleared in .finally, which always runs after this assignment, even when there is nothing to send.)
     this.flushing = this.sendQueued().finally(() => {
       this.flushing = null;
@@ -250,7 +290,7 @@ export class HistoryService {
   /** Signed out, or signed in again (perhaps as someone else): nothing waiting may go to the new account. */
   resetAccount(): void {
     this.queue = [];
-    this.open.clear();
+    this.restartOpen(); // what the tabs show now is not lost, but nothing from before counts
     this.sent = 0;
     this.lastSentAt = undefined;
     this.error = undefined;
@@ -275,10 +315,10 @@ export class HistoryService {
     this.emit();
   }
 
-  /** Pause or resume, here and on the account. Pausing also drops the page being visited right now. */
+  /** Pause or resume, here and on the account. Pausing also drops the time spent so far on the pages open now. */
   async setPaused(paused: boolean): Promise<HistoryState> {
     this.paused = paused;
-    if (paused) this.open.clear();
+    this.restartOpen(); // paused: what is open now is not recorded; resumed: it counts from now
     this.emit();
     if (this.d.connected()) this.applySettings(JSON.parse(await this.d.call("history_settings", { paused })));
     return this.state();
