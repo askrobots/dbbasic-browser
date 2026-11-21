@@ -586,8 +586,12 @@ describe("where tokens are kept, and which servers there are", () => {
     const a = DEFAULT_SERVERS.find((s) => s.id === "askrobots")!;
     expect(a.url).toBe("https://askrobots.com/api/mcp/");
     expect(a.readOnly.every((t) => a.tools.includes(t))).toBe(true);
-    expect(a.tools.filter((t) => !a.readOnly.includes(t))).toEqual(["create_link", "create_task", "create_note"]); // the only writes the assistant gets, each asked about
+    // the only writes the assistant gets, each asked about every time
+    expect(a.tools.filter((t) => !a.readOnly.includes(t))).toEqual(["create_link", "create_task", "add_task_comment", "update_task", "create_note", "create_article", "create_contact", "start_timer", "stop_timer"]);
+    for (const never of ["send_email", "search_messages", "update_article", "complete_task", "cancel_task", "submit_task", "post_to_feed", "generate_image", "run_function", "execute_task"]) expect(a.tools).not.toContain(never);
+    expect(a.tools.some((t) => /^delete_|finance|^ads_|invoice|journal/.test(t))).toBe(false);
     expect(a.fixedArgs?.create_note).toEqual({ is_public: false });
+    expect(a.fixedArgs?.create_article).toEqual({ is_public: false });
     expect(a.browserOnly).toEqual(["upload_file"]); // the browser's own (kept copies), never offered to the assistant
     expect(a.fixedArgs?.upload_file).toEqual({ is_public: false, category: "browser/kept" });
     expect(a.fixedArgs?.create_link).toEqual({ is_public: false });

@@ -43,12 +43,19 @@ export const DEFAULT_SERVERS: McpServerConfig[] = [
     id: "askrobots",
     name: "askrobots.com",
     url: "https://askrobots.com/api/mcp/",
-    tools: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links", "create_link", "create_task", "create_note"],
+    // What the assistant may do for you on askrobots. Left out on purpose: sending mail, reading your mail, deleting,
+    // money (finance, ads), approving or cancelling tasks, running code, paid image generation, anything public (feed
+    // posts, following), and rewriting whole articles. Typed "/" commands are separate: you run those yourself.
+    tools: [
+      "global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links",
+      "list_articles", "get_article", "get_running_timer",
+      "create_link", "create_task", "add_task_comment", "update_task", "create_note", "create_article", "create_contact", "start_timer", "stop_timer",
+    ],
     browserOnly: ["upload_file"],
-    readOnly: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links"],
+    readOnly: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links", "list_articles", "get_article", "get_running_timer"],
     // Saved links are private. To keep them in one project, put its id in this entry's fixedArgs in mcp-servers.json.
-    // Tasks and notes the assistant makes are asked about each time (they are not readOnly), and notes stay private.
-    fixedArgs: { create_link: { is_public: false }, create_note: { is_public: false }, upload_file: { is_public: false, category: "browser/kept" } },
+    // Every write is asked about each time (none is readOnly), and what the assistant makes stays private.
+    fixedArgs: { create_link: { is_public: false }, create_note: { is_public: false }, create_article: { is_public: false }, upload_file: { is_public: false, category: "browser/kept" } },
     dropFields: { get_contact: ["notes", "interactions"], list_contacts: ["notes", "interactions"] },
     // Saving the pictures and text of kept pages in your Files is a separate permission, shown on the consent page.
     extraScopes: ["files:upload"],
