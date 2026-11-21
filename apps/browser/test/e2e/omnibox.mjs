@@ -114,6 +114,27 @@ export default async function (ctx) {
   check(Array.isArray(pageSaw) && !pageSaw.some((k) => /\]|\}/.test(k)), "and the page never sees the key", JSON.stringify(pageSaw));
   await T("tabs.close", { tab: greedy.id }).catch(() => {});
 
+  // ⌘← / ⌘→ (Alt+← / Alt+→ elsewhere) go back and forward from the page, but never inside a text field
+  const navMod = process.platform === "darwin" ? "meta" : "alt";
+  const arrow = (k) => q(`active.wv.focus(); active.wv.sendInputEvent({ type: "keyDown", keyCode: "${k}", modifiers: ["${navMod}"] }); active.wv.sendInputEvent({ type: "keyUp", keyCode: "${k}", modifiers: ["${navMod}"] }); return true`);
+  const urlNow = async () => (await active()).url;
+  await T("tabs.new", { url: base + "/free" });
+  await sleep(300);
+  await T("page.goto", { url: base + "/forms" });
+  await T("page.eval", { js: "document.activeElement && document.activeElement.blur(), true" });
+  await arrow("Left");
+  const wentBack = await waitFor(async () => (await urlNow()).endsWith("/free"), "⌘← to go back", 30).catch(() => false);
+  check(!!wentBack, "⌘← on a page goes back a page", await urlNow());
+  await sleep(300);
+  await arrow("Right");
+  const wentFwd = await waitFor(async () => (await urlNow()).endsWith("/forms"), "⌘→ to go forward", 30).catch(() => false);
+  check(!!wentFwd, "⌘→ goes forward again", await urlNow());
+  await sleep(300);
+  await T("page.eval", { js: "(document.querySelector('input:not([type=hidden]):not([type=password])') || document.querySelector('input')).focus(), true" });
+  await arrow("Left");
+  await sleep(600);
+  check((await urlNow()).endsWith("/forms"), "but in a text field ⌘← moves the cursor and the page stays", await urlNow());
+
   // "/" commands: the askrobots tools of the sign-in (a stand-in here); nothing without a sign-in
   await T("tabs.new", { url: base + "/free" });
   await sleep(300);

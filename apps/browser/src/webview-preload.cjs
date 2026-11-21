@@ -37,6 +37,18 @@ function reportLink(a) {
   ipcRenderer.sendToHost("link-hover", href);
 }
 const linkOf = (t) => (t && t.closest ? t.closest("a[href], area[href]") : null);
+
+// ---- 0b. ⌘← / ⌘→ (Alt+← / Alt+→ elsewhere) go back and forward, as in other browsers ----
+// Only when the key is not for the page: never in a text field (there it moves the cursor), and not when the page
+// handled it itself (a slideshow, an editor). The check waits until the page's own listeners have run.
+const editable = (t) => !!(t && (t.isContentEditable || (t.closest && t.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'))));
+window.addEventListener("keydown", (e) => {
+  if (!e.isTrusted || e.shiftKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+  const mac = /Mac/.test(navigator.platform);
+  if (mac ? !e.metaKey || e.altKey || e.ctrlKey : !e.altKey || e.metaKey || e.ctrlKey) return;
+  if (editable(e.target) || editable(document.activeElement)) return;
+  setTimeout(() => { if (!e.defaultPrevented) ipcRenderer.sendToHost("nav-key", e.key === "ArrowLeft" ? "back" : "forward"); }, 0);
+});
 document.addEventListener("mouseover", (e) => reportLink(linkOf(e.target)), true);
 document.addEventListener("mouseout", (e) => { if (!e.relatedTarget || !linkOf(e.relatedTarget)) reportLink(null); }, true);
 document.addEventListener("focusin", (e) => reportLink(linkOf(e.target)), true);

@@ -347,6 +347,8 @@
           if (tab.pending) { const p = tab.pending; tab.pending = null; wv.src = p; }
         });
         wv.addEventListener("ipc-message", (e) => { if (e.channel === "link-hover") { tab.hoverLink = typeof e.args[0] === "string" ? e.args[0] : null; if (tab === active) paintLink(); } });
+        // ⌘← / ⌘→ pressed in the page (and not used by it): back and forward, like the buttons.
+        wv.addEventListener("ipc-message", (e) => { if (e.channel === "nav-key" && tab === active) $(e.args[0] === "forward" ? "fwd" : "back").click(); });
         wv.addEventListener("did-start-loading", () => { tab.loading = true; refreshThrobber(tab); syncTabs(); if (tab === active) paintReload(); });
         wv.addEventListener("did-fail-load", (e) => {
           if (!e.isMainFrame || e.errorCode === -3) return; // -3 = aborted (a newer navigation replaced it)
@@ -1435,6 +1437,16 @@
           omniEnd();
           go(v);
         }
+      });
+      // ⌘← / ⌘→ (Alt+← / Alt+→ elsewhere) with the browser's own window focused, outside a text field: back and forward.
+      document.addEventListener("keydown", (e) => {
+        if (e.shiftKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+        const mac = /Mac/.test(navigator.platform);
+        if (mac ? !e.metaKey || e.altKey || e.ctrlKey : !e.altKey || e.metaKey || e.ctrlKey) return;
+        const t = document.activeElement;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+        e.preventDefault();
+        $(e.key === "ArrowLeft" ? "back" : "fwd").click();
       });
       // ⌘K belongs to the page (askrobots' own search box uses it): when the address bar or the browser has the focus — as
       // right after a new tab — hand it to the page instead of swallowing it.

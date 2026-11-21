@@ -6,6 +6,9 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **⌘← and ⌘→ go back and forward** (Alt+← and Alt+→ on Linux and Windows), from the page or the browser's own
+  window, as in other browsers. Never inside a text field, where they move the cursor, and not when the page uses the key
+  itself.
 - **History, on your askrobots account.** While you are signed in to askrobots, each page you visit is kept with its
   address, title, time, how long you stayed and its visible text, so you can find it later by a few words you remember.
   Never recorded: sign-in and payment pages (by address, title or a showing password field), this machine and the private
