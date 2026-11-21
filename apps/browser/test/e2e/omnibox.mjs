@@ -103,7 +103,8 @@ export default async function (ctx) {
   const next = before[before.indexOf(greedy.id) + 1] ?? before[0];
   await q(`active.wv.focus(); return true`);
   await T("page.eval", { js: "document.getElementById('box').focus(), true" });
-  await q(`active.wv.sendInputEvent({ type: "keyDown", keyCode: "]", modifiers: ["meta", "shift"] }); active.wv.sendInputEvent({ type: "keyUp", keyCode: "]", modifiers: ["meta", "shift"] }); return true`);
+  const mod = process.platform === "darwin" ? "meta" : "control"; // ⌘⇧] on a Mac, Ctrl+Shift+] elsewhere
+  await q(`active.wv.sendInputEvent({ type: "keyDown", keyCode: "]", modifiers: ["${mod}", "shift"] }); active.wv.sendInputEvent({ type: "keyUp", keyCode: "]", modifiers: ["${mod}", "shift"] }); return true`);
   const moved = await waitFor(async () => (await active()).id === next, "the next tab", 30).catch(() => false);
   const seen = (await fetch(base + "/free").then(() => null), (await T("tabs.list")).find((t) => t.id === greedy.id));
   check(!!moved, "⌘⇧] switches to the next tab even when the page has the focus and swallows every key", JSON.stringify({ active: (await active()).id, greedy: greedy.id, next, seen: !!seen }));

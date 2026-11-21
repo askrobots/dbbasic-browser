@@ -74,10 +74,12 @@ export default async function (ctx) {
 
   v = await settle(base + "/late");
   const decoded = (await T("page.eval", { js: "[...document.images].every((i) => i.complete && i.naturalWidth > 0) && document.images.length" })).value;
-  check(v.settled && v.waitedMs >= 1700 && decoded >= 1, "content added AFTER the load event: it waits for the late image to arrive and decode", `${v.waitedMs} ms, ${decoded} image(s) decoded`);
+  // When a timing check fails, say whether the page thought it was on screen: a hidden page has its timers slowed and its animations stopped.
+  const seenAs = async () => JSON.stringify((await T("page.eval", { js: "({ visibility: document.visibilityState, focus: document.hasFocus() })" })).value);
+  check(v.settled && v.waitedMs >= 1700 && decoded >= 1, "content added AFTER the load event: it waits for the late image to arrive and decode", `${v.waitedMs} ms, ${decoded} image(s) decoded, page ${await seenAs()}`);
 
   v = await settle(base + "/animated", quick);
-  check(v.settled === true && v.rule === "animating" && v.animating === true && v.outcome === "ok", "a page that never stops moving settles as 'animating' instead of waiting for the deadline", `${v.rule} in ${v.waitedMs} ms`);
+  check(v.settled === true && v.rule === "animating" && v.animating === true && v.outcome === "ok", "a page that never stops moving settles as 'animating' instead of waiting for the deadline", `${v.rule} in ${v.waitedMs} ms, page ${await seenAs()}`);
 
   // ---- what actually happened ----
   v = await settle(base + "/blank", quick);
