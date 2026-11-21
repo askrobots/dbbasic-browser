@@ -98,7 +98,9 @@ export default async function (ctx) {
   await c.send("Input.dispatchMouseEvent", { type: "mousePressed", x: own[0], y: own[1], button: "right", clickCount: 1 });
   await c.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: own[0], y: own[1], button: "right", clickCount: 1 });
   const ownItems = await waitFor(async () => { const r = await T("x402.events", { since }); const e = r.events.find((x) => x.kind === "context-menu"); if (e) since = r.next; return e && e.items; }, "the address bar's menu").catch(() => null);
-  check(!!ownItems && ownItems.includes("paste") && ownItems.includes("select-all") && !ownItems.includes("inspect") && !ownItems.includes("reload"), "right-click in the address bar offers the text items (Cut, Copy, Paste, Select All) and nothing else", ownItems && ownItems.join(","));
+  // Paste is greyed out (so not in the recorded list) when the clipboard is empty, as on a fresh CI machine: read the whole menu.
+  const ownAll = ownItems ? (await T("menu.last")).menu.items.filter((i) => i.id).map((i) => i.id) : [];
+  check(ownAll.join(",") === "undo,redo,cut,copy,paste,select-all", "right-click in the address bar offers the text items (Undo, Redo, Cut, Copy, Paste, Select All) and nothing else", ownAll.join(","));
 
   for (const t of await T("tabs.list")) if (/from=(menu|click)/.test(t.url)) await T("tabs.close", { tab: t.id }).catch(() => {});
   await T("tabs.close", { tab: page.id }).catch(() => {});

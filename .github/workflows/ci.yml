@@ -63,9 +63,11 @@ jobs:
         run: sudo apps/browser/scripts/linux-sandbox.sh "$(node -p "require('electron')")"
 
       # No E2E_BACKGROUND here: nothing is on anyone's screen, and the background mode's hidden window is not drawn
-      # under a virtual display. No graphics card either, so the GPU is off.
+      # under a virtual display. No graphics card either, so the GPU is off. One suite at a time: browsers sharing one
+      # virtual display with no window manager sit on top of each other, and a page in a covered window reported itself
+      # hidden (slowed timers, stopped animations), which broke the timing checks.
       - name: End-to-end suite
         run: xvfb-run -a --server-args="-screen 0 1920x1080x24" npm run e2e -w @dbbasic/browser
         env:
           E2E_APP_ARGS: --disable-gpu
-          E2E_PARALLEL: "2"
+          E2E_PARALLEL: "1"
