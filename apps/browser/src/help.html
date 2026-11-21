@@ -53,7 +53,7 @@
   <h2 id="start">Getting started</h2>
   <p>Type a URL and press <kbd>Enter</kbd>. Plain hosts default to <code>https://</code>; <code>localhost</code> and private-network addresses default to <code>http://</code>. Anything that isn't an address is a <b>search</b>, answered by askrobots.com. The first tab and every new tab open <b>askrobots.com</b> (<code>HOMEPAGE=https://…</code> changes that). The local x402 demo gallery is under <b>Help ▸ x402 Demo Gallery</b> (start it with <code>node apps/browser/demo/x402-demo-server.mjs</code>); <b>▶ Tour</b> always walks that gallery.</p>
   <p>Toolbar, left to right: back / forward / reload, the address bar, then <b>Keep</b>, <b>Save</b> (to your askrobots bookmarks), <b>x402 tests</b> and <b>Tour</b> (the demo gallery), <b>Bookmarks</b>, <b>Chat</b>, <b>Reader</b> and <b>Passwords</b>. In a narrow window the buttons show only their icons.</p>
-  <p>The status bar along the bottom: on the left, what the page is doing (or where a link you point at goes); on the right, what the browser is using and spending: <b>Memory</b> (click for what each tab uses), <b>⚡ x402</b> (the payment inspector), your wallet balance, <b>Fund</b>, and <b>Paid</b> this session. A chip appears there when the automation API is on, and a red badge while the caller network is on.</p>
+  <p>The status bar along the bottom: on the left, what the page is doing (or where a link you point at goes); on the right, what the browser is using and spending: <b>Memory</b> (click for what each tab uses), <b>x402</b> (the payment inspector), your wallet balance, <b>Fund</b>, and <b>Paid</b> this session. A chip appears there when the automation API is on, and a red badge while the caller network is on.</p>
   <p>Every feature is also in the menu bar: <b>File</b> (tabs, downloads), <b>View</b> (Reader, Chat, the x402 inspector, what the browser is using), <b>Go</b> (back ⌘[, forward ⌘], next and previous tab), <b>Bookmarks</b> (save ⌘D, show ⌘⇧B, Keep, kept copies) and <b>Tools</b> (passwords, connections, the wallet, the test gallery and tour).</p>
 
   <h2 id="shortcuts">Keyboard shortcuts</h2>
@@ -67,8 +67,8 @@
     <tr><td>Assistant</td><td><kbd>⌘J</kbd></td></tr>
     <tr><td>Find in the page</td><td><kbd>⌘F</kbd> (Edit ▸ Find), then <kbd>Enter</kbd> / <kbd>⇧Enter</kbd> or <kbd>⌘G</kbd> / <kbd>⌘⇧G</kbd> for the next and previous match, <kbd>Esc</kbd> to close (the match stays selected, so <kbd>⌘C</kbd> copies it). Each tab keeps its own search. A site with its own find (an editor, a document) gets <kbd>⌘F</kbd> first; Edit ▸ Find always opens the browser's.</td></tr>
     <tr><td>Reload the page</td><td><kbd>⌘R</kbd>, or ⟳ in the toolbar (✕ stops a page that is loading)</td></tr>
-    <tr><td>Save the page as a bookmark</td><td>☆ next to the address (one click); 🔖 lists your bookmarks</td></tr>
-    <tr><td>Keep a copy of the page and close the tab</td><td>📥 next to the address; 🔖 › Kept copies lists and searches them</td></tr>
+    <tr><td>Save the page as a bookmark</td><td><b>Save</b> next to the address (one click); <b>Bookmarks</b> lists them</td></tr>
+    <tr><td>Keep a copy of the page and close the tab</td><td><b>Keep</b> next to the address; <b>Bookmarks</b> › Kept copies lists and searches them</td></tr>
     <tr><td>Open the page in your default browser</td><td><kbd>⌘⇧O</kbd> (File menu)</td></tr>
     <tr><td>Close the password panel</td><td><kbd>Esc</kbd></td></tr>
     <tr><td>Help</td><td><kbd>F1</kbd></td></tr>
@@ -84,7 +84,7 @@
   <p>Each tab is its own page with its own payment inspector, so spend is attributed to the page that caused it. A <b>⚡</b> on a tab means something was paid for there. Links that open a new window (<code>target="_blank"</code>) open as tabs; clicking a transaction in the inspector opens it beside the paid page rather than replacing it. Tabs are not yet restored between launches.</p>
 
   <h2 id="reader">AI Reader</h2>
-  <p>Click <b>📖 Reader</b> (or <kbd>⌘⇧R</kbd>) for a clean reading view of the current page with a <b>TL;DR</b> at the top. The article is extracted on your computer with Mozilla's Readability and shown in a plain, script-free page; pages that aren't articles fall back to their visible text. Only the TL;DR comes from an AI provider, so a summary can never rewrite what you read — the original text is right below it.</p>
+  <p>Click <b>Reader</b> (or <kbd>⌘⇧R</kbd>) for a clean reading view of the current page with a <b>TL;DR</b> at the top. The article is extracted on your computer with Mozilla's Readability and shown in a plain, script-free page; pages that aren't articles fall back to their visible text. Only the TL;DR comes from an AI provider, so a summary can never rewrite what you read — the original text is right below it.</p>
   <h3>Privacy</h3>
   <ul>
     <li>Nothing is sent unless you click Reader. The first summary per provider each session asks first, naming the provider, model, site and amount of text.</li>
@@ -108,16 +108,16 @@
   <p>When a server answers <code>402 Payment Required</code>, the browser reads the price <i>before</i> paying, applies your spending policy, and either pays, asks you, or refuses.</p>
   <ul>
     <li><b>Auto-approve</b> below the policy threshold (default $0.05); <b>ask</b> above it, with a native dialog showing the price; <b>refuse</b> unknown tokens/networks.</li>
-    <li>Every decision is visible: a toast, a row in the ⚡ inspector (request, challenge, decision, signed authorization, settlement), and the session spend meter.</li>
+    <li>Every decision is visible: a toast, a row in the x402 inspector (request, challenge, decision, signed authorization, settlement), and the session spend meter.</li>
     <li>Real settlement happens on Base Sepolia testnet. Use <b>Fund</b> to get testnet USDC; <b>Refund</b> returns the merchant wallet's balance to you.</li>
   </ul>
 
   <h2 id="passwords">Password manager</h2>
-  <p>Click <b>🔑</b> to create a vault. It is one encrypted file (scrypt key derivation + AES-256-GCM) on this computer, protected by a master password. <b>There is no recovery</b> if you forget it, and nothing is uploaded anywhere.</p>
+  <p>Click <b>Passwords</b> to create a vault. It is one encrypted file (scrypt key derivation + AES-256-GCM) on this computer, protected by a master password. <b>There is no recovery</b> if you forget it, and nothing is uploaded anywhere.</p>
   <h3>Saving</h3>
   <p>Sign in to any site. After you submit, a bar offers <b>Save</b> (or <b>Update</b> if the password changed). The offer survives the redirect after login. Only real keyboard/mouse submissions trigger it — a page can't fake one.</p>
   <h3>Signing in</h3>
-  <p>On a page with a login form and a saved login for that <i>exact</i> site, a bar offers <b>Sign in as …</b> (fill and submit) or <b>Fill</b>. Nothing is filled until you click. The 🔑 panel also lists this site's logins, lets you save one manually, generate a strong password, and delete entries.</p>
+  <p>On a page with a login form and a saved login for that <i>exact</i> site, a bar offers <b>Sign in as …</b> (fill and submit) or <b>Fill</b>. Nothing is filled until you click. The Passwords panel also lists this site's logins, lets you save one manually, generate a strong password, and delete entries.</p>
   <h3>How it stays safe</h3>
   <ul>
     <li><b>Exact origin matching:</b> scheme + host + port must all match. <code>www.example.com</code> never fills <code>example.com</code>; lookalike domains never match.</li>
@@ -185,7 +185,7 @@ const { spent } = await b.call("x402.spent");</pre>
     <tr><td>x402.approval</td><td><code>{mode: "ask"|"auto"|"deny", maxUsd}</code> — who answers payment prompts; call with no params to read</td></tr>
   </table>
   <h3 id="chat">Assistant chat</h3>
-  <p>Press <b>⌘J</b> (or <b>💬 Chat</b>) for a side panel where you can talk to an assistant about the page you are on, and ask it to do things: find something, read a page, fill in a form, open a page. It uses the same tools as the automation API (<code>page.forms</code>, <code>page.find</code>, click, type…), run inside the browser.</p>
+  <p>Press <b>⌘J</b> (or <b>Chat</b>) for a side panel where you can talk to an assistant about the page you are on, and ask it to do things: find something, read a page, fill in a form, open a page. It uses the same tools as the automation API (<code>page.forms</code>, <code>page.find</code>, click, type…), run inside the browser.</p>
   <ul>
     <li><b>You approve what it does.</b> In <i>Ask first</i> mode every action (open, go to, click, type, choose, press a key) waits for <b>Do it</b> or <b>Skip</b>. In <i>Auto</i> mode only a short allow-list runs without asking: switching tab, going back, keys that only move, typing into an ordinary field, choosing in a dropdown, and clicking a link to a site that is already open, a checkbox or a radio button. Everything else asks: any other click (a button need not say anything scary to be risky), Enter, and opening a site that is not open. A click that submits a form or is about buying, paying, deleting or sending is always marked risky.</li>
     <li><b>After it has read your private data</b> from a connected service (contacts, notes, tasks), typing and opening addresses ask in every mode, because a page you are on could try to talk the assistant into copying what it read into the page.</li>

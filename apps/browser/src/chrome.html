@@ -14,6 +14,7 @@
       #url:focus { outline: none; border-color: #5b8cff; }
       .btn { padding: 7px 10px; border-radius: 7px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; cursor: pointer; white-space: nowrap; }
       .btn:hover { background: #1c1c20; }
+      .btn .ico { width: 16px; height: 16px; vertical-align: -3px; flex-shrink: 0; }
       .btn.on { background: #23324e; border-color: #3a5a9a; color: #cde0ff; }
       #inspectBtn { position: relative; }
       #inspectCount { position: absolute; top: -6px; right: -6px; background: #5b8cff; color: #fff; border-radius: 999px; font-size: 10px; min-width: 16px; height: 16px; padding: 0 4px; display: none; align-items: center; justify-content: center; }
@@ -96,8 +97,8 @@
       .cred .who small { display: block; color: #7a7a82; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; }
       .cred .x { cursor: pointer; opacity: .5; padding: 0 4px; } .cred .x:hover { opacity: 1; color: #ff9a9a; }
       /* ---- bookmarks ---- */
-      #starBtn { min-width: 34px; font-size: 16px; line-height: 1; }
-      #starBtn.saved { color: #f0c674; }
+      #starBtn { min-width: 34px; }
+      #starBtn.saved { color: #f0c674; --icon-accent: #f0c674; }
       #starBtn.site { color: #f0c674; box-shadow: inset 0 0 0 1px #8a6a1a; } /* this page is not saved, another on the same site is */
       #omni { position: fixed; z-index: 30; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 9px; box-shadow: 0 12px 40px rgba(0,0,0,.6); padding: 5px; display: none; font-size: 13px; max-height: 70vh; overflow: auto; }
       #omni.open { display: block; }
@@ -228,21 +229,21 @@
   <body>
     <div id="tabbar">
       <div id="tabs"></div>
-      <button class="btn" id="newTab" title="New tab (⌘T)">+</button>
+      <button class="btn" id="newTab" title="New tab (⌘T)" aria-label="New tab"><!--icon:new-tab--></button>
     </div>
     <div id="bar">
-      <button class="btn" id="back">‹</button>
-      <button class="btn" id="fwd">›</button>
+      <button class="btn" id="back" aria-label="Back"><!--icon:back--></button>
+      <button class="btn" id="fwd" aria-label="Forward"><!--icon:forward--></button>
       <button class="btn" id="reload" title="Reload (⌘R)" aria-label="Reload"></button>
       <input id="url" placeholder="Search askrobots.com or enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
-      <button class="btn" id="keepBtn" title="Keep a copy of this page (what is on screen and its text) and close the tab">📥<span class="lbl"> Keep</span></button>
-      <button class="btn" id="starBtn" title="Save this page to your askrobots bookmarks (one click)">☆<span class="lbl"> Save</span></button>
-      <button class="btn" id="galleryBtn" title="Open the local x402 test gallery (http://127.0.0.1:8899/) — start it with: node apps/browser/demo/x402-demo-server.mjs">🧪 x402 tests</button>
-      <button class="btn" id="tourBtn" title="Guided tour of the demo gallery">▶ Tour</button>
-      <button class="btn" id="bmBtn" title="Your bookmarks (askrobots links)">🔖<span class="lbl"> Bookmarks</span></button>
-      <button class="btn" id="chatBtn" title="Assistant chat (⌘J)">💬<span class="lbl"> Chat</span></button>
-      <button class="btn" id="readerBtn" title="AI Reader — a clean reading view with a TL;DR (⌘⇧R)">📖<span class="lbl"> Reader</span></button>
-      <button class="btn" id="keyBtn" title="Passwords"><span>🔑</span><span class="lbl"> Passwords</span><span id="keyDot"></span></button>
+      <button class="btn" id="keepBtn" title="Keep a copy of this page (what is on screen and its text) and close the tab"><!--icon:keep--><span class="lbl"> Keep</span></button>
+      <button class="btn" id="starBtn" title="Save this page to your askrobots bookmarks (one click)"><!--icon:save--><span class="lbl"> Save</span></button>
+      <button class="btn" id="galleryBtn" title="Open the local x402 test gallery (http://127.0.0.1:8899/) — start it with: node apps/browser/demo/x402-demo-server.mjs"><!--icon:tests--> x402 tests</button>
+      <button class="btn" id="tourBtn" title="Guided tour of the demo gallery"><!--icon:tour--> Tour</button>
+      <button class="btn" id="bmBtn" title="Your bookmarks (askrobots links)"><!--icon:bookmarks--><span class="lbl"> Bookmarks</span></button>
+      <button class="btn" id="chatBtn" title="Assistant chat (⌘J)"><!--icon:chat--><span class="lbl"> Chat</span></button>
+      <button class="btn" id="readerBtn" title="AI Reader — a clean reading view with a TL;DR (⌘⇧R)"><!--icon:reader--><span class="lbl"> Reader</span></button>
+      <button class="btn" id="keyBtn" title="Passwords"><!--icon:passwords--><span class="lbl"> Passwords</span><span id="keyDot"></span></button>
     </div>
     <div id="offerbar"></div>
     <div id="vaultPanel"></div>
@@ -293,7 +294,7 @@
       <div id="cn">Caller network ON · this browser fetches nothing itself</div>
       <div id="ctlChip" style="display:none"></div>
       <button class="btn" id="resBtn" title="What the browser is using: memory, CPU, data, disk">Memory …</button>
-      <button class="btn" id="inspectBtn" title="x402 inspector: every payment request, decision and payment">⚡ x402<span id="inspectCount">0</span></button>
+      <button class="btn" id="inspectBtn" title="x402 inspector: every payment request, decision and payment"><!--icon:x402--> x402<span id="inspectCount">0</span></button>
       <div id="bal" class="chip" title="Your wallet USDC on Base Sepolia — click to copy address">◈ —</div>
       <div id="mbal" title="Merchant wallet — live payments land here" style="display:none">🏪 —</div>
       <button class="btn" id="refundBtn" title="Refund merchant → you" style="display:none">Refund</button>
@@ -528,6 +529,9 @@
       // transport (request out, headers in, bytes, redirect, error), and the x402 engine's events.
       // DNS/TCP/TLS are invisible to us (they happen inside Chromium), so they show as "waiting".
       const THROBBERS = /*__THROBBERS__*/ {};
+      // Toolbar icons (assets/icons/svg), inlined at build time like the throbbers. Our own constant markup, never page text.
+      const ICONS = /*__ICONS__*/ {};
+      function iconEl(name) { const t = document.createElement("template"); t.innerHTML = ICONS[name] || ""; return t.content.firstChild || document.createTextNode(""); }
       // Downloads are not tied to one tab: the status line shows the most recent active one, whichever tab is in front.
       const downloads = new Map();
       function downloadStatus() {
@@ -975,7 +979,7 @@
         let host = ""; try { host = web ? new URL(u).host.replace(/^www\./, "") : ""; } catch {}
         const onSite = !saved && host ? (bm.items || []).concat(bm.known || []).filter((x) => { try { return new URL(x.url).host.replace(/^www\./, "") === host; } catch { return false; } }) : [];
         const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = saved ? " Saved" : " Save";
-        b.replaceChildren(saved ? "★" : "☆", lbl);
+        b.replaceChildren(iconEl(saved ? "saved" : "save"), lbl);
         b.classList.toggle("saved", saved);
         b.classList.toggle("site", onSite.length > 0);
         b.disabled = !web;
@@ -992,7 +996,7 @@
       $("starBtn").onclick = async () => {
         if (!active || !/^https?:\/\//i.test(active.url || "")) return;
         if (bmKeys.has(normUrl(active.url))) { setBm(true); return; } // already saved: show the list
-        const b = $("starBtn"); b.textContent = "★"; b.classList.add("saved");
+        const b = $("starBtn"); b.replaceChildren(iconEl("saved")); b.classList.add("saved");
         const r = await window.x402.bookmarks.add(active.url, active.title || "");
         if (!r.ok) { paintStar(); toast("skipped", r.message || "Could not save the bookmark"); return; }
         bmApply(await window.x402.bookmarks.state());
@@ -1403,7 +1407,7 @@
       });
       // Reload, which becomes Stop while the page is loading.
       const RELOAD_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.2 6.2A5.5 5.5 0 1 0 13.5 9.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M13.6 2.2v4.3H9.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      const STOP_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+      const STOP_ICON = ICONS.stop;
       function paintReload() {
         const b = $("reload");
         if (!b) return;

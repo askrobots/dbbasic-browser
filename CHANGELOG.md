@@ -6,6 +6,12 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **Drawn toolbar icons** in place of emoji (Keep, Save, Bookmarks, Chat, Reader, Passwords, x402, back, forward, new
+  tab, stop). Emoji depend on the installed font, look different on every Linux machine and sometimes show as empty boxes;
+  these are small SVGs drawn for the project (assets/icons) that follow the theme.
+- **Linux in CI.** The end-to-end suite runs on Ubuntu 24.04 under a virtual display, with the page sandbox on.
+  `scripts/linux-sandbox.sh` lets Chromium's sandbox start on systems that restrict user namespaces (Ubuntu 24.04 and
+  later) by loading an AppArmor profile for the Electron binary only, so `--no-sandbox` is never needed.
 - **Find in page** (⌘F, Edit ▸ Find). A find bar over the page with a match count, Enter / ⇧Enter and ⌘G / ⌘⇧G for
   next and previous, and Esc to close with the match left selected. Each tab keeps its own search, and a page that
   loads under an open bar is searched again. It uses the page's own find: nothing leaves the machine.

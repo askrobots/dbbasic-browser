@@ -84,6 +84,12 @@ export default async function (ctx) {
   await T("page.goto", { url: base + "/free" });
   await T("page.eval", { js: "window.__marker = 'before-reload'" });
   check(await c.ev(`(() => { const b = document.getElementById('reload'); return !!b && !!b.querySelector('svg') && b.getAttribute('aria-label') === 'Reload' && /Reload/.test(b.title) })()`), "the toolbar has a reload button");
+  // Drawn icons, not emoji: emoji depend on the installed font (on Linux some show as empty boxes).
+  const icons = await c.ev(`(() => ["newTab", "back", "fwd", "keepBtn", "starBtn", "galleryBtn", "tourBtn", "bmBtn", "chatBtn", "readerBtn", "keyBtn", "inspectBtn"]
+    .map((id) => { const b = document.getElementById(id); const s = b && b.querySelector('svg.ico'); return !s ? id + ": no icon" : /\\p{Extended_Pictographic}/u.test(b.textContent) ? id + ": emoji" : s.getAttribute('aria-hidden') !== 'true' ? id + ": icon not hidden" : ''; })
+    .filter(Boolean).join(", "))()`);
+  check(icons === "", "every toolbar button has a drawn icon and no emoji", icons);
+  check(await c.ev(`!!document.getElementById('back').getAttribute('aria-label') && !!document.getElementById('fwd').getAttribute('aria-label') && !!document.getElementById('newTab').getAttribute('aria-label')`), "icon-only buttons have a name for screen readers");
   await c.ev(`document.getElementById('reload').click()`);
   let gone = false;
   for (let i = 0; i < 60 && !gone; i++) { await sleep(100); gone = (await T("page.eval", { js: "window.__marker === undefined" })).value === true; }
