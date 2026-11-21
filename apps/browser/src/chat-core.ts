@@ -141,9 +141,11 @@ export function wrapResult(text: string, boundary: string, origin: NonNullable<T
 }
 
 /** Results the model needs in order to act (the refs in them), so the latest of each is never shrunk. */
-const KEEP_LATEST = new Set(["list_fields", "find"]);
+// The latest page read stays whole too: a model that finds its own source shortened, mid-task, decides it never read it and
+// takes back what it just did correctly ("I need to correct myself..."), seen with both Haiku and Sonnet.
+const KEEP_LATEST = new Set(["list_fields", "find", "read_page"]);
 
-/** Shrink tool results that are more than KEEP_FULL_ROUNDS rounds old, except the latest list_fields and find. Returns a new array. */
+/** Shrink tool results that are more than KEEP_FULL_ROUNDS rounds old, except the latest list_fields, find and read_page. Returns a new array. */
 export function compact(messages: ChatMsg[]): ChatMsg[] {
   let seen = 0;
   const kept = new Set<string>();
@@ -160,7 +162,7 @@ export function compact(messages: ChatMsg[]): ChatMsg[] {
           kept.add(r.name);
           return r;
         }
-        return !recent && r.text.length > STUB_CHARS ? { ...r, text: `${r.text.slice(0, STUB_CHARS)}… [earlier result shortened]` } : r;
+        return !recent && r.text.length > STUB_CHARS ? { ...r, text: `${r.text.slice(0, STUB_CHARS)}… [shortened here only to save space: you saw this result in full when it came back, and what you did with it then was based on all of it]` } : r;
       }),
     };
   }

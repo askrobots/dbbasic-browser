@@ -193,6 +193,17 @@ it("the latest list_fields and find results are never shrunk, so the model keeps
   expect(lens[0]).toBeLessThan(400); // an older one is shrunk
 });
 
+it("the latest page read stays whole, and a shortened result says it was seen in full", () => {
+  const big = "p".repeat(2000);
+  const msgs: ChatMsg[] = [];
+  msgs.push({ role: "tool", results: [{ id: "r", name: "read_page", text: big, isError: false }] });
+  for (let i = 0; i < 4; i++) msgs.push({ role: "tool", results: [{ id: "x" + i, name: "lookup", text: big, isError: false }] });
+  const out = compact(msgs);
+  const texts = out.map((m) => (m.role === "tool" ? m.results[0]!.text : ""));
+  expect(texts[0]!.length).toBe(2000); // the page the assistant is working from
+  expect(texts[1]).toMatch(/you saw this result in full/);
+});
+
 describe("model adapters", () => {
   const msgs: ChatMsg[] = [
     { role: "user", text: "hi" },
