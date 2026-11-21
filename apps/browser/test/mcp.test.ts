@@ -586,7 +586,8 @@ describe("where tokens are kept, and which servers there are", () => {
     const a = DEFAULT_SERVERS.find((s) => s.id === "askrobots")!;
     expect(a.url).toBe("https://askrobots.com/api/mcp/");
     expect(a.readOnly.every((t) => a.tools.includes(t))).toBe(true);
-    expect(a.tools.filter((t) => !a.readOnly.includes(t))).toEqual(["create_link"]); // the only write the assistant gets
+    expect(a.tools.filter((t) => !a.readOnly.includes(t))).toEqual(["create_link", "create_task", "create_note"]); // the only writes the assistant gets, each asked about
+    expect(a.fixedArgs?.create_note).toEqual({ is_public: false });
     expect(a.browserOnly).toEqual(["upload_file"]); // the browser's own (kept copies), never offered to the assistant
     expect(a.fixedArgs?.upload_file).toEqual({ is_public: false, category: "browser/kept" });
     expect(a.fixedArgs?.create_link).toEqual({ is_public: false });

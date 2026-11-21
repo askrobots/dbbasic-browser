@@ -6,6 +6,10 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **The assistant can add tasks and notes on askrobots** ("add a task to check this out when I'm nearby"). Like saving a
+  link, each one is asked about before it is sent, even in Auto mode, and notes are always private. A personal
+  `mcp-servers.json` entry for askrobots replaces the built-in tool list, so add `create_task` and `create_note` to its
+  `tools` to get them there too.
 - **A right-click menu.** On a link: Open Link in New Tab, Copy Link Address. On an image: open, copy, copy address,
   save. On selected text: Copy, Search askrobots for it, Ask the Assistant About This (the text goes into the chat box;
   nothing is sent on its own). In a text field: spelling suggestions, Undo, Redo, Cut, Copy, Paste, Select All. Elsewhere:

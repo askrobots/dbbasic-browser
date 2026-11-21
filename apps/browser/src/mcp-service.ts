@@ -43,11 +43,12 @@ export const DEFAULT_SERVERS: McpServerConfig[] = [
     id: "askrobots",
     name: "askrobots.com",
     url: "https://askrobots.com/api/mcp/",
-    tools: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links", "create_link"],
+    tools: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links", "create_link", "create_task", "create_note"],
     browserOnly: ["upload_file"],
     readOnly: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links"],
     // Saved links are private. To keep them in one project, put its id in this entry's fixedArgs in mcp-servers.json.
-    fixedArgs: { create_link: { is_public: false }, upload_file: { is_public: false, category: "browser/kept" } },
+    // Tasks and notes the assistant makes are asked about each time (they are not readOnly), and notes stay private.
+    fixedArgs: { create_link: { is_public: false }, create_note: { is_public: false }, upload_file: { is_public: false, category: "browser/kept" } },
     dropFields: { get_contact: ["notes", "interactions"], list_contacts: ["notes", "interactions"] },
     // Saving the pictures and text of kept pages in your Files is a separate permission, shown on the consent page.
     extraScopes: ["files:upload"],
