@@ -33,6 +33,7 @@ import { READER_CSP } from "./reader.js";
 import { registerVault } from "./vault-service.js";
 import { handle as handleControl, getTabs, setTabs, startControl, type ApprovalPolicy, type ControlDeps, type ControlHandle, type TabInfo } from "./control.js";
 import { parseSavedChoice } from "./chat-model-choice.js";
+import { HistoryService } from "./history.js";
 import { ChatService } from "./chat-service.js";
 import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 import { BookmarksService } from "./bookmarks-service.js";
@@ -214,6 +215,18 @@ function askChrome(op: string, args: Record<string, unknown>): Promise<unknown> 
 let control: ControlHandle | null = null;
 /** Set once the MCP service exists: answers the redirect of a sign-in that is waiting for it inside this browser. */
 let mcpCapture: (url: string) => { status: number; html: string } | null = () => null;
+/** Browsing history on the askrobots account (see history.ts); set once the connection exists. Tabs report to it. */
+let history: HistoryService | null = null;
+/** The page's visible text and whether a password field shows, read in an isolated world the page cannot reach. */
+async function readForHistory(wc: Electron.WebContents): Promise<void> {
+  if (!history || wc.isDestroyed()) return;
+  const s = history.state();
+  if (!s.on || s.paused) return;
+  const r = (await wc
+    .executeJavaScriptInIsolatedWorld(1009, [{ code: "({ u: location.href, t: document.body ? document.body.innerText : '', pw: [...document.querySelectorAll('input[type=password]')].some((e) => e.offsetParent !== null) })" }])
+    .catch(() => null)) as { u?: string; t?: string; pw?: boolean } | null;
+  if (r && typeof r.u === "string") history.text(wc.id, r.u, String(r.t ?? ""), r.pw === true);
+}
 
 /**
  * Network policy that is not about a single request. WebSockets bypass our network layer (Chromium opens them
@@ -748,6 +761,18 @@ function buildMenu(): void {
       ],
     },
     {
+      label: "History",
+      submenu: [
+        { label: "Show History (askrobots.com)", accelerator: "CmdOrCtrl+Y", click: tabCmd("history:open") },
+        { label: "Pause or Resume Recording", click: tabCmd("history:pause") },
+        { type: "separator" },
+        { label: "Forget This Page…", click: tabCmd("history:forget-url") },
+        { label: "Forget This Site…", click: tabCmd("history:forget-site") },
+        { label: "Forget the Last Hour…", click: tabCmd("history:forget-hour") },
+        { label: "Never Record This Site", click: tabCmd("history:never") },
+      ],
+    },
+    {
       label: "Tools",
       submenu: [
         { label: "Passwords…", click: tabCmd("click:keyBtn") },
@@ -916,6 +941,26 @@ app.whenReady().then(async () => {
         pruned = true;
       } else if (wc.getURL() !== "about:blank") pruned = true;
     });
+    // History: each page the tab shows is a visit, from when it appears until the tab moves on or closes. Its text is read
+    // once it has loaded (and again a little later, for pages that fill in after loading).
+    const id = wc.id;
+    let readTimer: ReturnType<typeof setTimeout> | null = null;
+    const readSoon = (ms: number) => {
+      if (readTimer) clearTimeout(readTimer);
+      readTimer = setTimeout(() => void readForHistory(wc), ms);
+    };
+    wc.on("did-navigate", (_e, url) => history?.shown(id, url, wc.getTitle()));
+    wc.on("did-navigate-in-page", (_e, url, isMainFrame) => {
+      if (!isMainFrame) return;
+      history?.shown(id, url, wc.getTitle());
+      readSoon(2500);
+    });
+    wc.on("page-title-updated", (_e, title) => history?.title(id, title));
+    wc.on("did-finish-load", () => readSoon(1500));
+    wc.on("destroyed", () => {
+      if (readTimer) clearTimeout(readTimer);
+      history?.left(id);
+    });
   });
   buildMenu();
   setupDownloads();
@@ -994,6 +1039,11 @@ app.whenReady().then(async () => {
       // A new sign-in brings the bookmarks in at once; signing out shows the local copy again.
       if (e.kind === "mcp-signed-in" && e.server === BOOKMARK_SERVER) void bookmarks.refresh();
       if (e.kind === "mcp-signed-out" && e.server === BOOKMARK_SERVER) mainWindow?.webContents.send("bookmarks:changed", bookmarks.state());
+      // History: a new sign-in (perhaps someone else) or a sign-out empties what was waiting; a sign-in reads the settings.
+      if ((e.kind === "mcp-signed-in" || e.kind === "mcp-signed-out") && e.server === BOOKMARK_SERVER) {
+        history?.resetAccount();
+        if (e.kind === "mcp-signed-in") void history?.loadSettings();
+      }
     },
   });
   mcpCapture = (url) => mcp.captureRedirect(url);
@@ -1012,11 +1062,65 @@ app.whenReady().then(async () => {
     },
     changed: (state) => mainWindow?.webContents.send("bookmarks:changed", state),
   });
+  // History on the askrobots account: recorded only while signed in with the "history" permission (see history.ts).
+  const historyOn = () => mcp.isLoaded() && mcp.isSignedIn(BOOKMARK_SERVER) && !mcp.missingScopes(BOOKMARK_SERVER).includes("history");
+  history = new HistoryService({
+    call: (tool, args) => mcp.callDirect(BOOKMARK_SERVER, tool, args, { fixed: false }),
+    connected: historyOn,
+    whyOff: () =>
+      !mcp.isLoaded() || !mcp.isSignedIn(BOOKMARK_SERVER) ? "not signed in to askrobots" : "connect to askrobots again to allow history",
+    callerNetworkOn: () => callerNet.enabled,
+    now: () => Date.now(),
+    changed: (st) => {
+      mainWindow?.webContents.send("history:changed", st);
+      if (st.queued >= 20) void history?.flush();
+    },
+    // Tests run their stand-in server on this machine; nobody else's pages on 127.0.0.1 are ever recorded.
+    allowPrivateHosts: process.env.DBB_HISTORY_LOCAL_TEST === "1",
+  });
+  const historyTimer = setInterval(() => void history?.flush(), 30_000);
+  historyTimer.unref();
+  app.on("before-quit", () => {
+    for (const wc of webContents.getAllWebContents()) if (wc.getType() === "webview") history?.left(wc.id);
+    void history?.flush(); // best effort: whatever has not gone by the time the browser exits is not kept
+  });
+  ipcMain.handle("history:state", () => history?.state());
+  ipcMain.handle("history:pause", (_e, on: unknown) => history?.setPaused(on === true));
+  ipcMain.handle("history:open", () => mainWindow?.webContents.send("tab:open", "https://askrobots.com/history/", { background: false }));
+  // Forgetting deletes on the account, so the person confirms it here (a page cannot ask for it).
+  ipcMain.handle("history:forget", async (_e, scope: unknown, target: unknown) => {
+    if (!history || !["url", "last_hour", "site"].includes(String(scope))) return { ok: false };
+    const t = String(target ?? "");
+    let host = "";
+    try {
+      host = t ? new URL(t).hostname : "";
+    } catch {
+      /* not an address */
+    }
+    const what = scope === "url" ? `this page (${t.slice(0, 120)})` : scope === "site" ? `everything from ${host}` : "the pages from the last hour";
+    const opts: Electron.MessageBoxOptions = { type: "warning", buttons: ["Forget", "Cancel"], defaultId: 1, cancelId: 1, message: `Forget ${what}?`, detail: "It is deleted from your history on askrobots.com. To forget everything, use the history page on askrobots.com." };
+    const r = mainWindow ? await dialog.showMessageBox(mainWindow, opts) : await dialog.showMessageBox(opts);
+    if (r.response !== 0) return { ok: false, cancelled: true };
+    try {
+      const out = await history.forget(scope as "url" | "last_hour" | "site", t || undefined);
+      return { ok: true, ...out };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  ipcMain.handle("history:never", async (_e, target: unknown) => {
+    try {
+      return { ok: true, state: await history?.neverRecord(new URL(String(target ?? "")).hostname) };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
   // Loaded once when the browser opens (so ☆ knows which pages are saved from the start), when the person opens the list, and
   // right after saving or signing in. Only for a person at the window with a saved sign-in: reading it can raise the system
   // keychain prompt, which a scripted or background run must never wait behind.
   if (!background && process.env.DBB_CONTROL !== "1" && existsSync(mcpAuthPath)) {
-    const loadOnce = () => setTimeout(() => { if (!callerNet.enabled) void bookmarks.refresh(); }, 1200);
+    const loadOnce = () => setTimeout(() => { if (!callerNet.enabled) void bookmarks.refresh().then(() => history?.loadSettings()); }, 1200);
     if (mainWindow?.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", loadOnce);
     else loadOnce();
   }
@@ -1303,6 +1407,16 @@ app.whenReady().then(async () => {
         },
         vault: vaultSvc,
         eventsSince: (n) => ({ events: eventLog.filter((e) => (e.seq as number) > n), next: eventSeq }),
+        history: {
+          state: () => history?.state() ?? null,
+          flush: async () => {
+            await history?.flush();
+            return history?.state() ?? null;
+          },
+          pause: (on) => history?.setPaused(on) ?? Promise.resolve(null),
+          forget: (scope, target) => history?.forget(scope, target) ?? Promise.resolve({ forgotten: 0 }),
+          never: (host) => history?.neverRecord(host) ?? Promise.resolve(null),
+        },
         contextMenu: {
           last: () => (lastMenu ? { wcId: lastMenu.wcId, items: lastMenu.items } : null),
           pick: (id) => (lastMenu ? lastMenu.run(id) : false),

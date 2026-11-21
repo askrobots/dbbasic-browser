@@ -6,6 +6,16 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **History, on your askrobots account.** While you are signed in to askrobots, each page you visit is kept with its
+  address, title, time, how long you stayed and its visible text, so you can find it later by a few words you remember.
+  Never recorded: sign-in and payment pages (by address, title or a showing password field), this machine and the private
+  network, glances under two seconds, sites you said never to record, and anything while paused or while the caller
+  network is on. Addresses lose their fragment and query parameters, except the few that identify the page (YouTube's
+  video, a Hacker News item). A **History** button in the status bar pauses and resumes; a **History** menu forgets this
+  page, this site or the last hour, never records a site again, and opens your history on askrobots.com (⌘Y). The
+  assistant can search history ("where did I see…?") but asks every time, since the results go to its AI; it can never
+  record or forget. Pages waiting to be sent stay in memory and are dropped on sign-out or a new sign-in, so they never
+  reach another account. Needs the new `history` permission: connect to askrobots again.
 - **Pick the assistant's model** at the top of its panel: Haiku, Sonnet, Opus or Fable (with each one's cost next to
   Haiku's), or the OpenAI or local model you have set up. The choice is remembered. The assistant now defaults to Sonnet
   5.5, because Haiku asked needless questions and missed the obvious; the reader's quick summaries stay on the small

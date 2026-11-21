@@ -62,6 +62,14 @@ export interface ControlDeps {
   eventsSince(n: number): { events: unknown[]; next: number };
   /** The right-click menu shown (or, in background mode, recorded) last, and picking one of its items. */
   contextMenu: { last(): { wcId: number; items: unknown[] } | null; pick(id: string): boolean };
+  /** Browsing history on the askrobots account (see history.ts). */
+  history: {
+    state(): unknown;
+    flush(): Promise<unknown>;
+    pause(on: boolean): Promise<unknown>;
+    forget(scope: "url" | "last_hour" | "site", target?: string): Promise<unknown>;
+    never(host: string): Promise<unknown>;
+  };
   getApproval(): ApprovalPolicy;
   setApproval(p: ApprovalPolicy): void;
   spent(): string;
@@ -521,6 +529,22 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
     // ---- the right-click menu --------------------------------------------------
     case "menu.last":
       return { menu: d.contextMenu.last() };
+    // ---- history ----------------------------------------------------------------------
+    case "history.state":
+      return d.history.state();
+    case "history.flush":
+      // Send what is waiting now (otherwise it goes every 30 seconds), and say how it stands.
+      return d.history.flush();
+    case "history.pause":
+      return d.history.pause(p.paused === true);
+    case "history.forget": {
+      const scope = str(p.scope, "scope");
+      if (!["url", "last_hour", "site"].includes(scope)) throw new RpcError("bad-params", 'scope is "url", "last_hour" or "site" (forgetting everything is done on askrobots.com)');
+      return d.history.forget(scope as "url" | "last_hour" | "site", typeof p.target === "string" ? p.target : undefined);
+    }
+    case "history.never":
+      return d.history.never(str(p.host, "host"));
+
     case "menu.pick": {
       if (typeof p.id !== "string" || !p.id) throw new RpcError("bad-params", "id is required (an item id from menu.last)");
       return { ok: d.contextMenu.pick(p.id) };

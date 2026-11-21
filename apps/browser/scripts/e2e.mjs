@@ -26,7 +26,7 @@ import { makeCtx } from "../test/e2e/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const SUITES = ["api", "ui", "transport", "states", "reader", "downloads", "settle", "provider", "escape", "example", "extensions", "forms", "chat", "mcp", "resources", "bookmarks", "keep", "omnibox", "menu", "live-net"];
+const SUITES = ["api", "ui", "transport", "states", "reader", "downloads", "settle", "provider", "escape", "example", "extensions", "forms", "chat", "mcp", "resources", "bookmarks", "keep", "omnibox", "menu", "history", "live-net"];
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const run = wanted.length ? wanted : SUITES;
 for (const s of run) if (!SUITES.includes(s)) { console.error(`unknown suite "${s}" (have: ${SUITES.join(", ")})`); process.exit(2); }
@@ -95,6 +95,10 @@ async function launchApp(suite) {
   const token = "e2e-" + Math.random().toString(16).slice(2);
   const log = [];
   const mcpServersFile = join(tmp, `mcp-servers-${suite}.json`);
+  if (suite === "history") {
+    // The askrobots entry pointed at the stand-in, with its history tools: searching for the assistant, the rest the browser's.
+    writeFileSync(mcpServersFile, JSON.stringify([{ id: "askrobots", name: "askrobots (stand-in)", url: `${base}/mcp`, tools: ["list_links", "search_history"], readOnly: ["list_links"], addsOnly: ["search_history"], browserOnly: ["add_history", "list_history", "forget_history", "history_settings"], extraScopes: ["history"] }]));
+  }
   if (suite === "bookmarks" || suite === "omnibox") {
     // The built-in askrobots entry, replaced by one that points at the stand-in server: the bookmarks use the "askrobots" entry.
     writeFileSync(mcpServersFile, JSON.stringify([{ id: "askrobots", name: "askrobots (stand-in)", url: `${base}/mcp`, tools: ["list_links", "create_link"], readOnly: ["list_links"], browserOnly: ["upload_file"], fixedArgs: { create_link: { project_id: "P-links", is_public: false }, upload_file: { project_id: "P-links", is_public: false, category: "browser/kept" } } }]));
@@ -110,9 +114,10 @@ async function launchApp(suite) {
       DBB_CONTROL: "1", DBB_CONTROL_PORT: String(controlPort), DBB_CONTROL_TOKEN: token, DBB_CONTROL_FILE: join(tmp, `control-${suite}.json`),
       ...(suite === "extensions" ? { DBB_EXTENSIONS: join(here, "..", "test", "fixtures", "ext-echo.mjs") } : {}),
       // The chat suite talks to a scripted model on the demo server (never a real provider or the user's own keys).
-      ...(suite === "chat" || suite === "mcp" || suite === "bookmarks" || suite === "keep" ? { DBB_AI_BASE_URL: `${base}/v1`, DBB_AI_PROVIDER: "openai", DBB_AI_MODEL: "fake-model", OPENAI_API_KEY: "e2e-fake-key", ANTHROPIC_API_KEY: "", DBB_AI_CONSENT: "1" } : {}),
+      ...(suite === "chat" || suite === "mcp" || suite === "bookmarks" || suite === "keep" || suite === "history" ? { DBB_AI_BASE_URL: `${base}/v1`, DBB_AI_PROVIDER: "openai", DBB_AI_MODEL: "fake-model", OPENAI_API_KEY: "e2e-fake-key", ANTHROPIC_API_KEY: "", DBB_AI_CONSENT: "1" } : {}),
       // The mcp suite signs in to a stand-in MCP server on the demo server; sign-ins stay in memory, never in the keychain.
-      ...(suite === "mcp" || suite === "bookmarks" || suite === "omnibox" ? { DBB_MCP_STORE: "memory", DBB_MCP_SERVERS: mcpServersFile } : {}),
+      ...(suite === "history" ? { DBB_HISTORY_LOCAL_TEST: "1" } : {}), // the stand-in runs on this machine
+      ...(suite === "mcp" || suite === "bookmarks" || suite === "omnibox" || suite === "history" ? { DBB_MCP_STORE: "memory", DBB_MCP_SERVERS: mcpServersFile } : {}),
       ...(process.env.E2E_BACKGROUND === "1" ? { DBB_BACKGROUND: "1" } : {}),
       ...(suite === "keep" || suite === "omnibox" ? { DBB_KEEP_DIR: join(tmp, "kept-" + suite) } : {}),
       DBB_RECORD_MENUS: "1", // right-click menus are recorded for the menu suite, never shown

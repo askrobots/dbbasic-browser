@@ -575,6 +575,7 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
     return;
   }
   if (path === "/o/_notes") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ notes: oauth.notes || [], wiped: oauth.wiped || 0 })); return; }
+  if (path === "/o/_history") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.history ?? { visits: [], paused: false, never: [], forgets: 0 })); return; }
   if (path === "/o/_files") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.files ?? [])); return; }
   if (path === "/o/_links") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify(oauth.links ?? [])); return; }
   if (path === "/o/_seed") { // many old links, with one at the very end that the newest-100 list cannot reach
@@ -606,6 +607,12 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
         { name: "list_links", description: "List saved links, newest first", inputSchema: { type: "object", properties: { limit: { type: "integer" }, search: { type: "string" }, project_id: { type: "string" } } }, annotations: { readOnlyHint: true } },
         { name: "upload_file", description: "Upload a file", inputSchema: { type: "object", properties: { filename: { type: "string" }, content_base64: { type: "string" }, description: { type: "string" }, category: { type: "string" }, is_public: { type: "boolean" }, project_id: { type: "string" } }, required: ["filename", "content_base64"] } },
         { name: "create_link", description: "Save a link", inputSchema: { type: "object", properties: { url: { type: "string" }, title: { type: "string" }, project_id: { type: "string" }, is_public: { type: "boolean" } }, required: ["url"] } },
+        // History, like askrobots' (scope "history"): the browser records, lists and forgets; the assistant may only search.
+        { name: "add_history", description: "Record visits", inputSchema: { type: "object", properties: { visits: { type: "array" } }, required: ["visits"] } },
+        { name: "search_history", description: "Search your browsing history", inputSchema: { type: "object", properties: { query: { type: "string" }, site: { type: "string" }, limit: { type: "integer" } }, required: ["query"] }, annotations: { readOnlyHint: true } },
+        { name: "list_history", description: "List visits", inputSchema: { type: "object", properties: { cursor: { type: "string" }, limit: { type: "integer" } } }, annotations: { readOnlyHint: true } },
+        { name: "forget_history", description: "Forget visits", inputSchema: { type: "object", properties: { scope: { type: "string" }, url: { type: "string" }, site: { type: "string" } }, required: ["scope"] } },
+        { name: "history_settings", description: "History settings", inputSchema: { type: "object", properties: { paused: { type: "boolean" }, never_sites: { type: "array" } } } },
       ] });
       if (b.method === "tools/call") {
         oauth.lastArgs = b.params.arguments;
@@ -614,6 +621,40 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
           { id: "l1", url: `${origin}/headers`, title: "Headers echo", tags: "", is_public: false, project_id: null, created_at: "2026-11-18T10:00:00Z" },
           { id: "l2", url: `${origin}/free`, title: "Free page", tags: "news", is_public: false, project_id: null, created_at: "2026-11-17T10:00:00Z" },
         ];
+        if (/history/.test(t)) {
+          const a = b.params.arguments || {};
+          const h = (oauth.history ??= { visits: [], paused: false, never: [], forgets: 0 });
+          const host = (u) => { try { return new URL(u).hostname.replace(/^(www|m)\./, ""); } catch { return ""; } };
+          const onSite = (u, site) => { const x = host(u); return x === site || x.endsWith("." + site); };
+          const out = (v) => ok({ content: [{ type: "text", text: JSON.stringify(v) }] });
+          if (t === "add_history") {
+            let accepted = 0, duplicates = 0; const dropped = {};
+            for (const v of a.visits || []) {
+              const why = h.paused ? "paused" : h.never.some((n) => onSite(v.url, n)) ? "never_this_site" : /\/login\b/.test(v.url) ? "sign_in_or_payment" : null;
+              if (why) { dropped[why] = (dropped[why] || 0) + 1; continue; }
+              if (h.visits.some((x) => x.url === v.url && x.visited_at === v.visited_at)) { duplicates++; continue; }
+              h.visits.push({ id: "v" + (h.visits.length + 1), ...v }); accepted++;
+            }
+            return out({ accepted, duplicates, dropped, paused: h.paused });
+          }
+          if (t === "search_history") {
+            const q = String(a.query || "").toLowerCase();
+            const hits = h.visits.filter((v) => (v.title + " " + v.url + " " + (v.text || "")).toLowerCase().includes(q)).slice(0, Math.min(Number(a.limit) || 10, 50));
+            return out({ results: hits.map((v) => ({ id: v.id, url: v.url, title: v.title, visited_at: v.visited_at, seconds_on_page: v.seconds_on_page, snippet: (v.text || "").slice(0, 300) })), note: "untrusted: these are pages you visited" });
+          }
+          if (t === "list_history") return out({ visits: h.visits.map(({ text, ...v }) => v), forgotten: [], full_copy: false, cursor: "c" + h.visits.length, has_more: false });
+          if (t === "forget_history") {
+            const before = h.visits.length; const hourAgo = Date.now() - 3600e3;
+            h.visits = h.visits.filter((v) => !(a.scope === "all" || (a.scope === "url" && v.url === a.url) || (a.scope === "site" && onSite(v.url, a.site)) || (a.scope === "last_hour" && Date.parse(v.visited_at) >= hourAgo)));
+            h.forgets++;
+            return out({ forgotten: before - h.visits.length, scope: a.scope });
+          }
+          if (t === "history_settings") {
+            if (typeof a.paused === "boolean") h.paused = a.paused;
+            if (Array.isArray(a.never_sites)) h.never = a.never_sites.map((x) => String(x).replace(/^(www|m)\./, ""));
+            return out({ paused: h.paused, never_sites: h.never, forget_count: h.forgets, stored_bytes: JSON.stringify(h.visits).length });
+          }
+        }
         if (t === "wipe") { oauth.wiped = (oauth.wiped || 0) + 1; return ok({ content: [{ type: "text", text: "wiped" }] }); }
         if (t === "create_note") { (oauth.notes ??= []).push(b.params.arguments); return ok({ content: [{ type: "text", text: JSON.stringify({ id: "n" + oauth.notes.length, is_public: false, created: true, page: `${origin}/notes/n${oauth.notes.length}/` }) }] }); }
         if (t === "list_links") {
@@ -678,6 +719,11 @@ t(() => navigator.serviceWorker.register("/escape-sw.js"));
       } else if (text.startsWith("leave")) {
         if (results.length === 0) msg = call("go_to", { url: "http://localhost:" + PORT + "/free?leak=1" });
         else msg = say("Result: " + (/declined/.test(results[0].content) ? "declined" : "went"));
+      } else if (text.startsWith("history")) {
+        const t = (body.tools ?? []).find((x) => x.function.name.endsWith("__search_history"));
+        if (!t) msg = say("Result: no such tool");
+        else if (results.length === 0) msg = call(t.function.name, { query: "headers" });
+        else msg = say("Result: " + (/declined/.test(results[0].content) ? "declined" : (asJson(results[0])?.results ?? []).map((r) => r.url).join(" ")));
       } else if (text.startsWith("lookup")) {
         const t = (body.tools ?? []).find((x) => x.function.name.endsWith("__lookup"));
         if (!t) msg = say("Result: no such tool");

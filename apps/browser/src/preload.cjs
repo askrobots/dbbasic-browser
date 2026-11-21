@@ -77,6 +77,15 @@ contextBridge.exposeInMainWorld("x402", {
     setCheck: (on) => ipcRenderer.invoke("bookmarks:set-check", on),
     onChanged: sub("bookmarks:changed"),
   },
+  /** Browsing history on the askrobots account (recorded only while signed in, with the history permission). */
+  history: {
+    state: () => ipcRenderer.invoke("history:state"),
+    pause: (on) => ipcRenderer.invoke("history:pause", on),
+    open: () => ipcRenderer.invoke("history:open"),
+    forget: (scope, target) => ipcRenderer.invoke("history:forget", scope, target),
+    never: (target) => ipcRenderer.invoke("history:never", target),
+    onChanged: sub("history:changed"),
+  },
   /** What the browser is using (memory and CPU per tab, cache, disk). */
   resources: {
     state: () => ipcRenderer.invoke("resources:state"),

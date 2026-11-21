@@ -54,7 +54,7 @@
   <p>Type a URL and press <kbd>Enter</kbd>. Plain hosts default to <code>https://</code>; <code>localhost</code> and private-network addresses default to <code>http://</code>. Anything that isn't an address is a <b>search</b>, answered by askrobots.com. The first tab and every new tab open <b>askrobots.com</b> (<code>HOMEPAGE=https://…</code> changes that). The local x402 demo gallery is under <b>Help ▸ x402 Demo Gallery</b> (start it with <code>node apps/browser/demo/x402-demo-server.mjs</code>); <b>▶ Tour</b> always walks that gallery.</p>
   <p>Toolbar, left to right: back / forward / reload, the address bar, then <b>Keep</b>, <b>Save</b> (to your askrobots bookmarks), <b>x402 tests</b> and <b>Tour</b> (the demo gallery), <b>Bookmarks</b>, <b>Chat</b>, <b>Reader</b> and <b>Passwords</b>. In a narrow window the buttons show only their icons.</p>
   <p>The status bar along the bottom: on the left, what the page is doing (or where a link you point at goes); on the right, what the browser is using and spending: <b>Memory</b> (click for what each tab uses), <b>x402</b> (the payment inspector), your wallet balance, <b>Fund</b>, and <b>Paid</b> this session. A chip appears there when the automation API is on, and a red badge while the caller network is on.</p>
-  <p>Every feature is also in the menu bar: <b>File</b> (tabs, downloads), <b>View</b> (Reader, Chat, the x402 inspector, what the browser is using), <b>Go</b> (back ⌘[, forward ⌘], next and previous tab), <b>Bookmarks</b> (save ⌘D, show ⌘⇧B, Keep, kept copies) and <b>Tools</b> (passwords, connections, the wallet, the test gallery and tour).</p>
+  <p>Every feature is also in the menu bar: <b>File</b> (tabs, downloads), <b>View</b> (Reader, Chat, the x402 inspector, what the browser is using), <b>Go</b> (back ⌘[, forward ⌘], next and previous tab), <b>Bookmarks</b> (save ⌘D, show ⌘⇧B, Keep, kept copies), <b>History</b> (show ⌘Y, pause, forget) and <b>Tools</b> (passwords, connections, the wallet, the test gallery and tour).</p>
 
   <h2 id="shortcuts">Keyboard shortcuts</h2>
   <table>
@@ -84,6 +84,17 @@
 
   <h2 id="tabs">Tabs</h2>
   <p>Each tab is its own page with its own payment inspector, so spend is attributed to the page that caused it. A <b>⚡</b> on a tab means something was paid for there. Links that open a new window (<code>target="_blank"</code>) open as tabs; clicking a transaction in the inspector opens it beside the paid page rather than replacing it. Tabs are not yet restored between launches.</p>
+
+  <h2 id="history">History</h2>
+  <p>While you are signed in to askrobots, the pages you visit are kept in your history on your askrobots.com account, so you can find one later by a few words you remember. Each visit keeps the address, the title, when, how long, and the page's visible text (up to 50 KB). Signed out, nothing is recorded.</p>
+  <ul>
+    <li><b>Never recorded:</b> sign-in and payment pages (by address, by title, or when a password field shows), pages on this machine or your private network, anything you looked at for under two seconds, sites on your never-record list, and anything while history is paused or the caller network is on.</li>
+    <li><b>Addresses are cleaned first:</b> the part after <code>#</code> and every query parameter are dropped, except the few that say which page it is (a YouTube video's <code>v</code> and <code>list</code>, a Hacker News <code>id</code>). askrobots drops them too.</li>
+    <li><b>Your controls:</b> the <b>History</b> button in the status bar pauses and resumes. The History menu forgets this page, this site or the last hour, and stops a site from ever being recorded. <b>Show History</b> (⌘Y) opens your history on askrobots.com, where you can search it and forget everything.</li>
+    <li><b>The assistant</b> can search your history to answer "where did I see…?", but it asks you every time, because what it finds goes to its AI company. It can never record or forget anything.</li>
+    <li><b>Never sent to the search site.</b> History lives on your account only. Pages waiting to be sent are held in memory; signing out, or in as someone else, throws them away.</li>
+  </ul>
+  <p>It needs the <code>history</code> permission on your askrobots sign-in. If the status bar says <b>History off</b>, connect to askrobots again from the assistant panel. The automation API has <code>history.state</code>, <code>history.flush</code>, <code>history.pause</code>, <code>history.forget</code> and <code>history.never</code>.</p>
 
   <h2 id="reader">AI Reader</h2>
   <p>Click <b>Reader</b> (or <kbd>⌘⇧R</kbd>) for a clean reading view of the current page with a <b>TL;DR</b> at the top. The article is extracted on your computer with Mozilla's Readability and shown in a plain, script-free page; pages that aren't articles fall back to their visible text. Only the TL;DR comes from an AI provider, so a summary can never rewrite what you read — the original text is right below it.</p>

@@ -55,16 +55,20 @@ export const DEFAULT_SERVERS: McpServerConfig[] = [
       "global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links",
       "list_articles", "get_article", "get_running_timer",
       "create_link", "create_task", "add_task_comment", "update_task", "create_note", "create_article", "create_contact", "start_timer", "stop_timer",
+      // Searching your browsing history: not read-only on purpose, so the person approves each search (the results go to
+      // the assistant's AI company). Recording, listing and forgetting history are the browser's own (browserOnly).
+      "search_history",
     ],
-    browserOnly: ["upload_file"],
-    addsOnly: ["create_link", "create_task", "add_task_comment", "create_note", "create_article", "create_contact", "start_timer", "stop_timer"],
+    browserOnly: ["upload_file", "add_history", "list_history", "forget_history", "history_settings"],
+    // (search_history is here only so its approval is not marked risky: it changes nothing.)
+    addsOnly: ["create_link", "create_task", "add_task_comment", "create_note", "create_article", "create_contact", "start_timer", "stop_timer", "search_history"],
     readOnly: ["global_search", "web_search", "list_contacts", "get_contact", "list_notes", "list_tasks", "get_task", "list_projects", "list_links", "list_articles", "get_article", "get_running_timer"],
     // Saved links are private. To keep them in one project, put its id in this entry's fixedArgs in mcp-servers.json.
     // Every write is asked about each time (none is readOnly), and what the assistant makes stays private.
     fixedArgs: { create_link: { is_public: false }, create_note: { is_public: false }, create_article: { is_public: false }, upload_file: { is_public: false, category: "browser/kept" } },
     dropFields: { get_contact: ["notes", "interactions"], list_contacts: ["notes", "interactions"] },
     // Saving the pictures and text of kept pages in your Files is a separate permission, shown on the consent page.
-    extraScopes: ["files:upload"],
+    extraScopes: ["files:upload", "history"],
   },
 ];
 
@@ -268,6 +272,7 @@ const ACTIONS: Record<string, string> = {
   create_contact: "Add a contact",
   start_timer: "Start the timer",
   stop_timer: "Stop the timer",
+  search_history: "Search your browsing history (what it finds goes to the assistant's AI)",
 };
 
 /**

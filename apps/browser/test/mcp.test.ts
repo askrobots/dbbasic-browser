@@ -576,7 +576,7 @@ describe("where tokens are kept, and which servers there are", () => {
     expect(parseServerConfigs(JSON.stringify([{ ...good, extraScopes: ["two words"] }])).servers).toEqual([]);
     const merged = loadServerConfigs("/f", () => JSON.stringify([{ ...good, id: "askrobots", name: "Mine" }])).servers;
     expect(merged.find((s) => s.id === "askrobots")?.name).toBe("Mine");
-    expect(merged.find((s) => s.id === "askrobots")?.extraScopes).toEqual(["files:upload"]); // a built-in permission is kept
+    expect(merged.find((s) => s.id === "askrobots")?.extraScopes).toEqual(["files:upload", "history"]); // a built-in permission is kept
     expect(loadServerConfigs("/f", () => JSON.stringify([{ ...good, id: "askrobots", extraScopes: [] }])).servers.find((s) => s.id === "askrobots")?.extraScopes).toEqual([]); // unless the entry says otherwise
     expect(loadServerConfigs(undefined).servers).toEqual(DEFAULT_SERVERS);
     expect(loadServerConfigs("/missing", () => { throw new Error("ENOENT"); }).servers).toEqual(DEFAULT_SERVERS);
@@ -605,16 +605,17 @@ describe("where tokens are kept, and which servers there are", () => {
     expect(a.url).toBe("https://askrobots.com/api/mcp/");
     expect(a.readOnly.every((t) => a.tools.includes(t))).toBe(true);
     // the only writes the assistant gets, each asked about every time
-    expect(a.tools.filter((t) => !a.readOnly.includes(t))).toEqual(["create_link", "create_task", "add_task_comment", "update_task", "create_note", "create_article", "create_contact", "start_timer", "stop_timer"]);
+    expect(a.tools.filter((t) => !a.readOnly.includes(t))).toEqual(["create_link", "create_task", "add_task_comment", "update_task", "create_note", "create_article", "create_contact", "start_timer", "stop_timer", "search_history"]);
     for (const never of ["send_email", "search_messages", "update_article", "complete_task", "cancel_task", "submit_task", "post_to_feed", "generate_image", "run_function", "execute_task"]) expect(a.tools).not.toContain(never);
     expect(a.tools.some((t) => /^delete_|finance|^ads_|invoice|journal/.test(t))).toBe(false);
     expect(a.fixedArgs?.create_note).toEqual({ is_public: false });
     expect(a.fixedArgs?.create_article).toEqual({ is_public: false });
-    expect(a.browserOnly).toEqual(["upload_file"]); // the browser's own (kept copies), never offered to the assistant
     expect(a.fixedArgs?.upload_file).toEqual({ is_public: false, category: "browser/kept" });
     expect(a.fixedArgs?.create_link).toEqual({ is_public: false });
     expect(JSON.stringify(DEFAULT_SERVERS)).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/); // no personal ids in the shipped defaults
     expect(a.dropFields?.get_contact).toEqual(["notes", "interactions"]);
-    expect(a.extraScopes).toEqual(["files:upload"]); // saving kept pages in Files is its own permission
+    expect(a.extraScopes).toEqual(["files:upload", "history"]); // saving kept pages in Files, and history, are their own permissions
+    expect(a.browserOnly).toEqual(["upload_file", "add_history", "list_history", "forget_history", "history_settings"]); // the assistant never writes or forgets history
+    expect(a.readOnly).not.toContain("search_history"); // searching history asks the person every time
   });
 });
