@@ -211,7 +211,8 @@ export class ChatService {
           // Redact anything that looks like a key before it reaches the panel.
           this.push(e.kind === "done" && e.message ? { ...e, message: redact(e.message, cfg) } : e.kind === "text" ? { ...e, text: redact(e.text, cfg) } : e);
         },
-        context: () => "The person is looking at one tab at a time; tools act on the active tab unless you pass a tab id.",
+        context: () =>
+          `The person is looking at one tab at a time; tools act on the active tab unless you pass a tab id. Today is ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })} (their local date).`,
         tainted: this.tainted,
         onTainted: () => {
           this.tainted = true;
