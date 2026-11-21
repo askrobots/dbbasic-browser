@@ -12,7 +12,9 @@
  * never touches your running browser, your real vault, or ~/.dbbasic/control.json. Each suite gets a freshly
  * launched app, so suites can't contaminate each other.
  *
- * Needs a macOS/desktop session (it opens real windows). Exit code is non-zero if any check fails.
+ * Needs a desktop session (it opens real windows): macOS, or Linux with a display. On a Linux machine with no screen, run it
+ * under a virtual one (`xvfb-run -a npm run e2e …`, as CI does) and without E2E_BACKGROUND, which hides the window in a way a
+ * virtual display stops drawing. Exit code is non-zero if any check fails.
  */
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -100,7 +102,9 @@ async function launchApp(suite) {
   if (suite === "mcp") {
     writeFileSync(mcpServersFile, JSON.stringify([{ id: "demo", name: "Demo notes", url: `${base}/mcp`, tools: ["lookup", "save", "person"], readOnly: ["lookup", "person"], fixedArgs: { save: { project_id: "P-1" } }, dropFields: { person: ["notes", "interactions"] } }]));
   }
-  const app = spawn(process.execPath, [join(here, "launch.mjs"), `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`], {
+  // E2E_APP_ARGS: extra switches for the browser, e.g. "--disable-gpu" on a machine with no graphics card.
+  const extra = (process.env.E2E_APP_ARGS ?? "").split(/\s+/).filter(Boolean);
+  const app = spawn(process.execPath, [join(here, "launch.mjs"), `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, ...extra], {
     env: {
       ...process.env,
       DBB_CONTROL: "1", DBB_CONTROL_PORT: String(controlPort), DBB_CONTROL_TOKEN: token, DBB_CONTROL_FILE: join(tmp, `control-${suite}.json`),

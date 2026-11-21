@@ -38,5 +38,34 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
-# Not run here: the end-to-end suite (`npm run e2e -w @dbbasic/browser`). It launches real browser windows and needs a
-# macOS/desktop session, so it is run locally before releases.
+  # The end-to-end suite: the real browser on Linux, driven through its automation API, under a virtual display.
+  # Hermetic like the local run: its own demo server on loopback, temp profiles and vaults, a scripted stand-in model.
+  # It never reaches a real AI provider or a real site (E2E_LIVE_NET and E2E_LIVE_AI stay off).
+  e2e-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # Still no install scripts from the dependency tree. Only Electron's own download step runs, by name: it fetches
+      # the Electron binary from Electron's GitHub releases and checks it against the checksums shipped in the package.
+      - run: npm ci --ignore-scripts
+      - run: node node_modules/electron/install.js
+      - run: npm run build -w @dbbasic/browser
+
+      # Ubuntu 24.04 restricts user namespaces, which Chromium's page sandbox needs. Allow them for the Electron binary
+      # only (an AppArmor profile), so the suite runs with the sandbox ON, as people will use it. Never --no-sandbox.
+      - name: Let the page sandbox start
+        run: sudo apps/browser/scripts/linux-sandbox.sh "$(node -p "require('electron')")"
+
+      # No E2E_BACKGROUND here: nothing is on anyone's screen, and the background mode's hidden window is not drawn
+      # under a virtual display. No graphics card either, so the GPU is off.
+      - name: End-to-end suite
+        run: xvfb-run -a --server-args="-screen 0 1920x1080x24" npm run e2e -w @dbbasic/browser
+        env:
+          E2E_APP_ARGS: --disable-gpu
+          E2E_PARALLEL: "2"
