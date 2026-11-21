@@ -6,6 +6,10 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **Pick the assistant's model** at the top of its panel: Haiku, Sonnet, Opus or Fable (with each one's cost next to
+  Haiku's), or the OpenAI or local model you have set up. The choice is remembered. The assistant now defaults to Sonnet
+  5.5, because Haiku asked needless questions and missed the obvious; the reader's quick summaries stay on the small
+  model. The assistant is also told today's date, and treats "this" and "that" as the page you have open.
 - **The assistant does more on askrobots.** It can add tasks ("add a task to check this out when I'm nearby"), comment
   on and update them, add notes, articles and contacts, start and stop the time tracker, and read your articles. Like
   saving a link, every change is asked about before it is sent, even in Auto mode; notes and articles are always private.

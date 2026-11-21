@@ -133,7 +133,7 @@ export function parseSummary(raw: string): Summary {
 
 // ---- prices (USD per million tokens; only models we actually know — never a guess) -----------------
 
-const PRICES: Record<string, { in: number; out: number }> = {
+export const PRICES: Record<string, { in: number; out: number }> = {
   "claude-fable-5-2": { in: 8, out: 40 },
   "claude-opus-5-5": { in: 4, out: 20 },
   "claude-sonnet-5-5": { in: 2, out: 10 },

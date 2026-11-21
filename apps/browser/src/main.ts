@@ -32,6 +32,7 @@ import { EXPIRED_HTML, READER_SCHEME, ReaderPages, readerIdFromUrl } from "./rea
 import { READER_CSP } from "./reader.js";
 import { registerVault } from "./vault-service.js";
 import { handle as handleControl, getTabs, setTabs, startControl, type ApprovalPolicy, type ControlDeps, type ControlHandle, type TabInfo } from "./control.js";
+import { parseSavedChoice } from "./chat-model-choice.js";
 import { ChatService } from "./chat-service.js";
 import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 import { BookmarksService } from "./bookmarks-service.js";
@@ -1252,6 +1253,23 @@ app.whenReady().then(async () => {
     announce: (e) => emit(e),
     callerNetworkOn: () => callerNet.enabled,
     extraTools: () => mcp.toolDefs(),
+    // The model picked in the assistant panel, remembered across restarts (no secrets: a provider and a model name).
+    modelChoice: {
+      load: () => {
+        try {
+          return parseSavedChoice(readFileSync(join(app.getPath("userData"), "chat-model.json"), "utf8"));
+        } catch {
+          return null;
+        }
+      },
+      save: (id) => {
+        try {
+          writeFileSync(join(app.getPath("userData"), "chat-model.json"), JSON.stringify({ model: id }) + "\n");
+        } catch {
+          /* not remembered; it still applies this session */
+        }
+      },
+    },
     consent: async ({ model, where }) => {
       const opts: Electron.MessageBoxOptions = {
         type: "question",
@@ -1271,6 +1289,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("chat:confirm", (_e, id: unknown, ok: unknown) => chat.confirm(String(id), ok === true));
   ipcMain.handle("chat:clear", () => (chat.clear(), true));
   ipcMain.handle("chat:mode", (_e, m: unknown) => chat.setMode(m));
+  ipcMain.handle("chat:model", (_e, id: unknown) => chat.setModel(id));
   const controlDeps: ControlDeps = {
         askChrome,
         background,

@@ -364,6 +364,9 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       return { cleared: true };
     case "chat.mode":
       return { mode: d.chat.setMode(p.mode) };
+    case "chat.model":
+      // Pick the assistant's model: one of chat.state's `models` ids ("provider/model"). Remembered across restarts.
+      return d.chat.setModel(str(p.model, "model"));
 
     // ---- keep -----------------------------------------------------------------------
     case "keep.tab":

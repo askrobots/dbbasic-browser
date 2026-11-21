@@ -18,6 +18,14 @@ export default async function (ctx) {
   check(st.available && st.provider === "openai" && st.endpoint === new URL(base).host && st.mode === "ask" && !st.running, "the chat is available with the model endpoint named (host only), and starts in ask mode", JSON.stringify({ ...st, transcript: undefined }));
   check(!JSON.stringify(st).includes("e2e-fake-key"), "no key appears in the chat state");
 
+  // the model picker: only models of providers that are set up are offered, and nothing else can be picked
+  // (an Anthropic key in this machine's ~/.dbbasic/env adds Anthropic's models; CI has none)
+  const host = new URL(base).host;
+  check(st.models.some((m) => m.id === "openai/fake-model" && m.label === `fake-model (${host})`) && st.models.every((m) => /^(anthropic|openai)\//.test(m.id) && (m.id.startsWith("anthropic/") || m.id === "openai/fake-model")) && st.modelId === "openai/fake-model", "the assistant offers only the models it is set up for, the stand-in one named with its machine", JSON.stringify(st.models));
+  const badPick = await T("chat.model", { model: "openai/gpt-not-offered" });
+  const goodPick = await T("chat.model", { model: "openai/fake-model" });
+  check(badPick.ok === false && goodPick.ok === true && goodPick.model === "fake-model", "a model that is not on offer cannot be picked", JSON.stringify({ badPick, goodPick }));
+
   await T("page.goto", { url: base + "/forms" });
 
   // reading
@@ -108,7 +116,7 @@ export default async function (ctx) {
   await c.ev(`setChat(false)`); // earlier questions from the scripts opened it by themselves
   await c.ev(`toggleChat()`);
   await sleep(300);
-  check(await q(`return document.getElementById('chat').classList.contains('open') && /@/.test(document.getElementById('chatSub').textContent) && /go to/.test(document.getElementById('chatPriv').textContent)`), "the panel opens and names the model and where your words go", await q(`return JSON.stringify([document.getElementById('chat').className, document.getElementById('chatSub').textContent, document.getElementById('chatPriv').textContent])`));
+  check(await q(`return document.getElementById('chat').classList.contains('open') && (/@/.test(document.getElementById('chatSub').textContent) || (!document.getElementById('chatModel').hidden && document.getElementById('chatModel').selectedOptions[0].textContent.includes('${new URL(base).host}'))) && /go to/.test(document.getElementById('chatPriv').textContent)`), "the panel opens and names the model and where your words go", await q(`return JSON.stringify([document.getElementById('chat').className, document.getElementById('chatSub').textContent, document.getElementById('chatPriv').textContent])`));
   check(await q(`return !!document.getElementById('chatEmpty')`), "an empty conversation shows a short hint");
   await c.ev(`(() => { const i = document.getElementById('chatIn'); i.value = 'fill the form'; i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); })()`);
   const waitDom = async (js, what) => { for (let i = 0; i < 150; i++) { if (await q(js)) return true; await sleep(50); } throw new Error("timed out waiting for " + what); };

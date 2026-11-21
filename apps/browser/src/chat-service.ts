@@ -15,6 +15,7 @@
 import { estimateCostUsd } from "./ai.js";
 import { describeAi, redact, type AiConfig } from "./ai-config.js";
 import { MAX_RESULT_CHARS, newBoundary, runChat, wrapResult, type ChatEvent, type ChatMsg, type ModelClient, type Policy, type ToolDef } from "./chat-core.js";
+import { chatAi, chatModelChoices } from "./chat-model-choice.js";
 import { chatModel } from "./chat-models.js";
 import { pageTools, type Runner } from "./chat-tools.js";
 
@@ -43,6 +44,8 @@ export interface ChatDeps {
   extraTools?(): Promise<ToolDef[]>;
   /** Tests and tools can supply the model. */
   modelFor?(cfg: AiConfig): ModelClient;
+  /** Where the model picked in the panel is remembered ("provider/model"). */
+  modelChoice?: { load(): string | null; save(id: string): void };
 }
 
 export interface SendResult {
@@ -72,7 +75,26 @@ export class ChatService {
   /** Records of commands run while the assistant was busy, added to the conversation when it is done. */
   private queued: string[] = [];
 
-  constructor(private deps: ChatDeps) {}
+  /** The model picked in the panel, "provider/model", or null for the default. */
+  private choice: string | null;
+
+  constructor(private deps: ChatDeps) {
+    this.choice = deps.modelChoice?.load() ?? null;
+  }
+
+  /** The AI config the chat runs with: the env file's, with the model picked in the panel. */
+  private ai(): AiConfig | null {
+    return chatAi(this.deps.getAi(), this.choice);
+  }
+
+  /** Pick the chat's model ("provider/model", one of those on offer). Takes effect from the next message; remembered. */
+  setModel(id: unknown): { ok: boolean; model: string | null } {
+    const c = chatModelChoices(this.deps.getAi()).find((x) => x.id === id);
+    if (!c) return { ok: false, model: this.ai()?.model ?? null };
+    this.choice = c.id;
+    this.deps.modelChoice?.save(c.id);
+    return { ok: true, model: c.model };
+  }
 
   private push(e: PanelEvent): LoggedEvent {
     const le = { ...e, seq: ++this.seq } as LoggedEvent;
@@ -83,12 +105,15 @@ export class ChatService {
   }
 
   state() {
-    const ai = describeAi(this.deps.getAi());
+    const cfg = this.ai();
+    const ai = describeAi(cfg);
     return {
       available: ai.configured && !this.deps.callerNetworkOn(),
       callerNetworkOn: this.deps.callerNetworkOn(),
       provider: ai.provider ?? null,
       model: ai.model ?? null,
+      modelId: cfg ? `${cfg.provider}/${cfg.model}` : null,
+      models: chatModelChoices(this.deps.getAi()).map(({ id, label }) => ({ id, label })),
       endpoint: ai.endpoint ?? null,
       mode: this.mode,
       running: this.running !== null,
@@ -160,7 +185,7 @@ export class ChatService {
 
   /** One message from the person; resolves when the assistant is done. */
   async send(text: string): Promise<SendResult> {
-    const cfg = this.deps.getAi();
+    const cfg = this.ai();
     if (this.deps.callerNetworkOn()) return { ok: false, reason: "caller-network-on", message: "The chat is switched off while the caller network is on." };
     if (!cfg) return { ok: false, reason: "no-ai", message: "No AI is set up. Put ANTHROPIC_API_KEY or OPENAI_API_KEY in ~/.dbbasic/env, or set DBB_AI_BASE_URL for a model on your network." };
     if (this.running) return { ok: false, reason: "busy", message: "The assistant is still working on the last message. Stop it first." };

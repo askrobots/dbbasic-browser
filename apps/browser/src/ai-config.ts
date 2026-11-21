@@ -114,6 +114,8 @@ export interface AiConfig {
   sources: Record<string, string>;
   /** An OpenAI-compatible endpoint (a local or network model) used instead of api.openai.com. */
   baseUrl?: string;
+  /** The env file named the model (rather than the default being used). */
+  modelExplicit?: boolean;
 }
 
 /**
@@ -151,9 +153,9 @@ export function resolveAi(loaded: Loaded): AiConfig | null {
 
   const wanted = values.DBB_AI_PROVIDER as Provider | undefined;
   const provider: Provider = wanted && available.includes(wanted) ? wanted : (available[0] as Provider);
-  const model =
-    (provider === "anthropic" ? values.DBB_AI_MODEL_ANTHROPIC : values.DBB_AI_MODEL_OPENAI) || values.DBB_AI_MODEL || DEFAULT_MODELS[provider];
-  return { provider, model, keys, available, sources, ...(baseUrl ? { baseUrl } : {}) };
+  const named = (provider === "anthropic" ? values.DBB_AI_MODEL_ANTHROPIC : values.DBB_AI_MODEL_OPENAI) || values.DBB_AI_MODEL;
+  const model = named || DEFAULT_MODELS[provider];
+  return { provider, model, keys, available, sources, ...(baseUrl ? { baseUrl } : {}), ...(named ? { modelExplicit: true } : {}) };
 }
 
 /** Everything the UI may know: no key material. */

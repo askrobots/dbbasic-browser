@@ -160,6 +160,7 @@
       #chat.open { display: flex; }
       #chatHead { display: flex; align-items: center; gap: 6px; padding: 9px 12px; border-bottom: 1px solid #2a2a30; font-weight: 600; }
       #chatHead .sub { color: #8a8a90; font-weight: 400; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+      #chatModel { max-width: 150px; text-overflow: ellipsis; }
       #chatHead select { background: #131316; color: #c8c8ce; border: 1px solid #2a2a30; border-radius: 6px; font-size: 11px; padding: 2px 4px; }
       #chatConn { padding: 6px 12px; border-bottom: 1px solid #2a2a30; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
       #chatConn:empty { display: none; }
@@ -263,6 +264,7 @@
         <div id="chatHead">
           <span>Assistant</span>
           <span class="sub" id="chatSub"></span>
+          <select id="chatModel" title="Which model the assistant uses. Smarter models make fewer mistakes and cost more: 20× means about twenty times Haiku's cost per message. The reader's summaries keep their own model." aria-label="Assistant model" hidden></select>
           <select id="chatMode" title="Ask: every action waits for your OK. Auto: only risky ones do (submitting, pressing Enter, opening a site that is not open).">
             <option value="ask">Ask first</option>
             <option value="auto">Auto (risky asks)</option>
@@ -893,7 +895,14 @@
       }
       async function chatRefresh() {
         chatInfo = await window.x402.chat.state();
-        $("chatSub").textContent = chatInfo.available ? chatInfo.model + (chatInfo.endpoint ? " @ " + chatInfo.endpoint : "") : "off";
+        const models = chatInfo.available ? chatInfo.models || [] : [];
+        const pickModel = $("chatModel");
+        pickModel.hidden = models.length < 2;
+        if (!pickModel.hidden) {
+          pickModel.replaceChildren(...models.map((m) => { const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; return o; }));
+          pickModel.value = chatInfo.modelId;
+        }
+        $("chatSub").textContent = !chatInfo.available ? "off" : pickModel.hidden ? chatInfo.model + (chatInfo.endpoint ? " @ " + chatInfo.endpoint : "") : "";
         $("chatMode").value = chatInfo.mode;
         $("chatPriv").textContent = chatInfo.available
           ? "Your messages, what the assistant reads from your pages, and from services you connect (contacts, notes…) go to " + (chatInfo.endpoint || (chatInfo.provider === "anthropic" ? "Anthropic" : "OpenAI")) + ". Passwords, card and code fields are never filled."
@@ -953,6 +962,7 @@
       $("chatClear").onclick = () => window.x402.chat.clear();
       $("chatSend").onclick = chatSend;
       $("chatMode").onchange = (e) => window.x402.chat.setMode(e.target.value);
+      $("chatModel").onchange = async (e) => { await window.x402.chat.setModel(e.target.value); chatRefresh(); };
       chatIn.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend(); } });
       window.x402.chat.onEvent((e) => {
         if (e.kind === "confirm" && !chatOpen) { setChat(true); return; } // opening it redraws the whole conversation, this question included

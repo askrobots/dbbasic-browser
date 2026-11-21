@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld("x402", {
     confirm: (id, ok) => ipcRenderer.invoke("chat:confirm", id, ok),
     clear: () => ipcRenderer.invoke("chat:clear"),
     setMode: (m) => ipcRenderer.invoke("chat:mode", m),
+    setModel: (id) => ipcRenderer.invoke("chat:model", id),
     onEvent: sub("chat:event"),
   },
   /** Keep: copies of pages (image and text), so their tabs can be closed. Local only. */
