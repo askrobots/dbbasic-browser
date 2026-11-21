@@ -6,6 +6,12 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **A right-click menu.** On a link: Open Link in New Tab, Copy Link Address. On an image: open, copy, copy address,
+  save. On selected text: Copy, Search askrobots for it, Ask the Assistant About This (the text goes into the chat box;
+  nothing is sent on its own). In a text field: spelling suggestions, Undo, Redo, Cut, Copy, Paste, Select All. Elsewhere:
+  Back, Forward, Reload. Inspect Element on pages. The address bar and chat box get the text items. ⌘-click (Ctrl+click
+  off a Mac) and middle-click now open a link in a tab behind the page you are on. The automation API can read the last
+  menu and pick an item (`menu.last`, `menu.pick`).
 - **Drawn toolbar icons** in place of emoji (Keep, Save, Bookmarks, Chat, Reader, Passwords, x402, back, forward, new
   tab, stop). Emoji depend on the installed font, look different on every Linux machine and sometimes show as empty boxes;
   these are small SVGs drawn for the project (assets/icons) that follow the theme.

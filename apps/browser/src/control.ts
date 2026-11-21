@@ -60,6 +60,8 @@ export interface ControlDeps {
   focusWindow(): void;
   vault: VaultService;
   eventsSince(n: number): { events: unknown[]; next: number };
+  /** The right-click menu shown (or, in background mode, recorded) last, and picking one of its items. */
+  contextMenu: { last(): { wcId: number; items: unknown[] } | null; pick(id: string): boolean };
   getApproval(): ApprovalPolicy;
   setApproval(p: ApprovalPolicy): void;
   spent(): string;
@@ -512,6 +514,14 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       return d.receipts();
     case "x402.events":
       return d.eventsSince(Number(p.since) || 0);
+
+    // ---- the right-click menu --------------------------------------------------
+    case "menu.last":
+      return { menu: d.contextMenu.last() };
+    case "menu.pick": {
+      if (typeof p.id !== "string" || !p.id) throw new RpcError("bad-params", "id is required (an item id from menu.last)");
+      return { ok: d.contextMenu.pick(p.id) };
+    }
     case "x402.approval": {
       if (p.mode != null) {
         if (p.mode !== "ask" && p.mode !== "auto" && p.mode !== "deny") throw new RpcError("bad-params", 'mode must be "ask", "auto" or "deny"');

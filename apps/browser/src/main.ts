@@ -38,6 +38,7 @@ import { BookmarksService } from "./bookmarks-service.js";
 import { KEPT_SCHEME, KeepStore, keptFilename, keptPageHtml, keptUrl, parseKeptUrl, type KeptRecord } from "./keep-store.js";
 import { diskUsage, type DiskUsage } from "./disk-usage.js";
 import { reservedShortcut } from "./shortcuts.js";
+import { contextMenuItems, type MenuItem } from "./context-menu.js";
 import { commandArgs, commandRows, describeResult, parseCommand, parseSuggestions, remoteAllowed, suggest, toCommand, type OmniTab } from "./omnibox.js";
 import { macFootprints } from "./process-memory.js";
 
@@ -368,6 +369,68 @@ function paidFor(url: string): string | undefined {
     if (e.kind === "paid" && Date.now() - (e.at as number) < 120_000 && (e.resource === bare || e.requested === bare)) return String(e.amount);
   }
   return undefined;
+}
+
+// ---- the right-click menu (which items: context-menu.ts) ----------------------------------------------
+/** The menu shown last, so the automation API can read it and pick an item (in background mode it is not shown at all). */
+let lastMenu: { wcId: number; items: MenuItem[]; run: (id: string) => boolean } | null = null;
+
+function showContextMenu(wc: WebContents, p: Electron.ContextMenuParams, page: boolean): void {
+  const items = contextMenuItems(p, {
+    page,
+    canGoBack: wc.navigationHistory.canGoBack(),
+    canGoForward: wc.navigationHistory.canGoForward(),
+    newTabs: !callerNet.enabled,
+  });
+  if (!items.length) return;
+  const offered = new Set(items.flatMap((it) => ("id" in it && it.enabled !== false ? [it.id] : [])));
+  const run = (id: string) => {
+    if (!offered.has(id)) return false;
+    runMenuItem(wc, p, id);
+    return true;
+  };
+  lastMenu = { wcId: wc.id, items, run };
+  // A scripted run in the background must not put a menu on someone's screen: it is recorded instead (as it is for the
+  // end-to-end suite, DBB_RECORD_MENUS=1, which picks items through the automation API).
+  if (background || process.env.DBB_RECORD_MENUS === "1") {
+    emit({ kind: "context-menu", wcId: wc.id, items: [...offered] });
+    return;
+  }
+  Menu.buildFromTemplate(items.map((it): MenuItemConstructorOptions => ("id" in it ? { label: it.label, enabled: it.enabled !== false, click: () => run(it.id) } : { type: "separator" })))
+    .popup({ window: mainWindow ?? undefined });
+}
+
+function runMenuItem(wc: WebContents, p: Electron.ContextMenuParams, id: string): void {
+  if (wc.isDestroyed()) return;
+  const web = (u: string) => /^https?:\/\//i.test(u);
+  const newTab = (url: string) => { if (web(url) && !callerNet.enabled) mainWindow?.webContents.send("tab:open", url, { background: true }); };
+  const text = (p.selectionText || "").trim();
+  if (id.startsWith("spell:")) {
+    const w = p.dictionarySuggestions?.[Number(id.slice(6))];
+    if (w) wc.replaceMisspelling(w);
+    return;
+  }
+  switch (id) {
+    case "open-link-tab": return newTab(p.linkURL);
+    case "copy-link": return void clipboard.writeText(p.linkURL);
+    case "open-image-tab": return newTab(p.srcURL);
+    case "copy-image": return wc.copyImageAt(p.x, p.y);
+    case "copy-image-address": return void clipboard.writeText(p.srcURL);
+    case "save-image": return web(p.srcURL) ? wc.downloadURL(p.srcURL) : undefined;
+    case "undo": return wc.undo();
+    case "redo": return wc.redo();
+    case "cut": return wc.cut();
+    case "copy": return wc.copy();
+    case "paste": return wc.paste();
+    case "select-all": return wc.selectAll();
+    // The chrome knows the search address and owns the chat: it does these two.
+    case "search-selection":
+    case "ask-selection": return void mainWindow?.webContents.send("ctx:action", { id, text });
+    case "back": return wc.navigationHistory.goBack();
+    case "forward": return wc.navigationHistory.goForward();
+    case "reload": return wc.reload();
+    case "inspect": return wc.inspectElement(p.x, p.y);
+  }
 }
 
 function setupDownloads(): void {
@@ -745,6 +808,8 @@ function createWindow(): void {
     },
   });
   mainWindow.loadFile(join(__dirname, "chrome.html"));
+  // The browser's own fields (the address bar, the chat box) get the text items of the right-click menu.
+  mainWindow.webContents.on("context-menu", (_e, p) => { if (mainWindow) showContextMenu(mainWindow.webContents, p, false); });
   if (background) {
     if (process.platform === "darwin") app.dock?.hide();
     // Shown first and moved afterwards: macOS clamps a window back onto the screen when it is created or first shown there,
@@ -828,13 +893,15 @@ app.whenReady().then(async () => {
       event.preventDefault(); // the page never sees it, and the menu does not run it a second time
       mainWindow?.webContents.send("tab:cmd", cmd);
     });
+    wc.on("context-menu", (_e, p) => showContextMenu(wc, p, true));
     if (callerNet.enabled) wc.setWebRTCIPHandlingPolicy("disable_non_proxied_udp"); // no UDP for ICE/STUN: it would bypass the caller
-    wc.setWindowOpenHandler(({ url }) => {
+    wc.setWindowOpenHandler(({ url, disposition }) => {
       if (callerNet.enabled) {
         emit({ kind: "popup-refused", url }); // no new window or tab in this mode
         return { action: "deny" };
       }
-      if (/^https?:\/\//i.test(url)) mainWindow?.webContents.send("tab:open", url);
+      // ⌘-click and middle-click ask for a background tab: it opens behind the page you are on, as in other browsers.
+      if (/^https?:\/\//i.test(url)) mainWindow?.webContents.send("tab:open", url, { background: disposition === "background-tab" });
       return { action: "deny" };
     });
     // A tab is created blank and then navigated, which leaves a hidden about:blank "back" entry: Back walked into
@@ -1217,6 +1284,10 @@ app.whenReady().then(async () => {
         },
         vault: vaultSvc,
         eventsSince: (n) => ({ events: eventLog.filter((e) => (e.seq as number) > n), next: eventSeq }),
+        contextMenu: {
+          last: () => (lastMenu ? { wcId: lastMenu.wcId, items: lastMenu.items } : null),
+          pick: (id) => (lastMenu ? lastMenu.run(id) : false),
+        },
         getApproval: () => approval,
         setApproval: (p) => {
           approval = p;

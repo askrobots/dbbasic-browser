@@ -102,9 +102,15 @@ contextBridge.exposeInMainWorld("x402", {
   },
   /** A page asked for a new window (target=_blank / window.open) — open it as a tab. */
   onOpenTab(callback) {
-    const listener = (_event, url) => callback(url);
+    const listener = (_event, url, opts) => callback(url, opts || {});
     ipcRenderer.on("tab:open", listener);
     return () => ipcRenderer.removeListener("tab:open", listener);
+  },
+  /** A right-click menu item the chrome does itself: search for the selection, or ask the assistant about it. */
+  onMenuAction(callback) {
+    const listener = (_event, a) => callback(a);
+    ipcRenderer.on("ctx:action", listener);
+    return () => ipcRenderer.removeListener("ctx:action", listener);
   },
   /** Automation: main asks the UI to do a tab operation; the handler's return value is the answer. */
   onControl(handler) {

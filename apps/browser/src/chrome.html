@@ -1195,7 +1195,19 @@
         }
       }
       // target=_blank / window.open from a page → a new tab beside it.
-      window.x402.onOpenTab((url) => newTab(url));
+      // ⌘-click, middle-click and the right-click menu open it behind the page you are on.
+      window.x402.onOpenTab((url, o) => newTab(url, !o.background));
+      window.x402.onMenuAction((a) => {
+        const text = String(a && a.text || "").trim();
+        if (!text) return;
+        if (a.id === "search-selection") newTab(searchFor(text));
+        else if (a.id === "ask-selection") {
+          // Put the text in the chat box for the person to finish and send: nothing is sent on its own.
+          chatIn.value = "About this, from the page:\n“" + text.slice(0, 4000) + "”\n\n";
+          setChat(true);
+          chatIn.setSelectionRange(chatIn.value.length, chatIn.value.length);
+        }
+      });
 
       // Anything that isn't clearly an address is a search — answered by askrobots.com
       // (the template its own opensearch.xml advertises).

@@ -26,7 +26,7 @@ import { makeCtx } from "../test/e2e/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const SUITES = ["api", "ui", "transport", "states", "reader", "downloads", "settle", "provider", "escape", "example", "extensions", "forms", "chat", "mcp", "resources", "bookmarks", "keep", "omnibox", "live-net"];
+const SUITES = ["api", "ui", "transport", "states", "reader", "downloads", "settle", "provider", "escape", "example", "extensions", "forms", "chat", "mcp", "resources", "bookmarks", "keep", "omnibox", "menu", "live-net"];
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const run = wanted.length ? wanted : SUITES;
 for (const s of run) if (!SUITES.includes(s)) { console.error(`unknown suite "${s}" (have: ${SUITES.join(", ")})`); process.exit(2); }
@@ -115,6 +115,7 @@ async function launchApp(suite) {
       ...(suite === "mcp" || suite === "bookmarks" || suite === "omnibox" ? { DBB_MCP_STORE: "memory", DBB_MCP_SERVERS: mcpServersFile } : {}),
       ...(process.env.E2E_BACKGROUND === "1" ? { DBB_BACKGROUND: "1" } : {}),
       ...(suite === "keep" || suite === "omnibox" ? { DBB_KEEP_DIR: join(tmp, "kept-" + suite) } : {}),
+      DBB_RECORD_MENUS: "1", // right-click menus are recorded for the menu suite, never shown
       DBB_SUGGEST_URL: `${base}/suggest?q=%s`, // never the real search site from a test
       DBB_VAULT: vaultPath, HOMEPAGE: `${base}/free`, DBB_DOWNLOAD_DIR: join(tmp, `downloads-${suite}`),
     },
