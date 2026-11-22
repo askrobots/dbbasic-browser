@@ -78,6 +78,11 @@ contextBridge.exposeInMainWorld("x402", {
     onChanged: sub("bookmarks:changed"),
   },
   /** Browsing history on the askrobots account (recorded only while signed in, with the history permission). */
+  /** Site icons as data: URLs, by host (see favicons.ts). onUpdate gets {host, icon} (icon null: forgotten). */
+  favicons: {
+    all: () => ipcRenderer.invoke("favicons:all"),
+    onUpdate: sub("favicon:update"),
+  },
   history: {
     state: () => ipcRenderer.invoke("history:state"),
     pause: (on) => ipcRenderer.invoke("history:pause", on),

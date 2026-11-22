@@ -6,6 +6,11 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 ## [Unreleased]
 
 ### Added
+- **Site icons (favicons)** in the tabs, the address bar's suggestions and the bookmarks and kept panels, so you can
+  spot a site at a glance. Each site's icon is fetched once, from the first of its pages you open, without cookies and
+  outside the payment handler, and kept on this computer in a file only you can read (looked at again after a week).
+  Typing fetches nothing; no icons while the caller network is on or for sites on the never-record list; forgetting a site
+  forgets its icon. The browser window only shows icons as data, never loading anything from a site itself.
 - **The address bar suggests pages from your history**, next to open tabs, saved links and kept copies: type a few words
   of a page's title or address. History from all your computers is suggested, since it lives on your askrobots account.
   The browser keeps a copy of the list here (addresses, titles and times, never the pages' text, in a file only you can

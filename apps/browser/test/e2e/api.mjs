@@ -59,6 +59,11 @@ export default async function (ctx) {
   // The keyboard goes to the new page (space scrolls or pauses it), not the address bar.
   const focused = await (await ctx.chrome()).ev(`(() => { const a = document.activeElement; return a ? (a.tagName === "WEBVIEW" ? (a.classList.contains("hidden") ? "a hidden page" : "the page") : a.id || a.tagName) : "nothing"; })()`);
   check(focused === "the page", "a link that opens a new tab gives that tab's page the keyboard", focused);
+  // Site icons: the tab shows the site's icon (a data: URL the browser fetched once per site, never loaded by the window itself).
+  const tabIcons = await (await ctx.chrome()).ev(`[...document.querySelectorAll("#tabs .tab .th img.fav")].map((i) => i.src.slice(0, 22))`);
+  check(tabIcons.length >= 1 && tabIcons.every((s) => s.startsWith("data:image/")), "tabs show the site's icon", JSON.stringify(tabIcons));
+  const iconHits = (await (await fetch(base + "/o/_icon-hits")).json()).hits;
+  check(iconHits === 2, "and each site's icon is fetched once, however many of its pages are opened (127.0.0.1 and localhost here)", `${iconHits} fetch(es)`);
   await T("tabs.close", { tab: tabs.find((t) => t.url.endsWith("/free")).id });
   check((await T("tabs.list")).length === before, "tabs.close works");
 

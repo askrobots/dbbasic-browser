@@ -34,7 +34,8 @@ import { registerVault } from "./vault-service.js";
 import { handle as handleControl, getTabs, setTabs, startControl, type ApprovalPolicy, type ControlDeps, type ControlHandle, type TabInfo } from "./control.js";
 import { parseSavedChoice } from "./chat-model-choice.js";
 import { HistoryCopy } from "./history-copy.js";
-import { forgetMatch, HistoryService } from "./history.js";
+import { forgetMatch, HistoryService, onNeverList } from "./history.js";
+import { FaviconStore, hostOf, type Fetched } from "./favicons.js";
 import { ChatService } from "./chat-service.js";
 import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 import { BookmarksService } from "./bookmarks-service.js";
@@ -220,6 +221,7 @@ let mcpCapture: (url: string) => { status: number; html: string } | null = () =>
 let history: HistoryService | null = null;
 /** The copy of that history kept here for the address bar (see history-copy.ts). */
 let historyCopy: HistoryCopy | null = null;
+let favicons: FaviconStore | null = null;
 /** The page's visible text and whether a password field shows, read in an isolated world the page cannot reach. */
 async function readForHistory(wc: Electron.WebContents): Promise<void> {
   if (!history || wc.isDestroyed()) return;
@@ -311,6 +313,24 @@ function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerT
     }
   } else if (p.enabled !== undefined && typeof p.enabled !== "boolean") throw new ProviderError("bad-params", "enabled must be true or false");
   emit({ kind: "net-provider-changed", enabled: callerNet.enabled, answerTimeoutMs: callerNet.answerTimeoutMs });
+}
+
+// A site's icon, fetched by Chromium's own loader without cookies. It skips the browser's request handler on purpose: an
+// icon never pays, never opens a sign-in, and is not one of the page's requests in the inspector.
+async function fetchIcon(url: string): Promise<Fetched | null> {
+  const LIMIT = 512 * 1024;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 8000);
+  try {
+    const r = await session.defaultSession.fetch(url, { signal: ac.signal, credentials: "omit", bypassCustomProtocolHandlers: true } as RequestInit);
+    if (!r.ok || Number(r.headers.get("content-length") || 0) > LIMIT) return null;
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    return bytes.length > LIMIT ? null : { bytes, type: r.headers.get("content-type") || "" };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function setupNetPolicy(): void {
@@ -959,6 +979,13 @@ app.whenReady().then(async () => {
       readSoon(2500);
     });
     wc.on("page-title-updated", (_e, title) => history?.title(id, title));
+    // The page named its icon: learn it for the site (see favicons.ts). Not while the caller network is on (no requests of
+    // the browser's own), and not for a site on the never-record list.
+    wc.on("page-favicon-updated", (_e, urls) => {
+      const page = wc.getURL();
+      if (!favicons || callerNet.enabled || onNeverList(hostOf(page), history?.state().neverSites ?? [])) return;
+      void favicons.learn(page, urls).then((icon) => { if (icon) mainWindow?.webContents.send("favicon:update", { host: hostOf(page), icon }); });
+    });
     // (Read soon after the document is ready too: pages full of ads may not finish loading for minutes.)
     wc.on("dom-ready", () => readSoon(2500));
     wc.on("did-finish-load", () => readSoon(1500));
@@ -1096,6 +1123,29 @@ app.whenReady().then(async () => {
   // The copy for the address bar: addresses, titles and times only (never the text), in a file only you can read. It is
   // brought up to date when the browser opens, after visits are sent, after a forget, and every 5 minutes (to see what
   // your other computers added or forgot). Deleted on sign-out.
+  // Site icons for the tabs and suggestions: fetched once per site from the pages you open, kept in a file only you can read.
+  const faviconsPath = join(app.getPath("userData"), "favicons.json");
+  favicons = new FaviconStore({
+    fetch: fetchIcon,
+    shrink: (f) => {
+      const img = nativeImage.createFromBuffer(Buffer.from(f.bytes));
+      if (img.isEmpty()) return null;
+      const { width } = img.getSize();
+      return (width > 32 ? img.resize({ width: 32, height: 32, quality: "best" }) : img).toDataURL();
+    },
+    load: () => (existsSync(faviconsPath) ? readFileSync(faviconsPath, "utf8") : null),
+    save: (text) => {
+      if (text === null) return rmSync(faviconsPath, { force: true });
+      writeFileSync(faviconsPath, text, { mode: 0o600 });
+      chmodSync(faviconsPath, 0o600);
+    },
+    now: () => Date.now(),
+  });
+  ipcMain.handle("favicons:all", () => favicons?.all() ?? {});
+  const forgetIcon = (host: string) => {
+    favicons?.forget(host);
+    mainWindow?.webContents.send("favicon:update", { host, icon: null });
+  };
   const historyCopyPath = join(app.getPath("userData"), "history-copy.json");
   historyCopy = new HistoryCopy({
     call: (tool, args) => mcp.callDirect(BOOKMARK_SERVER, tool, args, { fixed: false }),
@@ -1118,6 +1168,7 @@ app.whenReady().then(async () => {
     if (!history) return { forgotten: 0 };
     const out = await history.forget(scope, target);
     historyCopy?.remove(forgetMatch(scope, target, Date.now()));
+    if (scope === "site" && target) forgetIcon(hostOf(target) || target.toLowerCase());
     copySoon();
     return out;
   };
@@ -1158,7 +1209,10 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("history:never", async (_e, target: unknown) => {
     try {
-      return { ok: true, state: await history?.neverRecord(new URL(String(target ?? "")).hostname) };
+      const host = new URL(String(target ?? "")).hostname;
+      const state = await history?.neverRecord(host);
+      forgetIcon(host);
+      return { ok: true, state };
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) };
     }

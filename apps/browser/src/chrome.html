@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:" />
     <title>dbbasic-browser</title>
     <style>
       * { box-sizing: border-box; }
@@ -48,6 +48,9 @@
       :root { --throb-accent: #5b8cff; --throb-ok: #7ee787; --throb-fail: #ff8a8a; }
       .tab .th { flex: none; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; color: #7ee787; font-size: 11px; }
       .th svg { width: 16px; height: 16px; display: block; }
+      .fav { width: 16px; height: 16px; display: block; object-fit: contain; }
+      #omni .or .ic .fav { display: inline-block; vertical-align: -3px; }
+      #bmPanel .bm .h .fav { display: inline-block; width: 12px; height: 12px; vertical-align: -2px; margin-right: 5px; }
       .tab:not(.on) .th svg { opacity: .8; }
       #sbar { flex: none; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; background: #26262b; border-top: 1px solid #000; font-size: 12px; color: #c8c8ce; }
       #histBtn.paused { color: #f0c674; }
@@ -520,6 +523,19 @@
 
       // The strip is reconciled, not rebuilt: replacing a tab's node would restart its throbber's
       // SMIL clock on every title or state change.
+      // ---- site icons: data: URLs from the main process (favicons.ts), by host. Nothing is loaded from a site here. ----
+      const favicons = new Map();
+      function iconFor(url) {
+        if (!url || !/^https?:/i.test(url)) return null;
+        try { return favicons.get(new URL(url).hostname.toLowerCase()) || null; } catch { return null; }
+      }
+      function favImg(src) { const i = document.createElement("img"); i.className = "fav"; i.alt = ""; i.src = src; i.draggable = false; return i; }
+      function faviconsChanged() { renderTabs(); if (omni.classList.contains("open")) omniRender(); if (bmOpen) renderBm(); }
+      if (window.x402.favicons) {
+        window.x402.favicons.all().then((all) => { for (const [h, i] of Object.entries(all || {})) favicons.set(h, i); faviconsChanged(); }).catch(() => {});
+        window.x402.favicons.onUpdate((u) => { if (!u || !u.host) return; if (u.icon) favicons.set(u.host, u.icon); else favicons.delete(u.host); faviconsChanged(); });
+      }
+
       function makeTabEl(t) {
         const el = document.createElement("div");
         el.className = "tab";
@@ -543,7 +559,7 @@
           t.el.title = t.thText || t.url || "New Tab";
           t.el.querySelector(".tt").textContent = tabLabel(t);
           if (t.el.parentNode !== bar) bar.appendChild(t.el);
-          paintThrobber(t.el.querySelector(".th"), t.thState, t.paid);
+          paintThrobber(t.el.querySelector(".th"), t.thState, t.paid, iconFor(t.url));
         }
         for (const el of [...bar.children]) if (!keep.has(el)) el.remove();
         document.title = active ? tabLabel(active) + " — dbbasic-browser" : "dbbasic-browser";
@@ -630,8 +646,8 @@
         return { state: null, text: "" };
       }
 
-      function paintThrobber(slot, state, paid) {
-        const key = state || (paid ? "paid" : "");
+      function paintThrobber(slot, state, paid, icon) {
+        const key = state || (paid ? "paid" : icon ? "icon:" + icon.length + ":" + icon.slice(-24) : "");
         if (slot.dataset.k === key) return; // same state: leave the node alone so its animation keeps running
         slot.dataset.k = key;
         slot.textContent = "";
@@ -640,6 +656,7 @@
           const svg = slot.firstElementChild;
           if (!animating() && svg && svg.pauseAnimations) svg.pauseAnimations();
         } else if (paid) slot.textContent = "⚡";
+        else if (icon) slot.appendChild(favImg(icon));
       }
 
       // The address of the link under the pointer, in the status area, coloured by whether it stays on this site.
@@ -664,7 +681,7 @@
         const changed = tab.thState !== state;
         tab.thState = state;
         tab.thText = text;
-        if (tab.el) paintThrobber(tab.el.querySelector(".th"), state, tab.paid);
+        if (tab.el) paintThrobber(tab.el.querySelector(".th"), state, tab.paid, iconFor(tab.url));
         if (tab === active) {
           const st = $("status");
           const dl = state ? null : downloadStatus(); // the tab's own state wins; otherwise show a download in progress
@@ -1108,6 +1125,7 @@
           const row = document.createElement("div"); row.className = "bm"; row.title = b.url;
           const tt = document.createElement("div"); tt.className = "t"; tt.textContent = b.title;
           const hh = document.createElement("div"); hh.className = "h"; let host = b.url; try { host = new URL(b.url).host; } catch {} hh.textContent = host + (b.tags && b.tags.length ? " · " + b.tags.join(", ") : "");
+          { const f = iconFor(b.url); if (f) hh.prepend(favImg(f)); }
           row.append(tt, hh);
           row.onclick = (ev) => { if (ev.metaKey || ev.ctrlKey) newTab(b.url, false); else { setBm(false); go(b.url); } };
           row.onauxclick = (ev) => { if (ev.button === 1) newTab(b.url, false); };
@@ -1133,6 +1151,7 @@
           const tt = document.createElement("div"); tt.className = "t"; tt.textContent = k.title;
           const hh = document.createElement("div"); hh.className = "h"; let host = k.url; try { host = new URL(k.url).host; } catch {}
           hh.textContent = host + " · kept " + relTime(k.keptAt) + (k.remote && k.remote.files && k.remote.files.length ? " · on askrobots" : "") + (k.reason ? " · " + k.reason : "");
+          { const f = iconFor(k.url); if (f) hh.prepend(favImg(f)); }
           row.append(tt, hh);
           if (k.snippet) { const sn = document.createElement("div"); sn.className = "s"; sn.textContent = "…" + k.snippet + "…"; row.appendChild(sn); }
           row.onclick = (ev) => { setBm(false); if (ev.metaKey || ev.ctrlKey) newTab(k.url, true); else newTab("dbb-kept://" + k.id + "/", true); };
@@ -1320,7 +1339,13 @@
             r.kind === "notice" ? ["ⓘ", r.text, "", r.connect ? "Connect" : ""] :
             ["✨", r.text, "", "Ask the assistant"];
           if (r.kind === "notice" && r.connect) el.classList.add("link");
-          for (const [cls, txt] of [["ic", ic], ["tt", tt], ["u", u], ["k", k]]) { if (!txt && cls !== "u") continue; const s2 = document.createElement("span"); s2.className = cls; s2.textContent = txt; el.appendChild(s2); }
+          const fav = r.kind === "tab" || r.kind === "bookmark" || r.kind === "history" ? iconFor(r.url) : r.kind === "kept" ? iconFor(r.original) : null;
+          for (const [cls, txt] of [["ic", ic], ["tt", tt], ["u", u], ["k", k]]) {
+            if (!txt && cls !== "u") continue;
+            const s2 = document.createElement("span"); s2.className = cls;
+            if (cls === "ic" && fav) s2.appendChild(favImg(fav)); else s2.textContent = txt;
+            el.appendChild(s2);
+          }
           if (r.kind === "cmd" && r.problem && /\s/.test(omniTyped.trim())) { const pr = document.createElement("span"); pr.className = "p"; pr.textContent = r.problem; el.insertBefore(pr, el.querySelector(".k")); }
           el.addEventListener("mousedown", (e) => e.preventDefault()); // keep the focus in the address bar
           el.addEventListener("click", () => omniPick(r));

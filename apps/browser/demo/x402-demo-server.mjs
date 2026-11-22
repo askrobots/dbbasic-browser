@@ -248,12 +248,16 @@ function gate(req, res, { challenge, card, paid, paidType = "text/html", paidHea
   res.end(paid);
 }
 
+let iconHits = 0;
 let hits = 0; // requests served (except the counter itself), so a test can prove a refused load never reached the server
 const server = createServer(async (req, res) => {
   const path = (req.url || "/").split("?")[0];
   const url = new URL(req.url || "/", "http://x");
   const origin = `http://${req.headers.host}`;
   if (path === "/hits") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ hits })); return; }
+  // The site icon (a 1×1 PNG): the browser fetches it once per site to show in tabs and suggestions. Counted on its own, not in /hits.
+  if (path === "/favicon.ico") { iconHits++; res.writeHead(200, { "content-type": "image/png" }); res.end(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64")); return; }
+  if (path === "/o/_icon-hits") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ hits: iconHits })); return; }
   hits++;
 
   // LIVE route: real settlement. Unpaid → 402; paid → POST the signed payload to the

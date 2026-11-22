@@ -85,7 +85,7 @@ export default async function (ctx) {
 
   // ---- the address bar suggests from history (a copy kept here, so typing sends nothing) ---------------------------
   const typeUrl = (text) => c.ev(`(() => { const u = document.getElementById('url'); u.focus(); u.value = ${JSON.stringify(text)}; u.dispatchEvent(new InputEvent('input', { inputType: 'insertText' })); return true; })()`);
-  const omniRows = () => c.ev(`[...document.querySelectorAll('#omni.open .or')].map((r) => ({ kind: r.dataset.kind, title: r.querySelector('.tt').textContent, url: (r.querySelector('.u') || {}).textContent || '' }))`);
+  const omniRows = () => c.ev(`[...document.querySelectorAll('#omni.open .or')].map((r) => ({ kind: r.dataset.kind, title: r.querySelector('.tt').textContent, url: (r.querySelector('.u') || {}).textContent || '', icon: !!r.querySelector('.ic img.fav') }))`);
   const closeOmni = () => c.ev(`(() => { const u = document.getElementById('url'); u.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); u.blur(); return true; })()`);
   const copySt = await T("history.syncCopy");
   check(copySt && copySt.visits >= 2, "the browser keeps a copy of the history list for the address bar", JSON.stringify(copySt));
@@ -103,6 +103,7 @@ export default async function (ctx) {
   await typeUrl("mars institute");
   const other = await waitFor(async () => (await omniRows()).find((r) => r.kind === "history") || null, "the other computer's page", 40).catch(() => null);
   check(other && other.url === "https://moon.example/mars-institute", "a page visited on another computer is suggested too", JSON.stringify(await omniRows()));
+  check(hr && hr.icon && other && !other.icon, "a suggestion shows its site's icon when this computer has opened that site (typing fetches none)", JSON.stringify({ here: hr?.icon, other: other?.icon }));
   await closeOmni();
   check((await stored()).visits.length === lookups + 1, "and typing sent nothing to the account (only the other computer's visit was added)");
 
