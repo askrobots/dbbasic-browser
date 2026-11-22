@@ -203,6 +203,9 @@ Nothing has been released yet, so everything below is under **Unreleased**.
 - Development tooling: esbuild 0.21 → 0.28, vitest 2 → 5, and in-range patch updates. `npm audit` reports 0 findings.
 
 ### Fixed
+- **A link that opens a new tab now gives that page the keyboard**, so the space bar scrolls it or pauses its video
+  straight away. The address bar took the focus instead, as if the tab were empty, and you had to click the page first.
+  Switching to a tab gives its page the keyboard too, except while you are typing in the browser's own fields.
 - **The assistant took back correct work mid-task** ("I need to correct myself: I never read the article"). To save
   space it shortens older tool results, and that included the page it was working from, so by its reply it thought it
   had made things up. The latest page read now stays whole, and a shortened result says it was seen in full.

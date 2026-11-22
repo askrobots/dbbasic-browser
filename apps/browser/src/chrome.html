@@ -345,6 +345,7 @@
           try { tab.wcId = wv.getWebContentsId(); } catch {}
           syncTabs(); // the automation API addresses pages by this id: publish it the moment it exists
           if (tab.pending) { const p = tab.pending; tab.pending = null; wv.src = p; }
+          if (tab.focusWhenReady) { tab.focusWhenReady = false; focusPage(tab); }
         });
         wv.addEventListener("ipc-message", (e) => { if (e.channel === "link-hover") { tab.hoverLink = typeof e.args[0] === "string" ? e.args[0] : null; if (tab === active) paintLink(); } });
         // ⌘← / ⌘→ pressed in the page (and not used by it): back and forward, like the buttons.
@@ -414,9 +415,21 @@
 
         $("pages").appendChild(wv);
         tabs.push(tab);
+        if (url) tab.opening = true; // switchTo runs before go(): don't take it for an empty tab and focus the address bar
         if (activate) switchTo(tab); else renderTabs();
+        tab.opening = false;
         if (url) go(url, tab);
         return tab;
+      }
+
+      // Give the keyboard to the page (space scrolls or pauses it), as other browsers do when a link opens a tab or you
+      // switch to one. Not while you are typing in the browser's own fields (⌘T focuses the address bar on purpose).
+      function focusPage(tab) {
+        if (tab !== active) return;
+        const a = document.activeElement;
+        if (a && a !== tab.wv && a.matches && a.matches("input, textarea, select, [contenteditable]")) return;
+        if (!tab.ready) { tab.focusWhenReady = true; return; }
+        try { tab.wv.focus(); } catch {}
       }
 
       function switchTo(tab) {
@@ -431,7 +444,8 @@
         renderOffer();
         if (vaultPanelOpen) renderVaultPanel();
         paintFind();
-        if (!tab.url) urlInput.focus();
+        if (!tab.url && !tab.opening) urlInput.focus();
+        else focusPage(tab);
       }
 
       // ---- find in page: the page's own find, per tab; nothing leaves the machine ----

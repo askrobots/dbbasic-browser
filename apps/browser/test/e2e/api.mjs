@@ -56,6 +56,9 @@ export default async function (ctx) {
   await sleep(1500);
   const tabs = await T("tabs.list");
   check(tabs.length === before + 1 && tabs.some((t) => t.url.endsWith("/free")), `target=_blank opens a tab (${before} → ${tabs.length})`);
+  // The keyboard goes to the new page (space scrolls or pauses it), not the address bar.
+  const focused = await (await ctx.chrome()).ev(`(() => { const a = document.activeElement; return a ? (a.tagName === "WEBVIEW" ? (a.classList.contains("hidden") ? "a hidden page" : "the page") : a.id || a.tagName) : "nothing"; })()`);
+  check(focused === "the page", "a link that opens a new tab gives that tab's page the keyboard", focused);
   await T("tabs.close", { tab: tabs.find((t) => t.url.endsWith("/free")).id });
   check((await T("tabs.list")).length === before, "tabs.close works");
 
