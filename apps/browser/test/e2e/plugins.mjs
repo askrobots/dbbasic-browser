@@ -26,7 +26,7 @@ export default async function (ctx) {
   check((await width()) === "300px", "looking up installs nothing");
   await T("plugins.install", { token: pv.token });
   check(await widthIs("none", "the plugin on the open page"), "installing applies it to the open page at once", await width());
-  const pill = () => q(`const b = document.getElementById('plugBtn'); return b.style.display === 'none' ? '' : b.textContent + (b.classList.contains('on') ? '|on' : '|off')`);
+  const pill = () => q(`const b = document.getElementById('plugBtn'); return b.style.display === 'none' ? '' : b.textContent + (b.classList.contains('applied') ? '|on' : '|off') + (getComputedStyle(b).backgroundColor === getComputedStyle(document.getElementById('histBtn')).backgroundColor ? '' : '|looks-pressed')`);
   check((await waitFor(pill, "the status bar's plugin item")) === "Plugin: Wide page|on", "the status bar names the plugin changing this page", await pill());
   await T("page.goto", { url: `http://localhost:${port}/plugin-page` });
   check((await width()) === "300px", "another site (localhost) is left alone");
