@@ -27,6 +27,8 @@ const REPOS = {
   "demo/future": { tags: { "2026.11v1": { files: { "dbbasic-rule.json": rule("future", { min_api: 99 }), "future.css": WIDE_CSS } } } },
 };
 
+let listHits = 0;
+
 function pkt(line) {
   return (line.length + 4).toString(16).padStart(4, "0") + line;
 }
@@ -47,6 +49,20 @@ function refsBody(repo) {
 /** Answers a fake-gitstable request, or returns false when the address isn't one of its. */
 export function fakeGitstable(req, res) {
   const u = new URL(req.url, "http://x");
+  const origin = `http://${req.headers.host}`;
+  // The list of plugins (only demo/wide is listed, as gitstable lists only its reviewed set), and pages for it.
+  if (u.pathname === "/store/plugins.json") {
+    const tag = "2026.11v1";
+    const item = { slug: "wide", id: "wide", name: "Wide page", kind: "style-rule", summary: "The demo page's column uses the whole window.", repository: "demo/wide", tag, commit: commitOf("demo/wide@" + tag), sites: ["127.0.0.1"], powers: ["style"], url: origin + "/store/wide/", repository_url: origin + "/repositories/demo/wide/", price_usd: 0 };
+    listHits++;
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "public, max-age=300" }).end(JSON.stringify({ v: 1, items: [item] }));
+    return true;
+  }
+  if (u.pathname === "/o/_plugin-list-hits") { res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ hits: listHits })); return true; }
+  if (u.pathname === "/store/wide/" || u.pathname === "/repositories/demo/wide/" || u.pathname === "/store/") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(`<!doctype html><title>Wide page · plugin</title><h1>Wide page</h1><p>A plugin page on the stand-in gitstable.</p>`);
+    return true;
+  }
   let m = /^\/git\/([^/]+\/[^/]+)\.git\/info\/refs$/.exec(u.pathname);
   if (m) {
     const repo = m[1];

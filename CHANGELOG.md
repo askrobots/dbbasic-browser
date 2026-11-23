@@ -14,7 +14,9 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
   the tag points to; every file is checked against its git blob id, and checked again at every start, so a copy changed
   on this computer is switched off. Rules apply at once to open pages; one switch turns them all off to see sites as
   they are; each can be switched off, updated or removed. **Plugins** in the status bar is always there and opens the
-  panel; on a page a plugin is changing, it names that plugin instead (or says it is off). None are applied while the caller network is on, or when the
+  panel; on a page a plugin is changing, it names that plugin instead (or says it is off). On a plugin's own page on
+  gitstable.com it offers **Install** (or **Update**): one click looks the plugin up in the panel, and you press Install.
+  The browser fetches gitstable's list of plugins for this only while you are on gitstable.com, at most every five minutes. None are applied while the caller network is on, or when the
   browser is started with `DBB_SAFE_MODE=1`.
 
 ## [2026.11v1] - 2026-11-23

@@ -84,4 +84,25 @@ export default async function (ctx) {
   check((await T("plugins.state")).plugins.length === 0, "and off the list");
   check((await waitFor(async () => (await pill()) === "Plugins|off" || null, "the status bar to say Plugins").catch(() => false)) !== false, "and the status bar goes back to Plugins", await pill());
   await q(`setPlug(false)`);
+
+  // ---- one click from the plugin's own page on gitstable (the list is fetched only on gitstable, at most every 5 minutes) ----
+  const listHits = async () => (await (await fetch(base + "/o/_plugin-list-hits")).json()).hits;
+  await T("page.goto", { url: base + "/store/wide/" });
+  const offer = await waitFor(async () => { const p = await pill(); return /^Install: /.test(p) ? p : null; }, "the install offer");
+  check(/^Install: Wide page/.test(offer), "on a plugin's page on gitstable, the status bar offers to install it", offer);
+  const h0 = await listHits();
+  await T("page.goto", { url: `http://localhost:${port}/plugin-page` });
+  await T("page.goto", { url: base + "/repositories/demo/wide/" });
+  await sleep(500);
+  check((await listHits()) === h0 && h0 >= 1, "the list was fetched on gitstable only, and not again within five minutes", `${h0} → ${await listHits()}`);
+  check(/^Install: Wide page/.test(await pill()), "the repository's page offers it too");
+  await q(`document.getElementById('plugBtn').click()`);
+  const ask2 = await waitFor(() => q(`const a = document.getElementById('plugAsk'); return a ? a.textContent : ''`), "the look-up the offer started");
+  check(/Wide page 2026\.11v1/.test(ask2) && /can't run code/.test(ask2) && (await T("plugins.state")).plugins.length === 0, "one click opens Plugins with it looked up, and installs nothing yet", ask2);
+  await q(`document.getElementById('plugInstall').click()`);
+  await waitFor(async () => (await T("plugins.state")).plugins.length === 1, "the install");
+  // (Here the stand-in gitstable is on 127.0.0.1, a site this demo plugin changes, so the status bar now names it.)
+  check(!/^(Install|Update)/.test(await waitFor(async () => { const p = await pill(); return /^Install/.test(p) ? null : p; }, "the offer to go")), "once installed, the page stops offering it", await pill());
+  await T("plugins.remove", { id: "wide" });
+  await q(`setPlug(false)`);
 }

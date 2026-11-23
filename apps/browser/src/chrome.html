@@ -58,6 +58,7 @@
       #plugBtn { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #plugBtn.applied { color: #9fd8a8; }
       #plugBtn.unapplied { color: #8a8a90; }
+      #plugBtn.offer { color: #8ab4ff; }
       #sbar .btn, #sbar #bal, #sbar #mbal, #sbar #meter, #sbar #ctlChip { padding: 2px 9px; border-radius: 5px; font-size: 12px; line-height: 18px; }
       #sbar #meter::before { content: "Paid "; opacity: .75; }
       #sbar #mbal::before { content: "Merchant "; opacity: .75; }
@@ -1221,12 +1222,7 @@
         const row = plugEl("div", "row2"); const inp = document.createElement("input"); inp.type = "text"; inp.id = "plugSource"; inp.placeholder = "owner/repository on " + shortHost(plugSt.origin); inp.value = plugSource;
         inp.oninput = () => { plugSource = inp.value; };
         const look = plugEl("button", "sbtn", plugBusy ? "Checking…" : "Look up"); look.id = "plugLook"; look.disabled = plugBusy;
-        const doLook = async () => {
-          if (!plugSource.trim() || plugBusy) return;
-          plugBusy = true; plugErr = ""; plugAsk = null; renderPlug();
-          const r = await window.x402.plugins.preview(plugSource.trim());
-          plugBusy = false; if (r.ok) plugAsk = r.value; else plugErr = r.error; renderPlug();
-        };
+        const doLook = () => plugLookUp(plugSource);
         look.onclick = doLook; inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); doLook(); } };
         row.append(inp, look); box.appendChild(row);
         if (plugErr) box.appendChild(plugEl("div", "err", plugErr));
@@ -1262,13 +1258,34 @@
         }
         if (focusSrc) { const el = $("plugSource"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
       }
+      async function plugLookUp(source) {
+        plugSource = String(source || "");
+        if (!plugSource.trim() || plugBusy) return;
+        plugBusy = true; plugErr = ""; plugAsk = null; renderPlug();
+        const r = await window.x402.plugins.preview(plugSource.trim());
+        plugBusy = false; if (r.ok) plugAsk = r.value; else plugErr = r.error; renderPlug();
+      }
       async function setPlug(open) { plugOpen = open; $("plugPanel").classList.toggle("open", open); if (!open) { plugAsk = null; plugErr = ""; return; } plugSt = await window.x402.plugins.state(); renderPlug(); const el = $("plugSource"); if (el && !plugSt.plugins.length) el.focus(); }
       // The status bar's way into Plugins, always there. It names the plugin changing the page you are on, so an odd
       // looking page can be told apart from a plugin at a glance; otherwise it just says Plugins. Click: the Plugins panel.
       function plugSiteMatch(host, sites) { const h = String(host || "").toLowerCase(); return sites.some((s) => s.startsWith("*.") ? h.endsWith(s.slice(1)) : h === s || h.endsWith("." + s)); }
+      const plugPageKey = (u) => { try { const x = new URL(u); return x.origin + x.pathname.replace(/\/+$/, ""); } catch { return ""; } };
       function paintPlugBtn() {
         const b = $("plugBtn"); if (!b) return;
         let host = ""; try { const u = new URL(active && !active.reader ? active.url : ""); if (/^https?:$/.test(u.protocol)) host = u.hostname; } catch {}
+        // On a plugin's own page on gitstable (from gitstable's list): offer to install it, or to update to its newest release.
+        const key = active && !active.reader ? plugPageKey(active.url) : "";
+        const offer = key ? (plugSt.listed || []).find((it) => (it.url && plugPageKey(it.url) === key) || (it.repositoryUrl && plugPageKey(it.repositoryUrl) === key)) : null;
+        const have = offer ? plugSt.plugins.find((p) => p.id === offer.id) : null;
+        b.dataset.offer = "";
+        if (offer && (!have || (have.version !== offer.tag && have.source.commit !== offer.commit))) {
+          b.dataset.offer = offer.repository + "@" + offer.tag;
+          b.classList.remove("applied", "unapplied"); b.classList.add("offer");
+          b.textContent = (have ? "Update: " : "Install: ") + offer.name;
+          b.title = (have ? "Update “" + offer.name + "” from " + have.version + " to " + offer.tag : "Install “" + offer.name + "” " + offer.tag) + ". Click to look it up; it is installed only when you press Install.";
+          return;
+        }
+        b.classList.remove("offer");
         const here = host ? plugSt.plugins.filter((p) => plugSiteMatch(host, p.sites)) : [];
         if (!here.length) {
           b.textContent = "Plugins"; b.classList.remove("applied"); b.classList.add("unapplied");
@@ -1281,7 +1298,11 @@
         b.textContent = on.length === 1 ? "Plugin: " + on[0].name : on.length > 1 ? on.length + " plugins on" : here.length === 1 ? "Plugin off" : "Plugins off";
         b.title = (on.length ? "Changing this page: " + on.map((p) => p.name + " " + p.version).join(", ") + "." : "For this site, but not applied" + (why ? " (" + why + ")" : "") + ": " + here.map((p) => p.name + (p.problem ? " (its files changed)" : !p.enabled ? " (switched off)" : "")).join(", ") + ".") + " Click for Plugins.";
       }
-      $("plugBtn").onclick = () => setPlug(!plugOpen);
+      $("plugBtn").onclick = async () => {
+        const offer = $("plugBtn").dataset.offer;
+        if (!offer) return setPlug(!plugOpen);
+        await setPlug(true); plugLookUp(offer); // the look-up, done for you; Install is still yours to press
+      };
       window.x402.plugins.onChanged((st) => { plugSt = st; renderPlug(); paintPlugBtn(); });
       window.x402.plugins.state().then((st) => { plugSt = st; paintPlugBtn(); }).catch(() => {});
       document.addEventListener("keydown", (e) => { if (e.key === "Escape" && plugOpen) setPlug(false); });

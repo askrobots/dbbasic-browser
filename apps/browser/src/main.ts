@@ -384,7 +384,7 @@ async function applyPlugins(wc: WebContents, fresh = false): Promise<void> {
 
 function pluginState() {
   return {
-    plugins: plugins?.list() ?? [], allOff: plugins?.allOff ?? false, safeMode: SAFE_MODE, callerNet: callerNet.enabled,
+    plugins: plugins?.list() ?? [], listed: plugins?.listed() ?? [], allOff: plugins?.allOff ?? false, safeMode: SAFE_MODE, callerNet: callerNet.enabled,
     origin: GITSTABLE, apiLevel: PLUGIN_API_LEVEL, browserVersion: SHOWN_VERSION,
   };
 }
@@ -1066,6 +1066,16 @@ app.whenReady().then(async () => {
     // (Read soon after the document is ready too: pages full of ads may not finish loading for minutes.)
     wc.on("dom-ready", () => readSoon(2500));
     wc.on("dom-ready", () => void applyPlugins(wc, true)); // a new document: its site's style rules
+    // On a gitstable page, fetch gitstable's plugin list (at most every 5 minutes), so the status bar can offer to install
+    // the plugin whose page this is. Only while you are on gitstable itself: no request anywhere else, nothing in the background.
+    wc.on("did-navigate", (_e, url) => {
+      let onGitstable = false;
+      try {
+        onGitstable = new URL(url).origin === GITSTABLE;
+      } catch {}
+      if (!onGitstable || !plugins || callerNet.enabled) return;
+      void plugins.refreshListing().then((changed) => { if (changed) pluginsChanged(); });
+    });
     wc.on("did-finish-load", () => readSoon(1500));
     wc.on("destroyed", () => {
       if (readTimer) clearTimeout(readTimer);

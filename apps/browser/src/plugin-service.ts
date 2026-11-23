@@ -67,6 +67,49 @@ export interface PreviewView {
   says: string;
 }
 
+/** One plugin in gitstable's list (/store/plugins.json), as much as the browser uses. */
+export interface Listed {
+  id: string;
+  name: string;
+  summary: string;
+  repository: string;
+  tag: string;
+  commit: string;
+  sites: string[];
+  /** Its page on gitstable, and its repository's page: being on either offers to install it. */
+  url: string;
+  repositoryUrl: string;
+}
+
+/** How long a fetched list is used before it is fetched again (gitstable caches it for 5 minutes too). */
+export const LISTING_MS = 5 * 60_000;
+const MAX_LISTING_BYTES = 1024 * 1024;
+
+/** Reads gitstable's list, keeping only well-formed items whose pages are on gitstable itself. */
+export function parseListing(raw: unknown, origin: string): Listed[] {
+  const doc = raw as { v?: unknown; items?: unknown };
+  if (!doc || doc.v !== 1 || !Array.isArray(doc.items)) return [];
+  const onSite = (u: unknown) => {
+    try {
+      return typeof u === "string" && new URL(u).origin === origin ? u : "";
+    } catch {
+      return "";
+    }
+  };
+  const out: Listed[] = [];
+  for (const it of doc.items.slice(0, 1000) as Array<Record<string, unknown>>) {
+    if (!it || typeof it !== "object" || it.kind !== "style-rule") continue;
+    const src = parsePluginSource(String(it.repository ?? ""), origin);
+    if ("error" in src || typeof it.id !== "string" || typeof it.name !== "string" || typeof it.tag !== "string" || !isCommit(it.commit)) continue;
+    out.push({
+      id: it.id, name: it.name.slice(0, 80), summary: typeof it.summary === "string" ? it.summary.slice(0, 300) : "", repository: src.repository,
+      tag: it.tag, commit: it.commit, sites: Array.isArray(it.sites) ? it.sites.map(String).slice(0, 50) : [],
+      url: onSite(it.url), repositoryUrl: onSite(it.repository_url),
+    });
+  }
+  return out;
+}
+
 export class PluginError extends Error {
   constructor(public code: string, message: string) {
     super(message);
@@ -105,8 +148,40 @@ export class PluginStore {
   private css = new Map<string, string>();
   private pending = new Map<string, Pending>();
   allOff = false;
+  private listing: Listed[] = [];
+  private listingAt = 0;
+  private listingFetch: Promise<boolean> | null = null;
 
   constructor(private d: PluginDeps) {}
+
+  /** gitstable's list of plugins, as last fetched (empty until then). */
+  listed(): Listed[] {
+    return this.listing;
+  }
+
+  /**
+   * Fetches gitstable's list unless it was fetched in the last 5 minutes (or `force`). The whole list is fetched, never
+   * "what's there for this site", so gitstable doesn't learn which page anyone is on. Resolves true when it changed.
+   */
+  refreshListing(force = false): Promise<boolean> {
+    if (!force && this.d.now().getTime() - this.listingAt < LISTING_MS) return Promise.resolve(false);
+    this.listingFetch ??= (async () => {
+      try {
+        const r = await this.get(`${this.d.origin}/store/plugins.json`, MAX_LISTING_BYTES, "the plugin list");
+        const next = parseListing(JSON.parse(new TextDecoder().decode(r.bytes)), this.d.origin);
+        this.listingAt = this.d.now().getTime();
+        const changed = JSON.stringify(next) !== JSON.stringify(this.listing);
+        this.listing = next;
+        return changed;
+      } catch {
+        this.listingAt = this.d.now().getTime() - LISTING_MS + 60_000; // try again in a minute, not on every page
+        return false;
+      } finally {
+        this.listingFetch = null;
+      }
+    })();
+    return this.listingFetch;
+  }
 
   private get indexPath() { return join(this.d.dir, "installed.json"); }
 

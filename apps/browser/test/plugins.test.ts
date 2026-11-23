@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { gitBlobId, parsePluginSource, parseTagRefs, siteMatches, styleProblem, validateManifest } from "../src/plugins.ts";
-import { PluginStore, describePowers, type Fetched } from "../src/plugin-service.ts";
+import { PluginStore, describePowers, parseListing, type Fetched } from "../src/plugin-service.ts";
 // @ts-expect-error: a plain .mjs test helper, shared with the demo server
 import { fakeGitstable } from "../demo/fake-gitstable.mjs";
 
@@ -156,6 +156,25 @@ describe("installing from gitstable (the stand-in)", () => {
     again.load();
     expect(again.list().find((x) => x.id === "wide")?.problem).toMatch(/changed on this computer/);
     expect(again.stylesFor("127.0.0.1")).toEqual([]);
+  });
+
+  it("reads gitstable's plugin list, keeping only style rules whose pages are on gitstable", async () => {
+    const s = store();
+    expect(await s.refreshListing()).toBe(true);
+    const wide = s.listed().find((x) => x.id === "wide");
+    expect(wide?.repository).toBe("demo/wide");
+    expect(wide?.url).toBe(origin + "/store/wide/");
+    expect(await s.refreshListing()).toBe(false); // fetched in the last five minutes: not again
+    const c = "c".repeat(40);
+    const items = [
+      { kind: "style-rule", id: "a", name: "A", repository: "o/a", tag: "2026.11v1", commit: c, url: "https://evil.test/a/", repository_url: origin + "/repositories/o/a/" },
+      { kind: "Django module", id: "b", name: "B", repository: "o/b", tag: "2026.11v1", commit: c },
+      { kind: "style-rule", id: "c", name: "C", repository: "not a repo", tag: "2026.11v1", commit: c },
+    ];
+    const got = parseListing({ v: 1, items }, origin);
+    expect(got.map((x) => x.id)).toEqual(["a"]);
+    expect(got[0]?.url).toBe(""); // a page off gitstable is never trusted as the plugin's page
+    expect(parseListing({ v: 2, items }, origin)).toEqual([]);
   });
 
   it("all off, one off, and remove", async () => {
