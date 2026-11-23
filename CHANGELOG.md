@@ -16,7 +16,9 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
   they are; each can be switched off, updated or removed. **Plugins** in the status bar is always there and opens the
   panel; on a page a plugin is changing, it names that plugin instead (or says it is off). On a plugin's own page on
   gitstable.com it offers **Install** (or **Update**): one click looks the plugin up in the panel, and you press Install.
-  The browser fetches gitstable's list of plugins for this only while you are on gitstable.com, at most every five minutes. None are applied while the caller network is on, or when the
+  The browser fetches gitstable's list of plugins for this only while you are on gitstable.com, at most every five minutes,
+  or every minute on a plugin's own page, so a release made minutes ago is offered there. A plugin's name alone
+  (`x-whole-window`) also works in the look-up box: it is found among the installed plugins or in gitstable's list. None are applied while the caller network is on, or when the
   browser is started with `DBB_SAFE_MODE=1`. Ask the assistant to change how a page looks and it points you to Plugins
   (it can't write one itself yet), not to extensions made for other browsers.
 

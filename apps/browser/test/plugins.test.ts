@@ -120,6 +120,8 @@ describe("installing from gitstable (the stand-in)", () => {
     expect(() => s.install(p.token)).toThrow(/expired/); // a preview is used once
     const again = await s.preview("demo/wide");
     expect(again.relation).toBe("same"); // looking up what is installed offers no update
+    expect((await s.preview("wide")).repository).toBe("demo/wide"); // its name alone finds the installed plugin
+    expect((await s.preview("wide@2026.10v1")).tag).toBe("2026.10v1");
     expect(again.installedProblem).toBe(false);
     expect(statSync(join(dir, "installed.json")).mode & 0o777).toBe(0o600);
   });
@@ -175,6 +177,30 @@ describe("installing from gitstable (the stand-in)", () => {
     expect(got.map((x) => x.id)).toEqual(["a"]);
     expect(got[0]?.url).toBe(""); // a page off gitstable is never trusted as the plugin's page
     expect(parseListing({ v: 2, items }, origin)).toEqual([]);
+  });
+
+  it("on a plugin's own page, fetches a list older than a minute again; elsewhere on gitstable, every five minutes", async () => {
+    let t = Date.parse("2026-11-23T12:00:00Z");
+    const s = new PluginStore({ fetch: fetchVia, dir, origin, apiLevel: 1, browserVersion: "2026.11v1", now: () => new Date(t) });
+    const hits = async () => (await (await fetch(origin + "/o/_plugin-list-hits")).json()).hits as number;
+    await s.refreshListingOn(origin + "/");
+    const h0 = await hits();
+    t += 30_000;
+    await s.refreshListingOn(origin + "/store/wide/");
+    expect(await hits()).toBe(h0); // half a minute old: still used
+    t += 40_000;
+    await s.refreshListingOn(origin + "/docs/");
+    expect(await hits()).toBe(h0); // another gitstable page: the five minutes hold
+    await s.refreshListingOn(origin + "/repositories/demo/wide");
+    expect(await hits()).toBe(h0 + 1); // the plugin's own page, list over a minute old: fetched again
+  });
+
+  it("finds a plugin by its name alone in gitstable's list", async () => {
+    const s = store();
+    s.load();
+    for (const p of s.list()) s.remove(p.id);
+    expect((await s.preview("wide")).repository).toBe("demo/wide");
+    await expect(s.preview("nothing-called-this")).rejects.toThrow(/no installed or listed plugin is called nothing-called-this/);
   });
 
   it("all off, one off, and remove", async () => {

@@ -1222,7 +1222,7 @@
         const sw = plugEl("label", "sw"); const cb = document.createElement("input"); cb.type = "checkbox"; cb.id = "plugAllOff"; cb.checked = !!plugSt.allOff;
         cb.onchange = async () => { const r = await window.x402.plugins.allOff(cb.checked); if (!r.ok) plugErr = r.error; };
         sw.append(cb, plugEl("span", "", "Turn all plugins off (see sites as they are)")); box.appendChild(sw);
-        const row = plugEl("div", "row2"); const inp = document.createElement("input"); inp.type = "text"; inp.id = "plugSource"; inp.placeholder = "owner/repository on " + shortHost(plugSt.origin); inp.value = plugSource;
+        const row = plugEl("div", "row2"); const inp = document.createElement("input"); inp.type = "text"; inp.id = "plugSource"; inp.placeholder = "a plugin's name, or owner/repository on " + shortHost(plugSt.origin); inp.value = plugSource;
         inp.oninput = () => { plugSource = inp.value; };
         const look = plugEl("button", "sbtn", plugBusy ? "Checking…" : "Look up"); look.id = "plugLook"; look.disabled = plugBusy;
         const doLook = () => plugLookUp(plugSource);

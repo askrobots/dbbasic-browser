@@ -1075,7 +1075,7 @@ app.whenReady().then(async () => {
         onGitstable = new URL(url).origin === GITSTABLE;
       } catch {}
       if (!onGitstable || !plugins || callerNet.enabled) return;
-      void plugins.refreshListing().then((changed) => { if (changed) pluginsChanged(); });
+      void plugins.refreshListingOn(url).then((changed) => { if (changed) pluginsChanged(); });
     });
     wc.on("did-finish-load", () => readSoon(1500));
     wc.on("destroyed", () => {

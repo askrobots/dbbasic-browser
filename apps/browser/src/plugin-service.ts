@@ -84,6 +84,8 @@ export interface Listed {
 
 /** How long a fetched list is used before it is fetched again (gitstable caches it for 5 minutes too). */
 export const LISTING_MS = 5 * 60_000;
+/** On a plugin's own page, a list older than this is fetched again (see refreshListingOn). */
+export const LISTING_FRESH_ON_PAGE_MS = 60_000;
 const MAX_LISTING_BYTES = 1024 * 1024;
 
 /** Reads gitstable's list, keeping only well-formed items whose pages are on gitstable itself. */
@@ -184,6 +186,25 @@ export class PluginStore {
     return this.listingFetch;
   }
 
+  /**
+   * On gitstable: the list as usual (at most every 5 minutes), but on a listed plugin's own page a copy older than a
+   * minute is fetched again, so a release made minutes ago is offered there (Update), not the one before it.
+   */
+  refreshListingOn(url: string): Promise<boolean> {
+    const page = (u: string) => {
+      try {
+        const x = new URL(u);
+        return x.origin + x.pathname.replace(/\/+$/, "");
+      } catch {
+        return "";
+      }
+    };
+    const here = page(url);
+    const onPluginPage = !!here && this.listing.some((l) => (l.url && page(l.url) === here) || (l.repositoryUrl && page(l.repositoryUrl) === here));
+    const stale = this.d.now().getTime() - this.listingAt >= LISTING_FRESH_ON_PAGE_MS;
+    return this.refreshListing(onPluginPage && stale);
+  }
+
   private get indexPath() { return join(this.d.dir, "installed.json"); }
 
   /** Reads what is installed and checks every file. Safe to call again (the automation API's recheck). */
@@ -258,9 +279,29 @@ export class PluginStore {
     return { bytes: r.bytes, blob };
   }
 
-  /** Fetches and checks a plugin; nothing is written. `source`: owner/repo, owner/repo@version, or its gitstable address. */
+  /**
+   * A plugin's name alone ("x-whole-window", "x-whole-window@2026.11v1") → owner/repository: an installed plugin's own
+   * source first, then gitstable's list (fetched now if it is older than 5 minutes; a look-up goes to gitstable anyway).
+   * Anything with a slash or an address is returned as typed.
+   */
+  private async resolveName(source: string): Promise<string> {
+    const m = /^([A-Za-z0-9._-]+)(@[^@/\s]+)?$/.exec(source.trim());
+    if (!m) return source;
+    const name = (m[1] ?? "").toLowerCase();
+    const at = m[2] ?? "";
+    const tail = (repo: string) => repo.split("/")[1]?.toLowerCase();
+    const mine = this.plugins.find((p) => p.id === name || tail(p.source.repository) === name);
+    if (mine) return mine.source.repository + at;
+    await this.refreshListing();
+    const listed = this.listing.filter((l) => l.id === name || tail(l.repository) === name);
+    if (listed.length === 1) return listed[0]!.repository + at;
+    if (listed.length > 1) throw new PluginError("bad-source", `more than one plugin is called ${name}: write it as owner/repository (${listed.map((l) => l.repository).join(", ")})`);
+    throw new PluginError("bad-source", `no installed or listed plugin is called ${name}: write it as owner/repository`);
+  }
+
+  /** Fetches and checks a plugin; nothing is written. `source`: owner/repo, owner/repo@version, its gitstable address, or a plugin's name. */
   async preview(source: string): Promise<PreviewView> {
-    const src = parsePluginSource(source, this.d.origin);
+    const src = parsePluginSource(await this.resolveName(source), this.d.origin);
     if ("error" in src) throw new PluginError("bad-source", src.error);
     const refsUrl = `${this.d.origin}/git/${src.repository}.git/info/refs?service=git-upload-pack`;
     const refs = parseTagRefs(new TextDecoder().decode((await this.get(refsUrl, 2 * 1024 * 1024, `the repository ${src.repository}`)).bytes));
