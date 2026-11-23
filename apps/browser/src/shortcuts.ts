@@ -35,5 +35,6 @@ export function reservedShortcut(i: KeyInput, mac: boolean): string | null {
   if (k === "t") return "new";
   if (k === "w") return "close";
   if (k === "l") return "focus-url";
+  if (k === "r") return "reload"; // ⌘R / Ctrl+R reloads even while the page has the keyboard
   return null;
 }

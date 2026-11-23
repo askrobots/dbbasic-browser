@@ -6,6 +6,10 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
 
 ## [Unreleased]
 
+### Fixed
+- **⌘R reloads while the page has the keyboard** (Ctrl+R on Linux and Windows). It's now one of the keys the browser
+  keeps for itself, like ⌘T, ⌘W and ⌘L, so a page that takes every key can't swallow it.
+
 ## [2026.11v1] - 2026-11-23
 
 ### Added

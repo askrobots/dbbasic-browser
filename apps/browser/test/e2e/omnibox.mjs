@@ -112,6 +112,11 @@ export default async function (ctx) {
   await sleep(200);
   const pageSaw = (await T("page.eval", { js: "window.__seen || []" })).value;
   check(Array.isArray(pageSaw) && !pageSaw.some((k) => /\]|\}/.test(k)), "and the page never sees the key", JSON.stringify(pageSaw));
+  // ⌘R reloads even when the page has the keyboard (it used to need the toolbar in focus)
+  await T("page.eval", { js: "window.__mark = 1, document.getElementById('box').focus(), true" });
+  await q(`active.wv.focus(); active.wv.sendInputEvent({ type: "keyDown", keyCode: "r", modifiers: ["${mod}"] }); active.wv.sendInputEvent({ type: "keyUp", keyCode: "r", modifiers: ["${mod}"] }); return true`);
+  const reloaded = await waitFor(async () => (await T("page.eval", { js: "window.__mark === undefined" }).catch(() => ({ value: false }))).value, "the reload", 40).catch(() => false);
+  check(!!reloaded, "⌘R reloads the page even while the page has the keyboard and swallows every key");
   await T("tabs.close", { tab: greedy.id }).catch(() => {});
 
   // ⌘← / ⌘→ (Alt+← / Alt+→ elsewhere) go back and forward from the page, but never inside a text field
