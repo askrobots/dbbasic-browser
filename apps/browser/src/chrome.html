@@ -326,7 +326,7 @@
       <div id="sleft"><div id="link"></div><div id="status"><span class="ic"></span><span class="tx"></span></div></div>
       <div id="cn">Caller network ON · this browser fetches nothing itself</div>
       <div id="ctlChip" style="display:none"></div>
-      <button class="btn" id="plugBtn" style="display:none"></button>
+      <button class="btn" id="plugBtn">Plugins</button>
       <button class="btn" id="histBtn" style="display:none" title="History: the pages you visit are kept on your askrobots account, so you can find one later. Click to pause or resume."></button>
       <button class="btn" id="resBtn" title="What the browser is using: memory, CPU, data, disk">Memory …</button>
       <button class="btn" id="inspectBtn" title="x402 inspector: every payment request, decision and payment"><!--icon:x402--> x402<span id="inspectCount">0</span></button>
@@ -1263,17 +1263,20 @@
         if (focusSrc) { const el = $("plugSource"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
       }
       async function setPlug(open) { plugOpen = open; $("plugPanel").classList.toggle("open", open); if (!open) { plugAsk = null; plugErr = ""; return; } plugSt = await window.x402.plugins.state(); renderPlug(); const el = $("plugSource"); if (el && !plugSt.plugins.length) el.focus(); }
-      // The status bar says which plugins are changing the page you are on (hidden when none are for this site), so an odd
-      // looking page can be told apart from a plugin at a glance. Click: the Plugins panel.
+      // The status bar's way into Plugins, always there. It names the plugin changing the page you are on, so an odd
+      // looking page can be told apart from a plugin at a glance; otherwise it just says Plugins. Click: the Plugins panel.
       function plugSiteMatch(host, sites) { const h = String(host || "").toLowerCase(); return sites.some((s) => s.startsWith("*.") ? h.endsWith(s.slice(1)) : h === s || h.endsWith("." + s)); }
       function paintPlugBtn() {
         const b = $("plugBtn"); if (!b) return;
         let host = ""; try { const u = new URL(active && !active.reader ? active.url : ""); if (/^https?:$/.test(u.protocol)) host = u.hostname; } catch {}
         const here = host ? plugSt.plugins.filter((p) => plugSiteMatch(host, p.sites)) : [];
-        if (!here.length) { b.style.display = "none"; return; }
+        if (!here.length) {
+          b.textContent = "Plugins"; b.classList.remove("applied"); b.classList.add("unapplied");
+          b.title = (plugSt.plugins.length ? "No plugin changes this site. " : "No plugins installed yet. ") + "Click for Plugins: install style rules from gitstable.com.";
+          return;
+        }
         const why = plugSt.safeMode ? "safe mode" : plugSt.callerNet ? "the caller network is on" : plugSt.allOff ? "all plugins are turned off" : "";
         const on = why ? [] : here.filter((p) => p.enabled && !p.problem);
-        b.style.display = "";
         b.classList.toggle("applied", on.length > 0); b.classList.toggle("unapplied", on.length === 0); // not "on": that is a pressed toolbar button
         b.textContent = on.length === 1 ? "Plugin: " + on[0].name : on.length > 1 ? on.length + " plugins on" : here.length === 1 ? "Plugin off" : "Plugins off";
         b.title = (on.length ? "Changing this page: " + on.map((p) => p.name + " " + p.version).join(", ") + "." : "For this site, but not applied" + (why ? " (" + why + ")" : "") + ": " + here.map((p) => p.name + (p.problem ? " (its files changed)" : !p.enabled ? " (switched off)" : "")).join(", ") + ".") + " Click for Plugins.";

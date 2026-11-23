@@ -30,7 +30,7 @@ export default async function (ctx) {
   check((await waitFor(pill, "the status bar's plugin item")) === "Plugin: Wide page|on", "the status bar names the plugin changing this page", await pill());
   await T("page.goto", { url: `http://localhost:${port}/plugin-page` });
   check((await width()) === "300px", "another site (localhost) is left alone");
-  check((await pill()) === "", "and the status bar shows no plugin there", await pill());
+  check((await pill()) === "Plugins|off", "and the status bar just says Plugins there", await pill());
   await T("page.goto", { url: base + "/plugin-page" });
   check(await widthIs("none", "the plugin after loading the page again"), "a page loaded later gets it too");
   const again = await fails(T("plugins.install", { token: pv.token }));
@@ -82,6 +82,6 @@ export default async function (ctx) {
   await q(`const b = [...document.querySelectorAll('#plugPanel .pl[data-id="wide"] button')].find((x) => /Remove/.test(x.textContent)); b.click(); b.click();`);
   check(await widthIs("300px", "removed"), "Remove (asked twice) takes it off the open page");
   check((await T("plugins.state")).plugins.length === 0, "and off the list");
-  check((await waitFor(async () => (await pill()) === "" || null, "the status bar item to go").catch(() => false)) !== false, "and the status bar item goes", await pill());
+  check((await waitFor(async () => (await pill()) === "Plugins|off" || null, "the status bar to say Plugins").catch(() => false)) !== false, "and the status bar goes back to Plugins", await pill());
   await q(`setPlug(false)`);
 }
