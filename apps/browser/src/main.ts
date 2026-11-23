@@ -37,6 +37,7 @@ import { parseSavedChoice } from "./chat-model-choice.js";
 import { HistoryCopy } from "./history-copy.js";
 import { forgetMatch, HistoryService, onNeverList } from "./history.js";
 import { FaviconStore, hostOf, type Fetched } from "./favicons.js";
+import { PluginError, PluginStore, type Fetched as PluginFetched } from "./plugin-service.js";
 import { ChatService } from "./chat-service.js";
 import { McpService, createStore, loadServerConfigs } from "./mcp-service.js";
 import { BookmarksService } from "./bookmarks-service.js";
@@ -225,6 +226,13 @@ let history: HistoryService | null = null;
 /** The copy of that history kept here for the address bar (see history-copy.ts). */
 let historyCopy: HistoryCopy | null = null;
 let favicons: FaviconStore | null = null;
+// Plugins (style rules from gitstable, see plugins.ts). DBB_SAFE_MODE=1 starts with none applied; DBB_GITSTABLE points
+// installs at another gitstable (the tests' stand-in).
+let plugins: PluginStore | null = null;
+const SAFE_MODE = process.env.DBB_SAFE_MODE === "1";
+const GITSTABLE = (() => { try { return new URL(process.env.DBB_GITSTABLE || "https://gitstable.com").origin; } catch { return "https://gitstable.com"; } })();
+/** The style sheets put into each page, by plugin: webContents id → plugin id → the key removeInsertedCSS takes. */
+const pluginCss = new Map<number, Map<string, string>>();
 /** The page's visible text and whether a password field shows, read in an isolated world the page cannot reach. */
 async function readForHistory(wc: Electron.WebContents): Promise<void> {
   if (!history || wc.isDestroyed()) return;
@@ -297,6 +305,7 @@ function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerT
     if (!callerNet.enabled) desktopUserAgent = session.defaultSession.getUserAgent();
     callerNet.userAgent = ua;
     callerNet.enabled = true;
+    pluginsChanged(); // no plugins while the caller network is on
     session.defaultSession.setUserAgent(ua);
     for (const wc of webContents.getAllWebContents()) {
       if (wc.getType() !== "webview") continue;
@@ -305,6 +314,7 @@ function configureCallerNet(p: { enabled?: unknown; userAgent?: unknown; answerT
     }
   } else if (p.enabled === false && callerNet.enabled) {
     callerNet.enabled = false;
+    pluginsChanged();
     callerNet.failAll("other", "the caller network was turned off");
     callerNet.limits = { requests: 0, bytes: 0 };
     cookiesPerVisit = false;
@@ -334,6 +344,61 @@ async function fetchIcon(url: string): Promise<Fetched | null> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** A plugin file from gitstable: no cookies, never through the payment handler, 15 s at most. */
+async function fetchPluginFile(url: string): Promise<PluginFetched> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 15000);
+  try {
+    const r = await session.defaultSession.fetch(url, { signal: ac.signal, credentials: "omit", bypassCustomProtocolHandlers: true, redirect: "error" } as RequestInit);
+    return { status: r.status, header: (n) => r.headers.get(n), bytes: new Uint8Array(await r.arrayBuffer()) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Puts the style rules a page's site gets into the page, replacing what it had (`fresh`: a new document, which has none).
+ * Look-only CSS, inserted by the browser: nothing runs in the page. None in safe mode or while the caller network is on.
+ */
+async function applyPlugins(wc: WebContents, fresh = false): Promise<void> {
+  if (wc.isDestroyed()) return;
+  const had = fresh ? undefined : pluginCss.get(wc.id);
+  pluginCss.delete(wc.id);
+  for (const key of had?.values() ?? []) await wc.removeInsertedCSS(key).catch(() => {});
+  if (!plugins || SAFE_MODE || callerNet.enabled || wc.isDestroyed()) return;
+  let host = "";
+  try {
+    const u = new URL(wc.getURL());
+    if (u.protocol === "http:" || u.protocol === "https:") host = u.hostname;
+  } catch {}
+  const keys = new Map<string, string>();
+  for (const st of plugins.stylesFor(host)) {
+    try {
+      keys.set(st.id, await wc.insertCSS(st.css, { cssOrigin: "author" }));
+    } catch {}
+  }
+  if (keys.size) pluginCss.set(wc.id, keys);
+}
+
+function pluginState() {
+  return {
+    plugins: plugins?.list() ?? [], allOff: plugins?.allOff ?? false, safeMode: SAFE_MODE, callerNet: callerNet.enabled,
+    origin: GITSTABLE, apiLevel: PLUGIN_API_LEVEL, browserVersion: SHOWN_VERSION,
+  };
+}
+
+/** After any change: every open page gets its rules again, and the Plugins panel is told. */
+function pluginsChanged(): void {
+  for (const wc of webContents.getAllWebContents()) if (wc.getType() === "webview") void applyPlugins(wc);
+  mainWindow?.webContents.send("plugins:changed", pluginState());
+}
+
+async function pluginPreview(source: string) {
+  if (!plugins) throw new PluginError("not-ready", "plugins are not loaded yet");
+  if (callerNet.enabled) throw new PluginError("caller-network-on", "plugins can't be installed while the caller network is on");
+  return plugins.preview(source);
 }
 
 function setupNetPolicy(): void {
@@ -808,6 +873,7 @@ function buildMenu(): void {
     {
       label: "Tools",
       submenu: [
+        { label: "Plugins…", click: tabCmd("plugins") },
         { label: "Passwords…", click: tabCmd("click:keyBtn") },
         { label: "Connections (askrobots and other services)…", click: tabCmd("connections") },
         { type: "separator" },
@@ -999,6 +1065,7 @@ app.whenReady().then(async () => {
     });
     // (Read soon after the document is ready too: pages full of ads may not finish loading for minutes.)
     wc.on("dom-ready", () => readSoon(2500));
+    wc.on("dom-ready", () => void applyPlugins(wc, true)); // a new document: its site's style rules
     wc.on("did-finish-load", () => readSoon(1500));
     wc.on("destroyed", () => {
       if (readTimer) clearTimeout(readTimer);
@@ -1153,6 +1220,25 @@ app.whenReady().then(async () => {
     now: () => Date.now(),
   });
   ipcMain.handle("favicons:all", () => favicons?.all() ?? {});
+  plugins = new PluginStore({
+    fetch: fetchPluginFile, dir: join(app.getPath("userData"), "plugins"), origin: GITSTABLE, apiLevel: PLUGIN_API_LEVEL,
+    browserVersion: SHOWN_VERSION, now: () => new Date(),
+  });
+  plugins.load();
+  // The Plugins panel. Errors come back as {error} with words for the person, never as a thrown IPC error.
+  const pluginCall = async <T>(f: () => T | Promise<T>) => {
+    try {
+      return { ok: true, value: await f() };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message, code: e instanceof PluginError ? e.code : "error" };
+    }
+  };
+  ipcMain.handle("plugins:state", () => pluginState());
+  ipcMain.handle("plugins:preview", (_e, source: string) => pluginCall(() => pluginPreview(String(source))));
+  ipcMain.handle("plugins:install", (_e, token: string) => pluginCall(() => { const r = plugins!.install(String(token)); pluginsChanged(); return r; }));
+  ipcMain.handle("plugins:enable", (_e, id: string, on: boolean) => pluginCall(() => { plugins!.setEnabled(String(id), !!on); pluginsChanged(); }));
+  ipcMain.handle("plugins:remove", (_e, id: string) => pluginCall(() => { plugins!.remove(String(id)); pluginsChanged(); }));
+  ipcMain.handle("plugins:all-off", (_e, off: boolean) => pluginCall(() => { plugins!.setAllOff(!!off); pluginsChanged(); }));
   const forgetIcon = (host: string) => {
     favicons?.forget(host);
     mainWindow?.webContents.send("favicon:update", { host, icon: null });
@@ -1520,6 +1606,15 @@ app.whenReady().then(async () => {
         },
         vault: vaultSvc,
         eventsSince: (n) => ({ events: eventLog.filter((e) => (e.seq as number) > n), next: eventSeq }),
+        plugins: {
+          state: () => pluginState(),
+          preview: (source) => pluginPreview(source),
+          install: (token) => { const r = plugins!.install(token); pluginsChanged(); return r; },
+          enable: (id, on) => { plugins!.setEnabled(id, on); pluginsChanged(); return pluginState(); },
+          remove: (id) => { plugins!.remove(id); pluginsChanged(); return pluginState(); },
+          allOff: (off) => { plugins!.setAllOff(off); pluginsChanged(); return pluginState(); },
+          recheck: () => { plugins!.load(); pluginsChanged(); return pluginState(); },
+        },
         history: {
           state: () => (history ? { ...history.state(), copy: historyCopy?.state() } : null),
           flush: async () => {

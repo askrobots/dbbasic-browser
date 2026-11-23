@@ -62,6 +62,17 @@ export interface ControlDeps {
   eventsSince(n: number): { events: unknown[]; next: number };
   /** The right-click menu shown (or, in background mode, recorded) last, and picking one of its items. */
   contextMenu: { last(): { wcId: number; items: unknown[] } | null; pick(id: string): boolean };
+  /** Plugins: style rules installed from gitstable (see plugin-service.ts). Install is preview, then install by its token. */
+  plugins: {
+    state(): unknown;
+    preview(source: string): Promise<unknown>;
+    install(token: string): unknown;
+    enable(id: string, on: boolean): unknown;
+    remove(id: string): unknown;
+    allOff(off: boolean): unknown;
+    /** Check every installed file again, as at start. */
+    recheck(): unknown;
+  };
   /** Browsing history on the askrobots account (see history.ts). */
   history: {
     state(): unknown;
@@ -141,6 +152,16 @@ const str = (v: unknown, name: string): string => {
   if (typeof v !== "string" || !v) throw new RpcError("bad-params", `"${name}" (string) is required`);
   return v;
 };
+
+/** A plugin failure keeps its code (bad-plugin, not-style-only, mismatch…) and its message for the person. */
+async function pluginCall(f: () => unknown): Promise<unknown> {
+  try {
+    return await f();
+  } catch (e) {
+    const code = (e as { code?: unknown }).code;
+    throw new RpcError(typeof code === "string" ? code : "error", (e as Error).message);
+  }
+}
 
 function resolveTab(p: Record<string, unknown>): TabInfo {
   const t = p.tab == null ? tabs.find((x) => x.active) : tabs.find((x) => x.id === Number(p.tab));
@@ -534,6 +555,20 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
     case "menu.last":
       return { menu: d.contextMenu.last() };
     // ---- history ----------------------------------------------------------------------
+    case "plugins.state":
+      return d.plugins.state();
+    case "plugins.preview":
+      return pluginCall(() => d.plugins.preview(str(p.source, "source")));
+    case "plugins.install":
+      return pluginCall(() => d.plugins.install(str(p.token, "token")));
+    case "plugins.enable":
+      return pluginCall(() => d.plugins.enable(str(p.id, "id"), p.enabled !== false));
+    case "plugins.remove":
+      return pluginCall(() => d.plugins.remove(str(p.id, "id")));
+    case "plugins.allOff":
+      return d.plugins.allOff(p.off !== false);
+    case "plugins.recheck":
+      return d.plugins.recheck();
     case "history.state":
       return d.history.state();
     case "history.flush":

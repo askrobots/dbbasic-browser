@@ -141,6 +141,21 @@
       #bmPanel .bm .h { color: #7a7a82; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #bmPanel .note { color: #8a8a90; font-size: 11.5px; line-height: 1.5; padding: 6px 2px; }
       #bmPanel .err { color: #ff9a9a; font-size: 11.5px; padding: 4px 2px; }
+      #plugPanel { position: fixed; top: 84px; right: 10px; width: 420px; max-height: calc(100vh - 100px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12.5px; }
+      #plugPanel.open { display: block; }
+      #plugPanel h4 { margin: 0 0 4px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+      #plugPanel h4 .sp { flex: 1; }
+      #plugPanel .sub, #plugPanel .note { color: #8a8a90; font-size: 11.5px; line-height: 1.5; margin: 4px 0 8px; }
+      #plugPanel .err { color: #ff9a9a; font-size: 11.5px; margin: 4px 0; }
+      #plugPanel .row2 { display: flex; gap: 6px; align-items: center; margin: 4px 0 8px; }
+      #plugPanel input[type=text] { flex: 1; min-width: 0; padding: 6px 9px; border-radius: 6px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; font-size: 12px; }
+      #plugPanel input[type=text]:focus { outline: none; border-color: #5b8cff; }
+      #plugPanel .pl { padding: 8px 6px; border-radius: 6px; border: 1px solid #2c2c32; margin: 6px 0; }
+      #plugPanel .pl .t { color: #e8e8ea; display: flex; gap: 8px; align-items: center; }
+      #plugPanel .pl .t b { flex: 1; font-weight: 600; }
+      #plugPanel .pl .h { color: #8a8a90; font-size: 11px; margin-top: 3px; overflow-wrap: anywhere; }
+      #plugPanel .ask { border-color: #3a5a9a; background: #1b2233; }
+      #plugPanel label.sw { display: flex; gap: 6px; align-items: center; color: #c8c8cc; font-size: 12px; margin: 4px 0; }
       /* ---- resource status ---- */
       #resBtn { font-variant-numeric: tabular-nums; white-space: nowrap; }
       #resBtn.warn { color: #f0c674; border-color: #5a4514; background: #2a1f0a; }
@@ -260,6 +275,7 @@
     <div id="vaultPanel"></div>
     <div id="resPanel"></div>
     <div id="bmPanel"></div>
+    <div id="plugPanel"></div>
     <div id="main">
       <div id="pages">
         <div id="findBar" role="search">
@@ -1177,6 +1193,70 @@
       window.x402.bookmarks.onChanged(bmApply);
       window.x402.bookmarks.state().then(bmApply);
 
+      // ---- plugins ---------------------------------------------------------------------------------------
+      // Style rules installed from gitstable. Installing is two steps: look it up (the browser fetches and checks it and
+      // says what it will change), then Install, which keeps exactly what was shown.
+      let plugOpen = false, plugSt = { plugins: [], allOff: false, safeMode: false, callerNet: false, origin: "https://gitstable.com" };
+      let plugAsk = null, plugBusy = false, plugErr = "", plugSource = "";
+      const shortHost = (o) => String(o || "").replace(/^https?:\/\//, "");
+      function plugEl(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+      function renderPlug() {
+        const box = $("plugPanel"); if (!plugOpen) return;
+        const focusSrc = document.activeElement && document.activeElement.id === "plugSource";
+        box.textContent = "";
+        const h = document.createElement("h4"); const x = plugEl("button", "sbtn quiet", "✕"); x.onclick = () => setPlug(false);
+        h.append(plugEl("span", "", "Plugins"), plugEl("span", "sp"), x); box.appendChild(h);
+        box.appendChild(plugEl("div", "sub", "Style rules from " + shortHost(plugSt.origin) + ". They change how a site looks, and can't run code, read the page or send anything."));
+        if (plugSt.safeMode) box.appendChild(plugEl("div", "err", "Safe mode: no plugins are applied this time (the browser was started with DBB_SAFE_MODE=1)."));
+        if (plugSt.callerNet) box.appendChild(plugEl("div", "err", "No plugins while the caller network is on."));
+        const sw = plugEl("label", "sw"); const cb = document.createElement("input"); cb.type = "checkbox"; cb.id = "plugAllOff"; cb.checked = !!plugSt.allOff;
+        cb.onchange = async () => { const r = await window.x402.plugins.allOff(cb.checked); if (!r.ok) plugErr = r.error; };
+        sw.append(cb, plugEl("span", "", "Turn all plugins off (see sites as they are)")); box.appendChild(sw);
+        const row = plugEl("div", "row2"); const inp = document.createElement("input"); inp.type = "text"; inp.id = "plugSource"; inp.placeholder = "owner/repository on " + shortHost(plugSt.origin); inp.value = plugSource;
+        inp.oninput = () => { plugSource = inp.value; };
+        const look = plugEl("button", "sbtn", plugBusy ? "Checking…" : "Look up"); look.id = "plugLook"; look.disabled = plugBusy;
+        const doLook = async () => {
+          if (!plugSource.trim() || plugBusy) return;
+          plugBusy = true; plugErr = ""; plugAsk = null; renderPlug();
+          const r = await window.x402.plugins.preview(plugSource.trim());
+          plugBusy = false; if (r.ok) plugAsk = r.value; else plugErr = r.error; renderPlug();
+        };
+        look.onclick = doLook; inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); doLook(); } };
+        row.append(inp, look); box.appendChild(row);
+        if (plugErr) box.appendChild(plugEl("div", "err", plugErr));
+        if (plugAsk) {
+          const a = plugEl("div", "pl ask"); a.id = "plugAsk";
+          const t = plugEl("div", "t"); t.append(plugEl("b", "", plugAsk.name + " " + plugAsk.version)); a.appendChild(t);
+          if (plugAsk.description) a.appendChild(plugEl("div", "h", plugAsk.description));
+          a.appendChild(plugEl("div", "note", plugAsk.says));
+          a.appendChild(plugEl("div", "h", shortHost(plugSt.origin) + "/" + plugAsk.repository + " · release " + plugAsk.tag + " · commit " + plugAsk.commit.slice(0, 7) + (plugAsk.license ? " · " + plugAsk.license : "")));
+          a.appendChild(plugEl("div", "h", plugAsk.testedHere ? "Tested on this browser version." : "Not tested on this version of the browser" + (plugAsk.testedOn.length ? " (tested on " + plugAsk.testedOn.join(", ") + ")" : "") + "."));
+          if (plugAsk.replaces) a.appendChild(plugEl("div", "h", "Replaces the installed " + plugAsk.replaces + "."));
+          const r2 = plugEl("div", "row2"); const ok = plugEl("button", "sbtn", plugAsk.replaces ? "Update" : "Install"); ok.id = "plugInstall";
+          ok.onclick = async () => { const r = await window.x402.plugins.install(plugAsk.token); if (r.ok) { toast("paid", "Installed “" + plugAsk.name + "”"); plugAsk = null; plugSource = ""; } else plugErr = r.error; renderPlug(); };
+          const no = plugEl("button", "sbtn quiet", "Cancel"); no.onclick = () => { plugAsk = null; renderPlug(); };
+          r2.append(ok, no); a.appendChild(r2); box.appendChild(a);
+        }
+        if (!plugSt.plugins.length) box.appendChild(plugEl("div", "note", "No plugins yet. Type a plugin's repository, such as askrobots/x-whole-window, and Look up."));
+        for (const p of plugSt.plugins) {
+          const d = plugEl("div", "pl"); d.dataset.id = p.id;
+          const t = plugEl("div", "t"); const on = document.createElement("input"); on.type = "checkbox"; on.checked = !!p.enabled; on.title = "On for its sites";
+          on.onchange = async () => { const r = await window.x402.plugins.enable(p.id, on.checked); if (!r.ok) { plugErr = r.error; renderPlug(); } };
+          const rm = plugEl("button", "sbtn quiet", "Remove"); rm.onclick = async () => { if (!rm.dataset.sure) { rm.dataset.sure = "1"; rm.textContent = "Remove it?"; return; } const r = await window.x402.plugins.remove(p.id); if (!r.ok) { plugErr = r.error; renderPlug(); } };
+          t.append(on, plugEl("b", "", p.name + " " + p.version), rm); d.appendChild(t);
+          d.appendChild(plugEl("div", "h", "Changes how " + p.sites.join(", ") + " look" + (p.sites.length === 1 ? "s" : "") + " · " + (p.testedHere ? "tested on this version" : "not tested on this version")));
+          const src = plugEl("div", "h"); const link = plugEl("a", "", shortHost(plugSt.origin) + "/" + p.source.repository); link.href = "#";
+          link.onclick = (e) => { e.preventDefault(); setPlug(false); newTab(plugSt.origin + "/repositories/" + p.source.repository + "/", true); };
+          src.append(link, document.createTextNode(" · release " + p.source.tag + " · commit " + p.source.commit.slice(0, 7))); d.appendChild(src);
+          if (p.problem) d.appendChild(plugEl("div", "err", p.problem));
+          box.appendChild(d);
+        }
+        if (focusSrc) { const el = $("plugSource"); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+      }
+      async function setPlug(open) { plugOpen = open; $("plugPanel").classList.toggle("open", open); if (!open) { plugAsk = null; plugErr = ""; return; } plugSt = await window.x402.plugins.state(); renderPlug(); const el = $("plugSource"); if (el && !plugSt.plugins.length) el.focus(); }
+      window.x402.plugins.onChanged((st) => { plugSt = st; renderPlug(); });
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && plugOpen) setPlug(false); });
+
       // ---- resource status -----------------------------------------------------------------------------
       // The operating system's own numbers for each page's process, so something that hogs the machine has a name.
       const fmtMB = (mb) => mb == null ? "—" : mb >= 1024 ? (mb / 1024).toFixed(1) + " GB" : Math.round(mb) + " MB";
@@ -1252,6 +1332,7 @@
         else if (cmd === "back") $("back").click();
         else if (cmd === "forward") $("fwd").click();
         else if (cmd === "kept") { bmView = "kept"; setBm(true); }
+        else if (cmd === "plugins") setPlug(!plugOpen);
         else if (cmd.startsWith("history:")) historyCmd(cmd.slice(8));
         else if (cmd === "connections") { setChat(true); }
         else if (cmd === "find") openFind();

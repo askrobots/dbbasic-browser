@@ -24,6 +24,7 @@ import { gzipSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fakeGitstable } from "./fake-gitstable.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.DEMO_PORT) || 8899;
@@ -258,6 +259,14 @@ const server = createServer(async (req, res) => {
   // The site icon (a 1×1 PNG): the browser fetches it once per site to show in tabs and suggestions. Counted on its own, not in /hits.
   if (path === "/favicon.ico") { iconHits++; res.writeHead(200, { "content-type": "image/png" }); res.end(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64")); return; }
   if (path === "/o/_icon-hits") { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ hits: iconHits })); return; }
+  // A stand-in for gitstable's plugin addresses (tags and files at a commit), and a page for the demo plugin to change.
+  // Not counted in /hits either.
+  if (fakeGitstable(req, res)) return;
+  if (path === "/plugin-page") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(`<!doctype html><title>Column</title><style>#col { max-width: 300px; margin: 0 auto; }</style><div id="col">A column that a plugin can widen.</div>`);
+    return;
+  }
   hits++;
 
   // LIVE route: real settlement. Unpaid → 402; paid → POST the signed payload to the

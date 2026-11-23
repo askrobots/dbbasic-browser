@@ -83,6 +83,16 @@ contextBridge.exposeInMainWorld("x402", {
     all: () => ipcRenderer.invoke("favicons:all"),
     onUpdate: sub("favicon:update"),
   },
+  /** Plugins (style rules from gitstable). Calls answer {ok, value} or {ok: false, error}. */
+  plugins: {
+    state: () => ipcRenderer.invoke("plugins:state"),
+    preview: (source) => ipcRenderer.invoke("plugins:preview", source),
+    install: (token) => ipcRenderer.invoke("plugins:install", token),
+    enable: (id, on) => ipcRenderer.invoke("plugins:enable", id, on),
+    remove: (id) => ipcRenderer.invoke("plugins:remove", id),
+    allOff: (off) => ipcRenderer.invoke("plugins:all-off", off),
+    onChanged: sub("plugins:changed"),
+  },
   history: {
     state: () => ipcRenderer.invoke("history:state"),
     pause: (on) => ipcRenderer.invoke("history:pause", on),
