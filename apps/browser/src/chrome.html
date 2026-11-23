@@ -1244,7 +1244,7 @@
           on.onchange = async () => { const r = await window.x402.plugins.enable(p.id, on.checked); if (!r.ok) { plugErr = r.error; renderPlug(); } };
           const rm = plugEl("button", "sbtn quiet", "Remove"); rm.onclick = async () => { if (!rm.dataset.sure) { rm.dataset.sure = "1"; rm.textContent = "Remove it?"; return; } const r = await window.x402.plugins.remove(p.id); if (!r.ok) { plugErr = r.error; renderPlug(); } };
           t.append(on, plugEl("b", "", p.name + " " + p.version), rm); d.appendChild(t);
-          d.appendChild(plugEl("div", "h", "Changes how " + p.sites.join(", ") + " look" + (p.sites.length === 1 ? "s" : "") + " · " + (p.testedHere ? "tested on this version" : "not tested on this version")));
+          d.appendChild(plugEl("div", "h", "Changes how " + (p.sites.length > 1 ? p.sites.slice(0, -1).join(", ") + " and " + p.sites[p.sites.length - 1] : p.sites.join("")) + " look" + (p.sites.length === 1 ? "s" : "") + " · " + (p.testedHere ? "tested on this version" : "not tested on this version")));
           const src = plugEl("div", "h"); const link = plugEl("a", "", shortHost(plugSt.origin) + "/" + p.source.repository); link.href = "#";
           link.onclick = (e) => { e.preventDefault(); setPlug(false); newTab(plugSt.origin + "/repositories/" + p.source.repository + "/", true); };
           src.append(link, document.createTextNode(" · release " + p.source.tag + " · commit " + p.source.commit.slice(0, 7))); d.appendChild(src);

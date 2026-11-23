@@ -70,8 +70,14 @@ interface Pending { view: PreviewView; manifest: RuleManifest; files: Array<{ pa
 
 const PENDING_MS = 10 * 60_000;
 
+/** "x.com", "x.com and twitter.com", "a, b and c", "a, b, c and 2 more". */
+export function siteList(sites: readonly string[]): string {
+  if (sites.length > 3) return `${sites.slice(0, 3).join(", ")} and ${sites.length - 3} more`;
+  return sites.length <= 1 ? sites.join("") : `${sites.slice(0, -1).join(", ")} and ${sites[sites.length - 1]}`;
+}
+
 export function describePowers(sites: readonly string[]): string {
-  const list = sites.length <= 3 ? sites.join(", ") : `${sites.slice(0, 3).join(", ")} and ${sites.length - 3} more`;
+  const list = siteList(sites);
   return `It changes how ${list} look${sites.length === 1 ? "s" : ""}. It can't run code, read the page or send anything.`;
 }
 

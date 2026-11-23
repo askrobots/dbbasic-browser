@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { gitBlobId, parsePluginSource, parseTagRefs, siteMatches, styleProblem, validateManifest } from "../src/plugins.ts";
-import { PluginStore, type Fetched } from "../src/plugin-service.ts";
+import { PluginStore, describePowers, type Fetched } from "../src/plugin-service.ts";
 // @ts-expect-error: a plain .mjs test helper, shared with the demo server
 import { fakeGitstable } from "../demo/fake-gitstable.mjs";
 
@@ -54,6 +54,11 @@ describe("style rules stay look-only", () => {
 });
 
 describe("sites, sources and tags", () => {
+  it("names the sites in plain words", () => {
+    expect(describePowers(["x.com"])).toMatch(/^It changes how x\.com looks\./);
+    expect(describePowers(["x.com", "twitter.com"])).toMatch(/^It changes how x\.com and twitter\.com look\./);
+    expect(describePowers(["a.com", "b.com", "c.com", "d.com", "e.com"])).toMatch(/a\.com, b\.com, c\.com and 2 more look\./);
+  });
   it("x.com covers its subdomains; *.example.com only those", () => {
     expect(siteMatches("x.com", ["x.com"])).toBe(true);
     expect(siteMatches("mobile.x.com", ["x.com"])).toBe(true);
