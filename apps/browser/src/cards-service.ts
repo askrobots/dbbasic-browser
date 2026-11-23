@@ -46,6 +46,16 @@ interface View {
   at: number;
   busy: boolean;
   batches: Array<{ from: number; at: Date }>;
+  /** Said at the top of the cards when the last More posts found nothing new. */
+  note: string;
+}
+
+/** What one read found: new posts, screens scrolled, distinct posts seen on the page, and an error if reading failed. */
+interface Read {
+  added: number;
+  screens: number;
+  seen: number;
+  error: string;
 }
 
 export interface CardsResult {
@@ -71,29 +81,40 @@ export function createCards(deps: CardsDeps, opts: { stepMs?: number; max?: numb
    * Reads, scrolls a screen, waits, reads again, until `want` new posts or `rounds` screens. It gives up early only at
    * the end: 3 reads in a row with nothing new while scrolling no longer moves the page (the site has nothing more).
    */
-  async function gather(wc: WebContents, v: View, want: number, rounds: number): Promise<number> {
-    let added = 0;
+  async function gather(wc: WebContents, v: View, want: number, rounds: number): Promise<Read> {
+    const out: Read = { added: 0, screens: 0, seen: 0, error: "" };
+    const seen = new Set<string>();
     let stuck = 0;
     let moved = true;
     for (let i = 0; i < rounds && !wc.isDestroyed(); i++) {
-      const r = await read(wc, v.rule);
+      let r: Awaited<ReturnType<typeof read>>;
+      try {
+        r = await read(wc, v.rule);
+      } catch (e) {
+        out.error = (e as Error).message;
+        break;
+      }
       if (!v.title && r.title) v.title = r.title;
+      for (const p of r.posts) seen.add(p.link);
       const n = mergePosts(v.posts, r.posts);
-      added += n;
+      out.added += n;
       stuck = n || moved ? 0 : stuck + 1;
-      if (added >= want || stuck >= 3) break;
+      // At the bottom, a site fetches its next page; that can take a few seconds, so wait there before giving up.
+      if (out.added >= want || stuck >= 4) break;
       deps.emit({ kind: "cards-progress", wcId: wc.id, posts: v.posts.size });
       const y = (await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: `(() => { const y = scrollY; window.scrollBy(0, Math.round(innerHeight * ${STEP_SCREENS})); return [y, scrollY]; })()` }]).catch(() => null)) as [number, number] | null;
       moved = !!y && y[1] !== y[0];
-      await new Promise((res) => setTimeout(res, stepMs));
+      if (moved) out.screens++;
+      await new Promise((res) => setTimeout(res, moved ? stepMs : stepMs * 2));
     }
-    return added;
+    out.seen = seen.size;
+    return out;
   }
 
   function render(id: string, v: View): string {
     const src = webContents.fromId(v.srcWcId);
     const alive = !!src && !src.isDestroyed();
-    v.html = buildCardsHtml({ rule: v.rule, source: v.source, title: v.title, posts: [...v.posts.values()], moreUrl: alive ? cardsUrl(id, "more") : "", collectedAt: new Date(), batches: v.batches });
+    v.html = buildCardsHtml({ rule: v.rule, source: v.source, title: v.title, posts: [...v.posts.values()], moreUrl: alive ? cardsUrl(id, "more") : "", collectedAt: new Date(), batches: v.batches, note: v.note });
     return v.html;
   }
 
@@ -104,7 +125,7 @@ export function createCards(deps: CardsDeps, opts: { stepMs?: number; max?: numb
     const checked = validateViewRule(o.rule);
     if (!checked.ok) return { ok: false, reason: "no-rule", message: `That view rule was refused: ${checked.error}` };
     const rule = checked.rule;
-    const v: View = { rule, srcWcId: wc.id, source: wc.getURL(), title: "", posts: new Map(), html: "", at: Date.now(), busy: true, batches: [] };
+    const v: View = { rule, srcWcId: wc.id, source: wc.getURL(), title: "", posts: new Map(), html: "", at: Date.now(), busy: true, batches: [], note: "" };
     try {
       deps.emit({ kind: "cards-progress", wcId: wc.id, posts: 0, start: true });
       await gather(wc, v, o.want ?? 80, o.rounds ?? 24);
@@ -142,16 +163,27 @@ export function createCards(deps: CardsDeps, opts: { stepMs?: number; max?: numb
         // A tab in the background isn't rendered, so the site wouldn't load more as it scrolls: show it while it is
         // read (a few seconds), then go back to the cards.
         await deps.askChrome("tab.peek", { wcId: src.id, on: true }).catch(() => {});
+        let r: Read = { added: 0, screens: 0, seen: 0, error: "" };
         try {
-          await new Promise((res) => setTimeout(res, 300));
-          await gather(src, v, 60, 18);
-        } catch {
-          // the tab navigated away or closed: show what there is
+          // A tab that sat in the background takes a moment to draw again before it can load more.
+          await new Promise((res) => setTimeout(res, 1200));
+          r = await gather(src, v, 60, 18);
+        } catch (e) {
+          r.error = (e as Error).message;
         } finally {
           v.busy = false;
           await deps.askChrome("tab.peek", { wcId: src.id, on: false }).catch(() => {});
         }
         if (v.posts.size > before) v.batches.push({ from: before, at: new Date() });
+        // Never silent: when nothing new came, say what the read saw.
+        v.note = r.added
+          ? ""
+          : r.error
+            ? `More posts couldn't read the page: ${r.error.slice(0, 120)}.`
+            : r.seen === 0
+              ? `More posts found no posts on the page at all (scrolled ${r.screens} screen${r.screens === 1 ? "" : "s"}). The page may have changed, or the tab is on another page.`
+              : `More posts scrolled ${r.screens} screen${r.screens === 1 ? "" : "s"} and read ${r.seen} posts, all already here: the site didn't load newer ones in time. Try again in a moment.`;
+        deps.emit({ kind: "cards-progress", wcId: src.id, done: true, posts: v.posts.size, added: r.added, note: v.note });
         render(p.id, v);
         return { status: 200, html: `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${cardsUrl(p.id)}#new">` };
       }

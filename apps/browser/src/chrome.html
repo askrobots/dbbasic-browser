@@ -2170,6 +2170,8 @@
           }
         } else if (ev.kind === "cards-progress") {
           if (ev.start) toast("quoted", "▦ Reading the posts on this page for a card view…", 3000);
+          else if (ev.done && ev.note) toast("skipped", "▦ " + ev.note, 7000);
+          else if (ev.done && ev.added) toast("quoted", "▦ " + ev.added + " more posts", 3000);
         } else if (ev.kind === "reader-busy") {
           const t = tabs.find((x) => x.wcId === ev.wcId);
           if (t) { t.aiBusy = ev.busy ? (ev.provider + (ev.model ? " · " + ev.model : "")) : null; refreshThrobber(t); }

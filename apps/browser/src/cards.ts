@@ -278,6 +278,7 @@ details .inner { columns: 290px; column-gap: 10px; margin-top: 8px; }
 details .inner .card { break-inside: avoid; margin-bottom: 10px; }
 .more { display: block; text-align: center; padding: 14px; margin: 6px 0; border: 1px dashed var(--rule); border-radius: 10px; color: var(--accent); text-decoration: none; }
 .empty { padding: 40px 16px; color: var(--muted); }
+.note { margin: 0 2px 10px; padding: 8px 12px; border: 1px solid var(--rule); border-left: 3px solid var(--accent); border-radius: 6px; font-size: 13px; }
 `;
 
 function card(p: Post, now: Date, anchor: string): string {
@@ -298,6 +299,8 @@ export interface CardsPage {
   moreUrl: string;
   /** Where each later read ("More posts") starts, as indexes into `posts`; the newest one is the #new anchor. */
   batches?: Array<{ from: number; at: Date }>;
+  /** A line at the top, e.g. why the last More posts found nothing new. */
+  note?: string;
   collectedAt: Date;
 }
 
@@ -321,7 +324,7 @@ export function buildCardsHtml(v: CardsPage): string {
     const posts = v.posts.slice(from, to).filter((p) => !p.promoted);
     if (!posts.length) return "";
     const b = i > 0 ? v.batches![i - 1]! : null;
-    const head = b ? `<div class="batch"${i === starts.length - 1 ? ' id="new"' : ""}>${posts.length} more · read at ${escapeHtml(time(b.at))}</div>` : "";
+    const head = b ? `<div class="batch"${i === starts.length - 1 && !v.note ? ' id="new"' : ""}>${posts.length} more · read at ${escapeHtml(time(b.at))}</div>` : "";
     return head + block(posts, v.collectedAt);
   });
   const promo = hidden.length
@@ -332,5 +335,5 @@ export function buildCardsHtml(v: CardsPage): string {
 <meta http-equiv="Content-Security-Policy" content="${CARDS_CSP}"><meta name="referrer" content="no-referrer">
 <title>${escapeHtml(`Cards · ${v.title || host}`)}</title><style>${STYLE}</style></head>
 <body><header><h1>${escapeHtml(v.title || host)}</h1><span class="meta">${shownAll.length} post${shownAll.length === 1 ? "" : "s"} from ${escapeHtml(host)} · read at ${escapeHtml(time(v.collectedAt))} · ${escapeHtml(v.rule.name)}</span><a href="${escapeHtml(v.source)}" target="_blank" rel="noopener noreferrer">Original</a>${v.moreUrl ? `<a href="${escapeHtml(v.moreUrl)}">More posts</a>` : ""}</header>
-<main>${promo}${parts.join("") || `<div class="empty">No posts were found on this page.</div>`}${more}</main></body></html>`;
+<main>${v.note ? `<p class="note" id="new">${escapeHtml(v.note)}</p>` : ""}${promo}${parts.join("") || `<div class="empty">No posts were found on this page.</div>`}${more}</main></body></html>`;
 }

@@ -99,6 +99,12 @@ describe("the card page", () => {
     expect(html.indexOf('id="new"')).toBeGreaterThan(html.lastIndexOf('class="batch"') - 1);
   });
 
+  it("says what a More posts read found when nothing new came, at the #new anchor", () => {
+    const html = buildCardsHtml({ rule: X_VIEW_RULE, source: "https://x.com/home", title: "", posts: [post(), post({ link: "https://x.com/b/status/2" })], moreUrl: "", batches: [{ from: 1, at: new Date() }], note: "More posts scrolled 12 screens and read 30 posts, all already here <b>", collectedAt: new Date() });
+    expect(html).toMatch(/<p class="note" id="new">More posts scrolled 12 screens and read 30 posts, all already here &lt;b&gt;<\/p>/);
+    expect(html.match(/id="new"/g)?.length).toBe(1);
+  });
+
   it("shortens counts and times the way X does", () => {
     expect(shortStats("61 replies, 223 reposts, 1554 likes, 78 bookmarks, 254134 views")).toBe("61 replies · 223 reposts · 1.6K likes · 254K views");
     const now = new Date("2026-11-23T15:00:00Z");
