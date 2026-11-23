@@ -82,6 +82,22 @@ describe("the card page", () => {
     expect(closed).toMatch(/tab these came from is closed/);
   });
 
+  it("lays cards out as masonry: each to the shortest column, one layout per column count", async () => {
+    const { masonry, estimateHeight, COLUMN_COUNTS } = await import("../src/cards");
+    const cols = masonry([100, 300, 100, 100], 2, (x) => x);
+    expect(cols).toEqual([[100, 100, 100], [300]]);
+    expect(estimateHeight(post({ text: "x".repeat(2000) }))).toBeLessThan(estimateHeight(post({ text: "short", images: ["https://pbs.twimg.com/media/a.jpg"] })) + 200); // long text is cut to ten lines
+    const html = page([post(), post({ link: "https://x.com/b/status/2" })]);
+    for (const n of COLUMN_COUNTS) expect(html).toContain(`class="m m${n}"`);
+  });
+
+  it("puts each More posts read under its own line, the newest one the #new anchor", () => {
+    const html = buildCardsHtml({ rule: X_VIEW_RULE, source: "https://x.com/home", title: "", posts: [post(), post({ link: "https://x.com/b/status/2" }), post({ link: "https://x.com/c/status/3" })], moreUrl: "", batches: [{ from: 1, at: new Date() }, { from: 2, at: new Date() }], collectedAt: new Date() });
+    expect(html.match(/class="batch"/g)?.length).toBe(2);
+    expect(html.match(/id="new"/g)?.length).toBe(1);
+    expect(html.indexOf('id="new"')).toBeGreaterThan(html.lastIndexOf('class="batch"') - 1);
+  });
+
   it("shortens counts and times the way X does", () => {
     expect(shortStats("61 replies, 223 reposts, 1554 likes, 78 bookmarks, 254134 views")).toBe("61 replies · 223 reposts · 1.6K likes · 254K views");
     const now = new Date("2026-11-23T15:00:00Z");

@@ -8,6 +8,8 @@ export default async function (ctx) {
     throw new Error(`timed out waiting for ${what}`);
   }
   const ev = async (js) => (await T("page.eval", { js })).value;
+  // The page carries one masonry layout per column count; the window's width shows one. Cards in the one shown:
+  const VIS = "[...document.querySelectorAll('main .m')].filter((m) => getComputedStyle(m).display !== 'none').flatMap((m) => [...m.querySelectorAll('.card')])";
 
   const { rules } = await T("cards.rules");
   const x = rules.find((r) => r.id === "x-cards");
@@ -21,27 +23,27 @@ export default async function (ctx) {
   const tab = await waitFor(async () => { const t = (await T("tabs.list")).find((t) => t.active); return t && /^dbb-cards:\/\//.test(t.url ?? "") ? t : null; }, "the card tab");
   check(tab.id !== src.id, "the cards open in a new tab of their own", tab.url);
 
-  const shown = await ev("document.querySelectorAll('main > .card').length");
+  const shown = await ev(`${VIS}.length`);
   check(shown === r.posts, "every post is a card", `${shown} cards, ${r.posts} posts`);
-  check((await ev("document.querySelector('main > .card .who b').textContent")) === "Person 1" && (await ev("document.querySelector('main > .card .who span').textContent")).startsWith("@person1"), "a card shows the author and their handle");
-  check((await ev("document.querySelector('main > .card .stats').textContent")) === "1 replies · 2 reposts · 1.5K likes · 99K views", "and the replies, reposts, likes and views, shortened", await ev("document.querySelector('main > .card .stats').textContent"));
-  check((await ev("document.querySelector('main > .card .text').textContent")) === "Post number 1 <b>not bold</b>" && (await ev("document.querySelectorAll('.text b, .text script, .text img').length")) === 0, "the page's text is shown as text, never as markup");
+  check((await ev(`${VIS}[0].querySelector('.who b').textContent`)) === "Person 1" && (await ev(`${VIS}[0].querySelector('.who span').textContent`)).startsWith("@person1"), "a card shows the author and their handle");
+  check((await ev(`${VIS}[0].querySelector('.stats').textContent`)) === "1 replies · 2 reposts · 1.5K likes · 99K views", "and the replies, reposts, likes and views, shortened", await ev(`${VIS}[0].querySelector('.stats').textContent`));
+  check((await ev(`${VIS}[0].querySelector('.text').textContent`)) === "Post number 1 <b>not bold</b>" && (await ev("document.querySelectorAll('.text b, .text script, .text img').length")) === 0, "the page's text is shown as text, never as markup");
   check((await ev("document.querySelectorAll('script').length")) === 0, "the card page has no scripts");
   check(/1 promoted post hidden/.test(await ev("document.querySelector('details summary').textContent")) && (await ev("document.querySelectorAll('details .card').length")) === 1, "the promoted post is hidden, behind a line that says so");
   check(/Person 3/.test(await ev("document.querySelector('details .card').textContent")), "and it is the one marked as an ad");
-  const link = await ev("document.querySelector('main > .card a.when').href");
+  const link = await ev(`${VIS}[0].querySelector('a.when').href`);
   check(link === base + "/person1/status/1001", "each card links to the post itself", link);
 
   // More posts: read on from the same tab, now in the background, and land on the first new card.
   const before = shown;
   await T("page.click", { selector: "header a[href$='/more']" });
-  const after = await waitFor(async () => { const n = await ev("document.querySelectorAll('main > .card').length").catch(() => 0); return n > before ? n : null; }, "more cards").catch(async (e) => {
+  const after = await waitFor(async () => { const n = await ev(`${VIS}.length`).catch(() => 0); return n > before ? n : null; }, "more cards").catch(async (e) => {
     const t = (await T("tabs.list")).find((t) => t.active);
     const st = (await T("page.eval", { tab: src.id, js: "scrollY + ' / ' + document.body.scrollHeight + ' posts ' + document.querySelectorAll('article').length + ' ' + document.visibilityState" }).catch((x) => ({ value: x.message }))).value;
-    throw new Error(`${e.message}; active tab ${t?.url}; cards ${await ev("document.querySelectorAll('main > .card').length").catch((x) => x.message)}; source ${st}`);
+    throw new Error(`${e.message}; active tab ${t?.url}; cards ${await ev(`${VIS}.length`).catch((x) => x.message)}; source ${st}`);
   });
   check(after > before, "More posts reads further down the same timeline, from a tab in the background", `${before} → ${after}`);
-  check((await ev("location.hash")) === "#new" && !!(await ev("document.getElementById('new') && document.getElementById('new').textContent")), "and goes to the first new card");
+  check((await ev("location.hash")) === "#new" && !!(await ev("document.getElementById('new') && document.getElementById('new').textContent")), "and goes to the new batch, under a line saying how many more");
 
   // Refusals.
   const bad = await T("cards.open", { tab: src.id, rule: { ...rule, fields: { text: { sel: "div", take: "innerHTML" } } } });

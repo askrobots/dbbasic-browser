@@ -26,7 +26,9 @@ export function parseCardsUrl(url: string): { id: string; path: string } | null 
 
 const WORLD = 1011;
 /** A screen at a time, with a pause like a person reading, so the site loads the next posts. */
-const STEP_MS = 900;
+const STEP_MS = 700;
+/** How far each step scrolls, in screens. Sites keep a few screens of posts rendered around the view, so nothing is skipped. */
+const STEP_SCREENS = 1.5;
 
 export interface CardsDeps {
   askChrome(op: string, args: Record<string, unknown>): Promise<unknown>;
@@ -43,6 +45,7 @@ interface View {
   html: string;
   at: number;
   busy: boolean;
+  batches: Array<{ from: number; at: Date }>;
 }
 
 export interface CardsResult {
@@ -80,17 +83,17 @@ export function createCards(deps: CardsDeps, opts: { stepMs?: number; max?: numb
       stuck = n || moved ? 0 : stuck + 1;
       if (added >= want || stuck >= 3) break;
       deps.emit({ kind: "cards-progress", wcId: wc.id, posts: v.posts.size });
-      const y = (await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: "(() => { const y = scrollY; window.scrollBy(0, Math.round(innerHeight * 0.9)); return [y, scrollY]; })()" }]).catch(() => null)) as [number, number] | null;
+      const y = (await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: `(() => { const y = scrollY; window.scrollBy(0, Math.round(innerHeight * ${STEP_SCREENS})); return [y, scrollY]; })()` }]).catch(() => null)) as [number, number] | null;
       moved = !!y && y[1] !== y[0];
       await new Promise((res) => setTimeout(res, stepMs));
     }
     return added;
   }
 
-  function render(id: string, v: View, newFrom?: number): string {
+  function render(id: string, v: View): string {
     const src = webContents.fromId(v.srcWcId);
     const alive = !!src && !src.isDestroyed();
-    v.html = buildCardsHtml({ rule: v.rule, source: v.source, title: v.title, posts: [...v.posts.values()], moreUrl: alive ? cardsUrl(id, "more") : "", collectedAt: new Date(), ...(newFrom !== undefined ? { newFrom } : {}) });
+    v.html = buildCardsHtml({ rule: v.rule, source: v.source, title: v.title, posts: [...v.posts.values()], moreUrl: alive ? cardsUrl(id, "more") : "", collectedAt: new Date(), batches: v.batches });
     return v.html;
   }
 
@@ -110,10 +113,10 @@ export function createCards(deps: CardsDeps, opts: { stepMs?: number; max?: numb
       } catch {}
     }
     if (!rule) return { ok: false, reason: "no-rule", message: "Card view works on X for now. Other sites need their own view rule." };
-    const v: View = { rule, srcWcId: wc.id, source: wc.getURL(), title: "", posts: new Map(), html: "", at: Date.now(), busy: true };
+    const v: View = { rule, srcWcId: wc.id, source: wc.getURL(), title: "", posts: new Map(), html: "", at: Date.now(), busy: true, batches: [] };
     try {
       deps.emit({ kind: "cards-progress", wcId: wc.id, posts: 0, start: true });
-      await gather(wc, v, o.want ?? 80, o.rounds ?? 14);
+      await gather(wc, v, o.want ?? 80, o.rounds ?? 24);
     } catch (e) {
       return { ok: false, reason: "error", message: `Couldn't read this page: ${(e as Error).message}` };
     } finally {
@@ -150,14 +153,15 @@ export function createCards(deps: CardsDeps, opts: { stepMs?: number; max?: numb
         await deps.askChrome("tab.peek", { wcId: src.id, on: true }).catch(() => {});
         try {
           await new Promise((res) => setTimeout(res, 300));
-          await gather(src, v, 60, 12);
+          await gather(src, v, 60, 18);
         } catch {
           // the tab navigated away or closed: show what there is
         } finally {
           v.busy = false;
           await deps.askChrome("tab.peek", { wcId: src.id, on: false }).catch(() => {});
         }
-        render(p.id, v, before < v.posts.size ? before : undefined);
+        if (v.posts.size > before) v.batches.push({ from: before, at: new Date() });
+        render(p.id, v);
         return { status: 200, html: `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${cardsUrl(p.id)}#new">` };
       }
       render(p.id, v);

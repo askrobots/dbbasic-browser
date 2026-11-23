@@ -247,6 +247,35 @@ export function shortTime(iso: string, now: Date): string {
 
 export const CARDS_CSP = "default-src 'none'; img-src https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
 
+/** Masonry without scripts: the page carries one layout per column count, and the window's width picks one. */
+export const COLUMN_COUNTS = [1, 2, 3, 4, 5, 6, 7] as const;
+const COL_W = 300;
+const MASONRY_CSS = COLUMN_COUNTS.map((n) => {
+  const min = n === 1 ? 0 : n * COL_W + 24;
+  const max = n === COLUMN_COUNTS[COLUMN_COUNTS.length - 1] ? 0 : (n + 1) * COL_W + 23;
+  const q = [min ? `(min-width: ${min}px)` : "", max ? `(max-width: ${max}px)` : ""].filter(Boolean).join(" and ");
+  return `@media ${q} { .m${n} { display: grid; grid-template-columns: repeat(${n}, minmax(0, 1fr)); } }`;
+}).join("\n");
+
+/** About how tall a card will be at 300px wide: enough to pick the shortest column. */
+export function estimateHeight(p: Post): number {
+  const lines = p.text ? Math.min(10, p.text.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 40)), 0)) : 0;
+  const media = p.images.length === 0 ? 0 : p.images.length === 1 ? 230 : Math.ceil(p.images.length / 2) * 120;
+  return 64 + (p.context ? 16 : 0) + lines * 19 + media + (p.stats ? 22 : 0);
+}
+
+/** Cards into `n` columns, each to the shortest so far: newest across the top, no gaps. */
+export function masonry<T>(items: readonly T[], n: number, height: (x: T) => number): T[][] {
+  const cols: T[][] = Array.from({ length: n }, () => []);
+  const h = new Array<number>(n).fill(0);
+  for (const it of items) {
+    const i = h.indexOf(Math.min(...h));
+    cols[i]!.push(it);
+    h[i]! += height(it) + 10;
+  }
+  return cols;
+}
+
 const STYLE = `
 :root { color-scheme: light dark; --bg:#f3f4f6; --fg:#16181c; --muted:#5b6470; --card:#fff; --rule:#e3e6ea; --accent:#1d6fd8; }
 @media (prefers-color-scheme: dark) { :root { --bg:#0d0f12; --fg:#e7e9ea; --muted:#8b949e; --card:#16191e; --rule:#262b33; --accent:#6aa8ff; } }
@@ -256,7 +285,11 @@ header { position: sticky; top: 0; z-index: 1; display: flex; gap: 14px; align-i
 header h1 { font-size: 15px; margin: 0; }
 header .meta { color: var(--muted); font-size: 12px; }
 header a { color: var(--accent); text-decoration: none; font-size: 13px; }
-main { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; align-items: start; padding: 10px 12px 40px; }
+main { padding: 10px 12px 40px; }
+.m { display: none; gap: 10px; align-items: start; margin-bottom: 10px; }
+.col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.batch { color: var(--muted); font-size: 12px; margin: 18px 2px 8px; border-top: 1px solid var(--rule); padding-top: 10px; }
+${MASONRY_CSS}
 .card { margin: 0; background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 9px 11px; }
 .card.promoted { opacity: .75; }
 .top { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
@@ -266,17 +299,18 @@ main { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr
 .who span { color: var(--muted); font-size: 12px; }
 .when { color: var(--muted); font-size: 12px; text-decoration: none; flex: none; }
 .ctx { color: var(--muted); font-size: 11px; margin-bottom: 3px; }
-.text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 10; overflow: hidden; }
 .media { display: grid; gap: 3px; margin-top: 7px; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
 .media a { display: block; }
 .media img { width: 100%; max-height: 260px; object-fit: cover; border-radius: 6px; display: block; background: var(--rule); }
 .stats { color: var(--muted); font-size: 11.5px; margin-top: 6px; }
 .tag { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; }
-details { grid-column: 1 / -1; color: var(--muted); }
+details { color: var(--muted); margin-bottom: 10px; }
 details summary { cursor: pointer; font-size: 12px; }
-details .inner { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; align-items: start; margin-top: 8px; }
-.more { grid-column: 1 / -1; display: block; text-align: center; padding: 14px; margin: 6px 0; border: 1px dashed var(--rule); border-radius: 10px; color: var(--accent); text-decoration: none; }
-.empty { grid-column: 1 / -1; padding: 40px 16px; color: var(--muted); }
+details .inner { columns: 290px; column-gap: 10px; margin-top: 8px; }
+details .inner .card { break-inside: avoid; margin-bottom: 10px; }
+.more { display: block; text-align: center; padding: 14px; margin: 6px 0; border: 1px dashed var(--rule); border-radius: 10px; color: var(--accent); text-decoration: none; }
+.empty { padding: 40px 16px; color: var(--muted); }
 `;
 
 function card(p: Post, now: Date, anchor: string): string {
@@ -295,21 +329,34 @@ export interface CardsPage {
   posts: Post[];
   /** dbb-cards://<id>/more: read more posts from the same tab. Empty when that tab is gone. */
   moreUrl: string;
-  /** Mark the first post of the newest batch, so "More posts" lands on it. */
-  newFrom?: number;
+  /** Where each later read ("More posts") starts, as indexes into `posts`; the newest one is the #new anchor. */
+  batches?: Array<{ from: number; at: Date }>;
   collectedAt: Date;
+}
+
+/** One batch of cards, laid out once per column count. */
+function block(posts: Post[], now: Date): string {
+  return COLUMN_COUNTS.map((n) => `<div class="m m${n}">${masonry(posts, n, estimateHeight).map((col) => `<div class="col">${col.map((p) => card(p, now, "")).join("")}</div>`).join("")}</div>`).join("");
 }
 
 /** The card page, from validated posts only, every string escaped. No scripts. */
 export function buildCardsHtml(v: CardsPage): string {
-  const shown = v.posts.filter((p) => !p.promoted);
+  const shownAll = v.posts.filter((p) => !p.promoted);
   const hidden = v.posts.filter((p) => p.promoted);
-  const at = v.collectedAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const time = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   let host = "";
   try {
     host = new URL(v.source).host;
   } catch {}
-  const cards = shown.map((p) => card(p, v.collectedAt, v.newFrom !== undefined && v.posts.indexOf(p) === v.newFrom ? "new" : "")).join("");
+  const starts = [0, ...(v.batches ?? []).map((b) => b.from)];
+  const parts = starts.map((from, i) => {
+    const to = starts[i + 1] ?? v.posts.length;
+    const posts = v.posts.slice(from, to).filter((p) => !p.promoted);
+    if (!posts.length) return "";
+    const b = i > 0 ? v.batches![i - 1]! : null;
+    const head = b ? `<div class="batch"${i === starts.length - 1 ? ' id="new"' : ""}>${posts.length} more · read at ${escapeHtml(time(b.at))}</div>` : "";
+    return head + block(posts, v.collectedAt);
+  });
   const promo = hidden.length
     ? `<details><summary>${hidden.length} promoted post${hidden.length === 1 ? "" : "s"} hidden · show</summary><div class="inner">${hidden.map((p) => card(p, v.collectedAt, "")).join("")}</div></details>`
     : "";
@@ -317,6 +364,6 @@ export function buildCardsHtml(v: CardsPage): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${CARDS_CSP}"><meta name="referrer" content="no-referrer">
 <title>${escapeHtml(`Cards · ${v.title || host}`)}</title><style>${STYLE}</style></head>
-<body><header><h1>${escapeHtml(v.title || host)}</h1><span class="meta">${shown.length} post${shown.length === 1 ? "" : "s"} from ${escapeHtml(host)} · read at ${escapeHtml(at)} · ${escapeHtml(v.rule.name)}</span><a href="${escapeHtml(v.source)}" target="_blank" rel="noopener noreferrer">Original</a>${v.moreUrl ? `<a href="${escapeHtml(v.moreUrl)}">More posts</a>` : ""}</header>
-<main>${promo}${cards || `<div class="empty">No posts were found on this page.</div>`}${more}</main></body></html>`;
+<body><header><h1>${escapeHtml(v.title || host)}</h1><span class="meta">${shownAll.length} post${shownAll.length === 1 ? "" : "s"} from ${escapeHtml(host)} · read at ${escapeHtml(time(v.collectedAt))} · ${escapeHtml(v.rule.name)}</span><a href="${escapeHtml(v.source)}" target="_blank" rel="noopener noreferrer">Original</a>${v.moreUrl ? `<a href="${escapeHtml(v.moreUrl)}">More posts</a>` : ""}</header>
+<main>${promo}${parts.join("") || `<div class="empty">No posts were found on this page.</div>`}${more}</main></body></html>`;
 }
