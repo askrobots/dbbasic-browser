@@ -118,6 +118,9 @@ describe("installing from gitstable (the stand-in)", () => {
     expect(s.stylesFor("127.0.0.1").map((x) => x.id)).toEqual(["wide"]);
     expect(s.stylesFor("localhost")).toEqual([]);
     expect(() => s.install(p.token)).toThrow(/expired/); // a preview is used once
+    const again = await s.preview("demo/wide");
+    expect(again.relation).toBe("same"); // looking up what is installed offers no update
+    expect(again.installedProblem).toBe(false);
     expect(statSync(join(dir, "installed.json")).mode & 0o777).toBe(0o600);
   });
 
@@ -126,6 +129,7 @@ describe("installing from gitstable (the stand-in)", () => {
     s.load();
     const p = await s.preview("demo/wide@2026.10v1");
     expect(p.replaces).toBe("2026.11v1");
+    expect(p.relation).toBe("older");
     s.install(p.token);
     expect(s.list().find((x) => x.id === "wide")?.version).toBe("2026.10v1");
   });

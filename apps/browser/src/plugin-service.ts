@@ -56,6 +56,13 @@ export interface PreviewView {
   testedHere: boolean;
   /** The version this would replace, when the same plugin is installed already. */
   replaces: string | null;
+  /**
+   * How this release compares with the installed one: "new" (not installed), "newer" (an update), "same" (this exact
+   * release and commit is what is installed), "older", or "other" (same plugin, a version that can't be compared).
+   */
+  relation: "new" | "newer" | "same" | "older" | "other";
+  /** The installed copy is switched off because its files changed: installing again repairs it. */
+  installedProblem: boolean;
   /** One sentence for the person: what it will do and what it can't. */
   says: string;
 }
@@ -79,6 +86,17 @@ export function siteList(sites: readonly string[]): string {
 export function describePowers(sites: readonly string[]): string {
   const list = siteList(sites);
   return `It changes how ${list} look${sites.length === 1 ? "s" : ""}. It can't run code, read the page or send anything.`;
+}
+
+/** How a looked-up release compares with what is installed (see PreviewView.relation). */
+export function relationTo(installed: Installed | undefined, version: string, commit: string): PreviewView["relation"] {
+  if (!installed) return "new";
+  if (installed.version === version && installed.source.commit === commit) return "same";
+  const a = parseVersion(version);
+  const b = parseVersion(installed.version);
+  if (!a || !b) return "other";
+  const c = compareVersions(a, b);
+  return c > 0 ? "newer" : c < 0 ? "older" : "other"; // same version name at another commit: a re-tag, shown as "other"
 }
 
 export class PluginStore {
@@ -210,7 +228,8 @@ export class PluginStore {
     const view: PreviewView = {
       token, id: m.id, name: m.name, version: m.version, description: m.description, license: m.license, sites: m.sites, powers: m.powers,
       repository: src.repository, tag, commit, testedOn: m.tested_on, testedHere: m.tested_on.includes(this.d.browserVersion),
-      replaces: owner ? owner.version : null, says: describePowers(m.sites),
+      replaces: owner ? owner.version : null, relation: relationTo(owner, m.version, commit),
+      installedProblem: owner ? this.problems.has(owner.id) : false, says: describePowers(m.sites),
     };
     this.pending.set(token, {
       view, manifest: m, at: this.d.now().getTime(),

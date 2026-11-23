@@ -155,6 +155,8 @@
       #plugPanel .pl .t b { flex: 1; font-weight: 600; }
       #plugPanel .pl .h { color: #8a8a90; font-size: 11px; margin-top: 3px; overflow-wrap: anywhere; }
       #plugPanel .ask { border-color: #3a5a9a; background: #1b2233; }
+      #plugPanel a { color: #8ab4ff; text-decoration: none; }
+      #plugPanel a:hover { text-decoration: underline; }
       #plugPanel label.sw { display: flex; gap: 6px; align-items: center; color: #c8c8cc; font-size: 12px; margin: 4px 0; }
       /* ---- resource status ---- */
       #resBtn { font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -1231,10 +1233,13 @@
           a.appendChild(plugEl("div", "note", plugAsk.says));
           a.appendChild(plugEl("div", "h", shortHost(plugSt.origin) + "/" + plugAsk.repository + " · release " + plugAsk.tag + " · commit " + plugAsk.commit.slice(0, 7) + (plugAsk.license ? " · " + plugAsk.license : "")));
           a.appendChild(plugEl("div", "h", plugAsk.testedHere ? "Tested on this browser version." : "Not tested on this version of the browser" + (plugAsk.testedOn.length ? " (tested on " + plugAsk.testedOn.join(", ") + ")" : "") + "."));
-          if (plugAsk.replaces) a.appendChild(plugEl("div", "h", "Replaces the installed " + plugAsk.replaces + "."));
-          const r2 = plugEl("div", "row2"); const ok = plugEl("button", "sbtn", plugAsk.replaces ? "Update" : "Install"); ok.id = "plugInstall";
+          const rel = plugAsk.relation, was = plugAsk.replaces;
+          a.appendChild(plugEl("div", "h", rel === "newer" ? "An update to the installed " + was + "." : rel === "same" ? (plugAsk.installedProblem ? "This release is installed, but its files changed on this computer. Install it again to repair it." : "This release is installed already.") : rel === "older" ? "Older than the installed " + was + "." : rel === "other" ? "Replaces the installed " + was + "." : ""));
+          const r2 = plugEl("div", "row2");
+          const label = rel === "new" ? "Install" : rel === "newer" ? "Update" : rel === "older" ? "Go back to " + plugAsk.version : rel === "same" ? (plugAsk.installedProblem ? "Repair" : "") : "Replace";
+          const ok = plugEl("button", "sbtn", label); ok.id = "plugInstall"; if (!label) ok.style.display = "none";
           ok.onclick = async () => { const r = await window.x402.plugins.install(plugAsk.token); if (r.ok) { toast("paid", "Installed “" + plugAsk.name + "”"); plugAsk = null; plugSource = ""; } else plugErr = r.error; renderPlug(); };
-          const no = plugEl("button", "sbtn quiet", "Cancel"); no.onclick = () => { plugAsk = null; renderPlug(); };
+          const no = plugEl("button", "sbtn quiet", label ? "Cancel" : "OK"); no.onclick = () => { plugAsk = null; renderPlug(); };
           r2.append(ok, no); a.appendChild(r2); box.appendChild(a);
         }
         if (!plugSt.plugins.length) box.appendChild(plugEl("div", "note", "No plugins yet. Type a plugin's repository, such as askrobots/x-whole-window, and Look up."));
