@@ -6,6 +6,8 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
 
 ## [Unreleased]
 
+## [2026.11v1] - 2026-11-23
+
 ### Added
 - **A version number: 2026.11v1**, the year and month of the release and a count. It is in **Help ▸ Version**, the About
   panel and the browser's User-Agent (`dbbasic-browser/2026.11v1`). Plugins will get a separate interface level

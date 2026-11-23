@@ -1,6 +1,6 @@
 {
   "name": "@dbbasic/browser",
-  "version": "0.1.0",
+  "version": "2026.11.1",
   "type": "module",
   "description": "The dbbasic-browser Electron shell — owns the network stack via protocol.handle to pay x402 challenges transparently.",
   "license": "Apache-2.0",
