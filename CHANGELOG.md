@@ -17,7 +17,8 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
   panel; on a page a plugin is changing, it names that plugin instead (or says it is off). On a plugin's own page on
   gitstable.com it offers **Install** (or **Update**): one click looks the plugin up in the panel, and you press Install.
   The browser fetches gitstable's list of plugins for this only while you are on gitstable.com, at most every five minutes. None are applied while the caller network is on, or when the
-  browser is started with `DBB_SAFE_MODE=1`.
+  browser is started with `DBB_SAFE_MODE=1`. Ask the assistant to change how a page looks and it points you to Plugins
+  (it can't write one itself yet), not to extensions made for other browsers.
 
 ### Fixed
 - **Cookies on requests to other sites.** Since 2026-11-20 the browser sent no cookies on any request to another
