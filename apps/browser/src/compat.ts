@@ -175,13 +175,33 @@ export function chromiumRequestHeaders(url: URL, input: Headers, hints: Hints | 
 }
 
 /**
- * Whether a request should carry cookies. The Request the page made says ("omit", "same-origin" or "include"); "same-origin"
- * means cookies only when the target is the page's own origin. Without that information, include (the old behaviour).
+ * Whether a request should carry cookies.
+ *
+ * The Request a protocol handler gets always says credentials "same-origin": Electron doesn't pass the page's real setting
+ * on (a link, a frame, an image and fetch(…, { credentials: "include" }) all arrive that way). So that word alone can't
+ * decide. Reading it as the truth sent no cookies on any request to another origin, which broke sign-ins: a form posted
+ * to one site and redirected to another failed (ERR_INVALID_ARGUMENT), and x.com's calls to api.x.com went without the
+ * session.
+ *
+ * What a real browser does, as far as the headers tell us (`headers` are chromiumRequestHeaders' output):
+ * - navigations (top level and frames) carry cookies;
+ * - no-cors loads (a plain <img>, <script>) carry them;
+ * - loads with an Origin header (<script crossorigin>, <link crossorigin>, fonts) carry them only to the page's own
+ *   origin. That keeps the fix this started as: such a load from a CDN whose answer is "Access-Control-Allow-Origin: *"
+ *   is refused when the request carried cookies (YouTube's page stayed on grey boxes). A page's fetch() arrives without
+ *   an Origin header, so it is a no-cors load here and carries cookies.
+ * Without fetch-metadata headers (plain http), the same test: a navigation or a load without an Origin header carries
+ * them. "omit" and "include", when a caller other than Electron does pass them, are honoured.
  */
 export function requestCredentials(input: { url: string; credentials?: string; referrer?: string }, headers: Headers): "include" | "omit" {
   const mode = input.credentials;
   if (mode === "omit") return "omit";
   if (mode !== "same-origin") return "include";
+  const fetchMode = headers.get("sec-fetch-mode");
+  if (fetchMode === "navigate" || fetchMode === "no-cors") return "include";
+  // No fetch metadata (an http:// address): the same test chromiumRequestHeaders uses for a navigation, then the Origin header.
+  if (/\btext\/html\b/.test(headers.get("accept") ?? "") && headers.get("upgrade-insecure-requests") === "1") return "include";
+  if (!headers.has("origin")) return "include";
   let target: URL;
   try {
     target = new URL(input.url);

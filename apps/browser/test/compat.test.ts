@@ -150,12 +150,25 @@ describe("requestCredentials", () => {
     expect(requestCredentials({ url: "https://cdn.example/x.js", credentials: "omit" }, h())).toBe("omit");
     expect(requestCredentials({ url: "https://page.example/api", credentials: "omit" }, h({ origin: "https://page.example" }))).toBe("omit");
   });
-  it('"same-origin" carries cookies only to the page\'s own origin (a <script crossorigin> from a CDN carries none)', () => {
-    expect(requestCredentials({ url: "https://cdn.example/x.js", credentials: "same-origin" }, h({ origin: "https://page.example" }))).toBe("omit");
-    expect(requestCredentials({ url: "https://cdn.example/x.js", credentials: "same-origin", referrer: "https://page.example/a" }, h())).toBe("omit");
-    expect(requestCredentials({ url: "https://cdn.example/x.js", credentials: "same-origin" }, h({ referer: "https://page.example/a" }))).toBe("omit");
-    expect(requestCredentials({ url: "https://page.example/api", credentials: "same-origin" }, h({ origin: "https://page.example" }))).toBe("include");
+  it('Electron says "same-origin" for everything, so the headers decide: a load with an Origin header carries cookies only to its own origin', () => {
+    const cors = (site: string) => h({ origin: "https://page.example", "sec-fetch-mode": "cors", "sec-fetch-site": site });
+    expect(requestCredentials({ url: "https://cdn.example/x.js", credentials: "same-origin" }, cors("cross-site"))).toBe("omit");
+    expect(requestCredentials({ url: "https://static.page.example/x.js", credentials: "same-origin" }, cors("same-site"))).toBe("omit"); // <script crossorigin> from a subdomain
+    expect(requestCredentials({ url: "https://page.example/api", credentials: "same-origin" }, cors("same-origin"))).toBe("include");
+  });
+  it("navigations and no-cors loads to another site carry cookies (a link, a frame, a redirect after a form post, a plain image)", () => {
+    const nav = h({ origin: "https://cloud.example", "sec-fetch-mode": "navigate", "sec-fetch-site": "cross-site" });
+    expect(requestCredentials({ url: "https://shop.example/callback?code=1", credentials: "same-origin", referrer: "https://cloud.example/" }, nav)).toBe("include");
+    const img = h({ referer: "https://page.example/a", "sec-fetch-mode": "no-cors", "sec-fetch-site": "cross-site" });
+    expect(requestCredentials({ url: "https://cdn.example/a.png", credentials: "same-origin", referrer: "https://page.example/a" }, img)).toBe("include");
+  });
+  it("without fetch metadata (http): navigations and loads without an Origin header carry cookies; CORS ones only to their own origin", () => {
+    const navHeaders = h({ accept: "text/html,application/xhtml+xml", "upgrade-insecure-requests": "1", referer: "http://a.example/" });
+    expect(requestCredentials({ url: "http://b.example/", credentials: "same-origin", referrer: "http://a.example/" }, navHeaders)).toBe("include");
+    expect(requestCredentials({ url: "http://cdn.example/x.js", credentials: "same-origin", referrer: "http://a.example/" }, h({ referer: "http://a.example/" }))).toBe("include");
+    expect(requestCredentials({ url: "http://cdn.example/x.js", credentials: "same-origin" }, h({ origin: "http://a.example" }))).toBe("omit");
     expect(requestCredentials({ url: "http://127.0.0.1:2/x", credentials: "same-origin" }, h({ origin: "http://127.0.0.1:1" }))).toBe("omit"); // another port is another origin
+    expect(requestCredentials({ url: "http://a.example/api", credentials: "same-origin" }, h({ origin: "http://a.example" }))).toBe("include");
   });
   it('"include", or no information, carries them, as before', () => {
     expect(requestCredentials({ url: "https://api.example/x", credentials: "include" }, h({ origin: "https://page.example" }))).toBe("include");

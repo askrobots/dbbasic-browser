@@ -24,6 +24,35 @@ export default async function (ctx) {
   check(new URL(await loc()).pathname === "/account", "POST /login → 302: the address is /account (it used to stay on /login)", await loc());
   check(/cookie: yes/.test((await T("page.text")).text), "Set-Cookie on the 302 was stored and sent on the next request");
 
+  // A form posted on one site that answers with a redirect to another (an OAuth "Authorize" button): the other site gets the
+  // request WITH its cookies. Before, every request to another origin went without cookies and this one failed outright
+  // (ERR_INVALID_ARGUMENT). Here 127.0.0.1 is the provider and a second server on localhost is the app it sends you back to.
+  const { createServer } = await import("node:http");
+  const seen = [];
+  const app = createServer((req, res) => {
+    seen.push(req.headers.cookie || "");
+    if (req.url === "/set") res.writeHead(200, { "content-type": "text/html", "set-cookie": "app_session=s1; Path=/; SameSite=Lax" }).end("<title>app</title>set");
+    else res.writeHead(200, { "content-type": "text/html" }).end(`<title>back</title><p>back with cookie: ${/app_session=s1/.test(req.headers.cookie || "") ? "yes" : "no"}</p>`);
+  });
+  const provider = createServer((req, res) => {
+    if (req.method === "POST") { req.resume(); req.on("end", () => res.writeHead(302, { location: `${appBase}/callback?code=c1&state=s1` }).end()); return; }
+    res.writeHead(200, { "content-type": "text/html" }).end(`<title>consent</title><form method="post" action="/authorize"><input name="state" value="s1"><button type="submit">Authorize</button></form>`);
+  });
+  await new Promise((r) => app.listen(0, "127.0.0.1", r));
+  await new Promise((r) => provider.listen(0, "127.0.0.1", r));
+  const appBase = `http://localhost:${app.address().port}`;
+  try {
+    await T("page.goto", { url: appBase + "/set" });
+    await T("page.goto", { url: `http://127.0.0.1:${provider.address().port}/consent` });
+    await T("page.click", { selector: "button[type=submit]" });
+    await T("page.waitFor", { text: "back with cookie", timeoutMs: 8000 }).catch(() => {});
+    check(new URL(await loc()).origin === appBase, "a form post answered by a redirect to another site lands there (an OAuth Authorize button)", await loc());
+    check(/back with cookie: yes/.test((await T("page.text")).text), "and that site gets its own cookies on the way back", seen.join(" | "));
+  } finally {
+    app.close();
+    provider.close();
+  }
+
   // a redirect INTO a 402: paid once, at the destination
   const e0 = (await T("x402.events", { since: 0 })).next;
   await T("page.goto", { url: base + "/redir/paid" });

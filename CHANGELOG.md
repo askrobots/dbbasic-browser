@@ -19,6 +19,13 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
   The browser fetches gitstable's list of plugins for this only while you are on gitstable.com, at most every five minutes. None are applied while the caller network is on, or when the
   browser is started with `DBB_SAFE_MODE=1`.
 
+### Fixed
+- **Cookies on requests to other sites.** Since 2026-11-20 the browser sent no cookies on any request to another
+  origin: clicked links, frames, images and a page's own calls to its API on another subdomain. A form that answers with
+  a redirect to another site, such as an OAuth **Authorize** button, failed outright (`ERR_INVALID_ARGUMENT`). Navigations,
+  plain loads and a page's fetches carry cookies again; only loads made with an Origin header (`crossorigin` scripts,
+  styles and fonts) stay without them on other origins, which keeps CDN scripts and fonts loading.
+
 ## [2026.11v1] - 2026-11-23
 
 ### Added
