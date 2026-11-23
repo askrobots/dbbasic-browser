@@ -277,7 +277,8 @@ function add(k) {
     a.innerHTML = '<div data-testid="User-Name"><a href="/person' + n + '"><span>Person ' + n + '</span></a><a href="/person' + n + '" tabindex="-1"><span>@person' + n + '</span></a><a href="/person' + n + '/status/' + (1000 + n) + '"><time datetime="2026-11-23T12:00:00.000Z">Nov 23</time></a></div>'
       + '<div lang="en" dir="auto" data-testid="tweetText">Post number ' + n + ' &lt;b&gt;not bold&lt;/b&gt;</div>'
       + '<div role="group" aria-label="' + n + ' replies, 2 reposts, 1500 likes, 99000 views"></div>'
-      + (n === 3 ? '<div data-testid="placementTracking"><span>Ad</span></div>' : '');
+      + (n === 3 ? '<div><span>Ad</span></div>' : '')
+      + (n === 5 ? '<div data-testid="placementTracking"><div data-testid="videoPlayer"></div></div>' : ''); // a video post, not an ad
     document.getElementById("tl").appendChild(a);
   }
 }

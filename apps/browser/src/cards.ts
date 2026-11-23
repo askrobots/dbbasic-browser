@@ -91,7 +91,8 @@ export const X_VIEW_RULE: ViewRule = {
     images: [{ sel: 'img[src*="pbs.twimg.com/media/"], img[src*="pbs.twimg.com/card_img/"]', take: "src", all: true }, { sel: "video[poster]", take: "poster", all: true }],
     stats: { sel: '[role="group"][aria-label]', take: "aria-label" },
     context: { sel: '[data-testid="socialContext"]', take: "text" },
-    promoted: [{ sel: '[data-testid="placementTracking"]', take: "exists" }, { sel: "span", take: "exists", match: "^(Ad|Promoted)$" }],
+    // X's "Ad" label. (Not data-testid="placementTracking": on the older layout that wraps video posts too.)
+    promoted: { sel: "span", take: "exists", match: "^(Ad|Promoted)$" },
   },
 };
 
