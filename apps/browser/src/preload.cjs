@@ -92,6 +92,8 @@ contextBridge.exposeInMainWorld("x402", {
     remove: (id) => ipcRenderer.invoke("plugins:remove", id),
     allOff: (off) => ipcRenderer.invoke("plugins:all-off", off),
     onChanged: sub("plugins:changed"),
+    /** gitstable's Install button was followed: open Plugins with that release looked up. */
+    onOpen: sub("plugins:open"),
   },
   history: {
     state: () => ipcRenderer.invoke("history:state"),

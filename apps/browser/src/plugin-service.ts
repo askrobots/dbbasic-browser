@@ -205,6 +205,26 @@ export class PluginStore {
     return this.refreshListing(onPluginPage && stale);
   }
 
+  /**
+   * A gitstable page opened with ?install=owner/repo@tag (its Install button): the release to look up, but only for a
+   * plugin in gitstable's list. Anyone can make a repository there, so a link naming one that isn't listed does nothing.
+   * Nothing is installed here: the caller opens Plugins with this looked up, and Install stays the person's click.
+   */
+  installLinkSource(url: string): string | null {
+    let asked: string | null = null;
+    try {
+      const u = new URL(url);
+      if (u.origin !== this.d.origin) return null;
+      asked = u.searchParams.get("install");
+    } catch {
+      return null;
+    }
+    if (!asked || /:|\/\//.test(asked)) return null;
+    const src = parsePluginSource(asked, this.d.origin);
+    if ("error" in src || !this.listing.some((l) => l.repository === src.repository)) return null;
+    return src.tag ? `${src.repository}@${src.tag}` : src.repository;
+  }
+
   private get indexPath() { return join(this.d.dir, "installed.json"); }
 
   /** Reads what is installed and checks every file. Safe to call again (the automation API's recheck). */

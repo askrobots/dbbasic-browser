@@ -1307,6 +1307,7 @@
         await setPlug(true); plugLookUp(offer); // the look-up, done for you; Install is still yours to press
       };
       window.x402.plugins.onChanged((st) => { plugSt = st; renderPlug(); paintPlugBtn(); });
+      window.x402.plugins.onOpen(async (m) => { if (!m || !m.source) return; await setPlug(true); plugLookUp(m.source); }); // gitstable's Install button
       window.x402.plugins.state().then((st) => { plugSt = st; paintPlugBtn(); }).catch(() => {});
       document.addEventListener("keydown", (e) => { if (e.key === "Escape" && plugOpen) setPlug(false); });
 

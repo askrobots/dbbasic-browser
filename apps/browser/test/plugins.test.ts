@@ -195,6 +195,17 @@ describe("installing from gitstable (the stand-in)", () => {
     expect(await hits()).toBe(h0 + 1); // the plugin's own page, list over a minute old: fetched again
   });
 
+  it("takes gitstable's ?install= link only for listed plugins, on gitstable itself", async () => {
+    const s = store();
+    await s.refreshListing(true);
+    expect(s.installLinkSource(origin + "/store/wide/?install=demo/wide@2026.11v1")).toBe("demo/wide@2026.11v1");
+    expect(s.installLinkSource(origin + "/repositories/demo/wide/?install=demo/wide")).toBe("demo/wide");
+    expect(s.installLinkSource(origin + "/store/wide/?install=demo/sneaky@2026.11v1")).toBeNull(); // a real repository, not listed
+    expect(s.installLinkSource("https://evil.test/store/wide/?install=demo/wide")).toBeNull(); // only on gitstable
+    expect(s.installLinkSource(origin + "/store/wide/?install=https://evil.test/demo/wide")).toBeNull();
+    expect(s.installLinkSource(origin + "/store/wide/")).toBeNull();
+  });
+
   it("finds a plugin by its name alone in gitstable's list", async () => {
     const s = store();
     s.load();

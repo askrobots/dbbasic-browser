@@ -112,4 +112,13 @@ export default async function (ctx) {
   check(!/^(Install|Update)/.test(await waitFor(async () => { const p = await pill(); return /^Install/.test(p) ? null : p; }, "the offer to go")), "once installed, the page stops offering it", await pill());
   await T("plugins.remove", { id: "wide" });
   await q(`setPlug(false)`);
+
+  // ---- gitstable's Install button: a link back to the page with ?install=owner/repo@tag ----
+  await T("page.goto", { url: base + "/store/wide/?install=demo/wide@2026.11v1" });
+  const ask3 = await waitFor(() => q(`const a = document.getElementById('plugAsk'); return document.getElementById('plugPanel').classList.contains('open') && a ? a.textContent : ''`), "Plugins opened by the install link");
+  check(/Wide page 2026\.11v1/.test(ask3) && /can't run code/.test(ask3) && (await T("plugins.state")).plugins.length === 0, "gitstable's Install link opens Plugins with that release looked up, and installs nothing", ask3);
+  await q(`setPlug(false)`);
+  await T("page.goto", { url: base + "/store/wide/?install=demo/sneaky@2026.11v1" });
+  await sleep(1000);
+  check(!(await q(`return document.getElementById('plugPanel').classList.contains('open')`)), "a link naming a repository that isn't a listed plugin does nothing");
 }

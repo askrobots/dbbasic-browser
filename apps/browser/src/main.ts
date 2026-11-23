@@ -1075,7 +1075,13 @@ app.whenReady().then(async () => {
         onGitstable = new URL(url).origin === GITSTABLE;
       } catch {}
       if (!onGitstable || !plugins || callerNet.enabled) return;
-      void plugins.refreshListingOn(url).then((changed) => { if (changed) pluginsChanged(); });
+      const store = plugins;
+      void store.refreshListingOn(url).then((changed) => {
+        if (changed) pluginsChanged();
+        // gitstable's Install button: open Plugins with that release looked up (listed plugins only; Install is still a click).
+        const source = store.installLinkSource(url);
+        if (source) mainWindow?.webContents.send("plugins:open", { source });
+      });
     });
     wc.on("did-finish-load", () => readSoon(1500));
     wc.on("destroyed", () => {
