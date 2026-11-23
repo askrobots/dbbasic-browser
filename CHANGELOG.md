@@ -24,6 +24,14 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
   browser is started with `DBB_SAFE_MODE=1`. Ask the assistant to change how a page looks and it points you to Plugins
   (it can't write one itself yet), not to extensions made for other browsers.
 
+- **Card view (X).** **View ▸ Card View (X)** (⌘⇧K), or ask the assistant: the posts on the X page you are on, shown
+  as dense cards in a tab of the browser's own, many at once and left to right, newest first. The browser reads the
+  posts itself (in a separate world the page can't reach) and scrolls the tab a few screens at a reading pace to gather
+  more; **More posts** reads further, showing the X tab for a few seconds while it scrolls. Promoted posts are set
+  aside behind a line that says how many. The card page has no scripts and sends nothing anywhere; each card links to
+  the post on X. Where a site keeps its posts is written as a *view rule* (selectors only, no code), so other sites can
+  be added the same way. It never clicks, likes, follows or posts.
+
 ### Fixed
 - **Cookies on requests to other sites.** Since 2026-11-20 the browser sent no cookies on any request to another
   origin: clicked links, frames, images and a page's own calls to its API on another subdomain. A form that answers with

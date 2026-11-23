@@ -780,6 +780,7 @@
         return tab.wcId != null;
       }
       const summary = (t, extra) => ({ id: t.id, wcId: t.wcId, url: t.url, title: t.title, ...extra });
+      let peekBack = null;
       window.x402.onControl(async (op, a) => {
         const tab = a.id != null ? tabs.find((t) => t.id === a.id) : null;
         if (a.id != null && !tab) throw new Error("no such tab: " + a.id);
@@ -793,6 +794,14 @@
           }
           case "tab.close": closeTab(tab); return { closed: a.id };
           case "tab.activate": switchTo(tab); return summary(tab, {});
+          // Card view's "More posts": show the tab being read while it scrolls (a hidden page doesn't load more), then
+          // go back to the tab that asked.
+          case "tab.peek": {
+            const t = tabs.find((x) => x.wcId === a.wcId);
+            if (a.on) { peekBack = active; if (t) switchTo(t); }
+            else if (peekBack && tabs.includes(peekBack)) { switchTo(peekBack); peekBack = null; }
+            return { ok: !!t };
+          }
           case "tab.goto": {
             if (a.wait === "start") {
               // Return once the navigation has actually BEGUN (not finished), so a settle that follows can't run
@@ -848,6 +857,18 @@
         if (!r.ok) toast("skipped", "📖 " + (r.message || "Couldn't open the reader"), 5000);
       }
       $("readerBtn").onclick = () => openReader();
+      // Card view: the page's posts as dense cards in a new tab (X for now). The page is scrolled while it is read.
+      let cardsBusy = false;
+      async function openCards() {
+        if (!active || active.wcId == null || !active.url) { toast("skipped", "Open a web page first"); return; }
+        if (cardsBusy) return;
+        cardsBusy = true;
+        try {
+          const r = await window.x402.cards.open({ wcId: active.wcId });
+          if (!r.ok) toast("skipped", "▦ " + (r.message || "Couldn't make a card view"), 5000);
+          else if (r.promoted) toast("quoted", "▦ " + r.posts + " posts as cards · " + r.promoted + " promoted hidden", 4000);
+        } finally { cardsBusy = false; }
+      }
 
       // Which tab does a payment event belong to? Events carry only a resource URL, so:
       // reuse the earlier mapping; else among loading tabs prefer the one on the same
@@ -1380,6 +1401,7 @@
         else if (cmd === "reload") { try { active.wv.reload(); } catch {} }
         else if (cmd.startsWith("motion:")) setMotionMode(cmd.slice(7));
         else if (cmd === "reader") openReader();
+        else if (cmd === "cards") openCards();
         else if (cmd === "chat") toggleChat();
         // The menu bar has every feature: a menu item does what its button does.
         else if (cmd.startsWith("click:") && MENU_BUTTONS.has(cmd.slice(6))) $(cmd.slice(6)).click();
@@ -2122,6 +2144,8 @@
           } else if (finished && ev.state === "interrupted") {
             toast("skipped", "⬇ Download failed: " + ev.name, 6000);
           }
+        } else if (ev.kind === "cards-progress") {
+          if (ev.start) toast("quoted", "▦ Reading the posts on this page for a card view…", 3000);
         } else if (ev.kind === "reader-busy") {
           const t = tabs.find((x) => x.wcId === ev.wcId);
           if (t) { t.aiBusy = ev.busy ? (ev.provider + (ev.model ? " · " + ev.model : "")) : null; refreshThrobber(t); }

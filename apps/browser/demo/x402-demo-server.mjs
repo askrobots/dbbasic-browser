@@ -262,6 +262,32 @@ const server = createServer(async (req, res) => {
   // A stand-in for gitstable's plugin addresses (tags and files at a commit), and a page for the demo plugin to change.
   // Not counted in /hits either.
   if (fakeGitstable(req, res)) return;
+  // A timeline in the shape of X's older layout, for the card view: 15 posts, 10 more each time the end of the list
+  // comes into view (up to 60), and the third one promoted.
+  if (path === "/timeline") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(`<!doctype html><title>Timeline</title><style>article { height: 140px; border-bottom: 1px solid #ddd; margin: 0 auto; max-width: 600px; }</style><main id="tl"></main>
+<script>
+let n = 0;
+function add(k) {
+  for (let i = 0; i < k && n < 60; i++) {
+    n++;
+    const a = document.createElement("article");
+    a.setAttribute("data-testid", "tweet");
+    a.innerHTML = '<div data-testid="User-Name"><a href="/person' + n + '"><span>Person ' + n + '</span></a><a href="/person' + n + '" tabindex="-1"><span>@person' + n + '</span></a><a href="/person' + n + '/status/' + (1000 + n) + '"><time datetime="2026-11-23T12:00:00.000Z">Nov 23</time></a></div>'
+      + '<div lang="en" dir="auto" data-testid="tweetText">Post number ' + n + ' &lt;b&gt;not bold&lt;/b&gt;</div>'
+      + '<div role="group" aria-label="' + n + ' replies, 2 reposts, 1500 likes, 99000 views"></div>'
+      + (n === 3 ? '<div data-testid="placementTracking"><span>Ad</span></div>' : '');
+    document.getElementById("tl").appendChild(a);
+  }
+}
+add(15);
+// Like X: more posts load when the end of the list comes into view.
+const end = document.createElement("div"); end.id = "end"; end.style.height = "1px"; document.body.appendChild(end);
+new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) add(10); }).observe(end);
+</script>`);
+    return;
+  }
   if (path === "/plugin-page") {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(`<!doctype html><title>Column</title><style>#col { max-width: 300px; margin: 0 auto; }</style><div id="col">A column that a plugin can widen.</div>`);

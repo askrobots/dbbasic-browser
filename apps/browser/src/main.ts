@@ -30,6 +30,8 @@ import { describeAi, loadAiEnv, resolveAi, type AiConfig, type Provider } from "
 import { createReader } from "./reader-service.js";
 import { noteDownload, runSettle, trackLifecycle, noteKnownDocument } from "./settle-service.js";
 import { EXPIRED_HTML, READER_SCHEME, ReaderPages, readerIdFromUrl } from "./reader-pages.js";
+import { CARDS_SCHEME, createCards } from "./cards-service.js";
+import { CARDS_CSP } from "./cards.js";
 import { READER_CSP } from "./reader.js";
 import { registerVault } from "./vault-service.js";
 import { handle as handleControl, getTabs, setTabs, startControl, type ApprovalPolicy, type ControlDeps, type ControlHandle, type TabInfo } from "./control.js";
@@ -61,6 +63,7 @@ const ICON_PATH = join(__dirname, "icon.png");
 protocol.registerSchemesAsPrivileged([
   { scheme: READER_SCHEME, privileges: { standard: true, secure: true } },
   { scheme: KEPT_SCHEME, privileges: { standard: true, secure: true } },
+  { scheme: CARDS_SCHEME, privileges: { standard: true, secure: true } },
 ]);
 const readerPages = new ReaderPages();
 
@@ -813,6 +816,7 @@ function buildMenu(): void {
         },
         { type: "separator" },
         { label: "AI Reader", accelerator: "CmdOrCtrl+Shift+R", click: tabCmd("reader") },
+        { label: "Card View (X)", accelerator: "CmdOrCtrl+Shift+K", click: tabCmd("cards") },
         { label: "Assistant chat", accelerator: "CmdOrCtrl+J", click: tabCmd("chat") },
         { label: "x402 Inspector", click: tabCmd("click:inspectBtn") },
         { label: "What the Browser Is Using (Memory, CPU, Data)", click: tabCmd("click:resBtn") },
@@ -1103,6 +1107,21 @@ app.whenReady().then(async () => {
     });
   });
   const reader = createReader({ getWindow: () => mainWindow, askChrome, emit, getAi: () => aiCfg, pages: readerPages });
+  // Card view: a site's posts as dense cards in a tab of the browser's own (cards.ts, cards-service.ts).
+  const cards = createCards({
+    askChrome,
+    emit,
+    isOurTab: (wc): wc is Electron.WebContents => !!wc && !wc.isDestroyed() && wc.getType() === "webview" && !!mainWindow && wc.hostWebContents === mainWindow.webContents,
+  });
+  protocol.handle(CARDS_SCHEME, async (request) => {
+    const r = await cards.serve(request.url);
+    return new Response(r.html, { status: r.status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": CARDS_CSP, "referrer-policy": "no-referrer", "cache-control": "no-store" } });
+  });
+  const openCards = async (wcId: number, extra: { rule?: unknown; want?: number; rounds?: number } = {}) => {
+    if (callerNet.enabled) return { ok: false, reason: "caller-network-on", message: "Card view is switched off while the caller network is on." };
+    return cards.open({ wcId, ...extra });
+  };
+  ipcMain.handle("cards:open", (_e, a: { wcId?: number }) => openCards(Number(a?.wcId)));
   // From the chrome UI (a human clicked Reader): ask before anything is sent.
   ipcMain.handle("reader:open", async (_e, a: { wcId?: number }) => {
     if (callerNet.enabled) return { ok: false, reason: "caller-network-on", message: "The reader is switched off while the caller network is on." };
@@ -1656,6 +1675,7 @@ app.whenReady().then(async () => {
           approval = p;
           emit({ kind: "approval-changed", mode: p.mode, maxUsd: p.maxUsd });
         },
+        cards: async (p) => openCards(Number(p.wcId), { ...(p.rule !== undefined ? { rule: p.rule } : {}), ...(typeof p.want === "number" ? { want: p.want } : {}), ...(typeof p.rounds === "number" ? { rounds: p.rounds } : {}) }),
         reader: async (p) => {
           const r = await reader.open({ wcId: Number(p.wcId), interactive: false, withAi: p.ai !== false, acknowledge: p.acknowledge === true });
           const ai = r.done && p.wait !== false ? await r.done : undefined;

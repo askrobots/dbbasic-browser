@@ -40,6 +40,9 @@ contextBridge.exposeInMainWorld("x402", {
     return () => ipcRenderer.removeListener("x402:event", listener);
   },
   /** AI Reader. Keys never cross this bridge: only provider/model names. */
+  cards: {
+    open: (args) => ipcRenderer.invoke("cards:open", args),
+  },
   reader: {
     open: (args) => ipcRenderer.invoke("reader:open", args),
     ai: () => ipcRenderer.invoke("reader:ai"),

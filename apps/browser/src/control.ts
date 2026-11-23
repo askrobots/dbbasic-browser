@@ -19,6 +19,7 @@
  *   - The toolbar shows a visible 🤖 chip whenever it is on.
  */
 
+import { BUILT_IN_RULES } from "./cards";
 import { FIND_JS, FORMS_JS, elementExpr, pointOf } from "./page-tools";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
@@ -90,6 +91,8 @@ export interface ControlDeps {
   spent(): string;
   /** AI Reader: open the reader view for a tab (and, only with `acknowledge`, summarize it). */
   reader(p: Record<string, unknown>): Promise<unknown>;
+  /** Card view: read a tab's posts with its site's view rule and open them as cards in a new tab. */
+  cards(p: Record<string, unknown>): Promise<unknown>;
   aiStatus(): unknown;
   /** The in-browser chat (see chat-service.ts). */
   chat: ChatService;
@@ -533,6 +536,15 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
     case "ai.provider": {
       if (!d.setAiProvider(p.provider)) throw new RpcError("bad-params", 'provider must be "anthropic" or "openai" and have a key');
       return d.aiStatus();
+    }
+    case "cards.rules":
+      // The built-in view rules (what the card view knows how to read).
+      return { rules: BUILT_IN_RULES };
+    case "cards.open": {
+      // Reads the tab's posts (scrolling it, as a person reading would) and opens them as cards. Nothing leaves this computer.
+      const t = resolveTab(p);
+      if (t.wcId == null) throw new RpcError("tab-not-ready", `tab ${t.id} is not ready yet`);
+      return d.cards({ wcId: t.wcId, ...(p.rule !== undefined ? { rule: p.rule } : {}), ...(typeof p.want === "number" ? { want: p.want } : {}), ...(typeof p.rounds === "number" ? { rounds: p.rounds } : {}) });
     }
     case "reader.open": {
       provider(() => d.assertNotCallerNet("the reader"));
