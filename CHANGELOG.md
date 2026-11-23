@@ -13,7 +13,8 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
   is refused, and plugins asking for anything else are refused too. It installs from a release tag at the exact commit
   the tag points to; every file is checked against its git blob id, and checked again at every start, so a copy changed
   on this computer is switched off. Rules apply at once to open pages; one switch turns them all off to see sites as
-  they are; each can be switched off, updated or removed. None are applied while the caller network is on, or when the
+  they are; each can be switched off, updated or removed. The status bar names the plugin changing the page you are
+  on (or says it is off), and opens the Plugins panel. None are applied while the caller network is on, or when the
   browser is started with `DBB_SAFE_MODE=1`.
 
 ## [2026.11v1] - 2026-11-23

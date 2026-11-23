@@ -26,8 +26,11 @@ export default async function (ctx) {
   check((await width()) === "300px", "looking up installs nothing");
   await T("plugins.install", { token: pv.token });
   check(await widthIs("none", "the plugin on the open page"), "installing applies it to the open page at once", await width());
+  const pill = () => q(`const b = document.getElementById('plugBtn'); return b.style.display === 'none' ? '' : b.textContent + (b.classList.contains('on') ? '|on' : '|off')`);
+  check((await waitFor(pill, "the status bar's plugin item")) === "Plugin: Wide page|on", "the status bar names the plugin changing this page", await pill());
   await T("page.goto", { url: `http://localhost:${port}/plugin-page` });
   check((await width()) === "300px", "another site (localhost) is left alone");
+  check((await pill()) === "", "and the status bar shows no plugin there", await pill());
   await T("page.goto", { url: base + "/plugin-page" });
   check(await widthIs("none", "the plugin after loading the page again"), "a page loaded later gets it too");
   const again = await fails(T("plugins.install", { token: pv.token }));
@@ -36,6 +39,7 @@ export default async function (ctx) {
   // ---- switches ----
   await T("plugins.allOff", { off: true });
   check(await widthIs("300px", "all off"), "Turn all plugins off shows the site as it is, at once");
+  check((await waitFor(async () => /off/.test(await pill()) && pill(), "the status bar to say off")) === "Plugin off|off", "and the status bar says the site's plugin is off", await pill());
   await T("plugins.allOff", { off: false });
   check(await widthIs("none", "back on"), "and on again");
   await T("plugins.enable", { id: "wide", enabled: false });
@@ -57,10 +61,10 @@ export default async function (ctx) {
   check((await T("plugins.state")).plugins.length === 1, "and nothing refused was installed");
 
   // ---- the Plugins panel ----
-  await q(`onTabCmd("plugins")`);
+  await q(`document.getElementById('plugBtn').click()`);
   await waitFor(() => q(`return document.getElementById('plugPanel').classList.contains('open') && !!document.querySelector('#plugPanel .pl[data-id="wide"]')`), "the panel with the plugin");
   const row = await q(`return document.querySelector('#plugPanel .pl[data-id="wide"]').textContent`);
-  check(/Wide page 2026\.11v1/.test(row) && /release 2026\.11v1 · commit [0-9a-f]{7}/.test(row), "Tools ▸ Plugins lists it with its release and commit", row);
+  check(/Wide page 2026\.11v1/.test(row) && /release 2026\.11v1 · commit [0-9a-f]{7}/.test(row), "clicking it opens Plugins, which lists it with its release and commit", row);
   const type = (text) => q(`const i = document.getElementById('plugSource'); i.value = ${JSON.stringify(text)}; i.dispatchEvent(new Event('input')); document.getElementById('plugLook').click(); return true;`);
   await type("demo/wide");
   const same = await waitFor(() => q(`const a = document.getElementById('plugAsk'); return a ? a.textContent : ''`), "the look-up of the installed release");
@@ -78,5 +82,6 @@ export default async function (ctx) {
   await q(`const b = [...document.querySelectorAll('#plugPanel .pl[data-id="wide"] button')].find((x) => /Remove/.test(x.textContent)); b.click(); b.click();`);
   check(await widthIs("300px", "removed"), "Remove (asked twice) takes it off the open page");
   check((await T("plugins.state")).plugins.length === 0, "and off the list");
+  check((await waitFor(async () => (await pill()) === "" || null, "the status bar item to go").catch(() => false)) !== false, "and the status bar item goes", await pill());
   await q(`setPlug(false)`);
 }
