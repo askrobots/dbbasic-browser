@@ -19,6 +19,8 @@ export default async function (ctx) {
   });
   check(hostCode === 403, "non-loopback Host header → 403 (DNS-rebinding guard)");
   check((await raw({ authorization: "Bearer " + token })) === 200, "valid token → 200");
+  const about = (await T("status")).browser;
+  check(/^\d{4}\.(0[1-9]|1[0-2])v[1-9]\d*(-[0-9A-Za-z.]+)?$/.test(about?.version) && about.pluginApi >= 1, "status gives the browser's version as people see it (year.month v count) and the plugin interface level", JSON.stringify(about));
 
   // ---- vault login ----
   await T("page.goto", { url: base + "/login" });

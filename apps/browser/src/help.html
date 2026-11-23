@@ -234,7 +234,8 @@ const { spent } = await b.call("x402.spent");</pre>
 
   <h2 id="identity">How we identify ourselves</h2>
   <p>Every request carries a Chromium-compatible User-Agent that says who we are and links to <a href="https://dbbasic.com">dbbasic.com</a>:</p>
-<pre>Mozilla/5.0 (…) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130… Safari/537.36 dbbasic-browser/0.1.0 (+https://dbbasic.com)</pre>
+<pre>Mozilla/5.0 (…) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130… Safari/537.36 dbbasic-browser/2026.11v1 (+https://dbbasic.com)</pre>
+  <p>The version is the year and month of the release and a count: <b>2026.11v1</b> is the first release of November 2026, 2026.11v2 the next, and 2026.12v1 the first of December. <b>Help ▸ Version</b> and <b>About</b> show it.</p>
   <p>This is the same convention Edge and Opera use: the engine really is Chromium, so the usual tokens stay, and our own token goes on the end. We do not pose as Firefox or Chrome — it would be untrue, and it would contradict the client hints, JavaScript APIs and TLS handshake a site can also see.</p>
   <p>We do send what a real Chromium navigation sends: <code>Sec-CH-UA</code> client hints (taken from the engine itself, so they always match <code>navigator.userAgentData</code>), correct <code>Sec-Fetch-*</code> metadata, and a <code>Referer</code> that follows the page's referrer policy.</p>
   <div class="note warn"><b>Some sites will still refuse us.</b> A few large sites (eBay, for one) run bot management that rejects embedded-Chromium browsers at the edge — we measured the same HTTP 403 with our own network layer switched off, with a bare Chrome User-Agent, and with a Firefox one, while Firefox on the same machine was served. That is the site's decision; we don't try to evade it. Use <b>File ▸ Open Page in Default Browser</b> for those pages.</div>

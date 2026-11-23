@@ -1,11 +1,15 @@
 # Changelog
 
 All notable changes to dbbasic-browser. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Nothing has been released yet, so everything below is under **Unreleased**.
+Versions are the year and month of the release and a count from 1: **2026.11v1** is the first release of November 2026,
+then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 2026.11.1, as semver requires.)
 
 ## [Unreleased]
 
 ### Added
+- **A version number: 2026.11v1**, the year and month of the release and a count. It is in **Help ▸ Version**, the About
+  panel and the browser's User-Agent (`dbbasic-browser/2026.11v1`). Plugins will get a separate interface level
+  (starting at 1) that goes up only when what a plugin can rely on changes.
 - **Site icons (favicons)** in the tabs, the address bar's suggestions and the bookmarks and kept panels, so you can
   spot a site at a glance. Each site's icon is fetched once, from the first of its pages you open, without cookies and
   outside the payment handler, and kept on this computer in a file only you can read (looked at again after a week).

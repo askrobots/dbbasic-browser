@@ -21,6 +21,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { PolicyEngine, Ledger, X402Engine, formatUsd, signExactEvm } from "@dbbasic/x402-engine";
 import { createPaymentHandler, type RawFetch } from "./intercept.js";
 import { brandedUserAgent } from "./compat.js";
+import { displayVersion, PLUGIN_API_LEVEL } from "./version.js";
 import { emitNet, netEvents, netRequestFetch, nextNetId, setClientHints, type NetEvent } from "./transport.js";
 import { ExtensionRegistry, loadExtensions, parseExtensionPaths } from "./extensions.js";
 import { CallerNetwork, ProviderError, clampAnswerTimeout, type Answer, type CookieJar, type Document } from "./provider.js";
@@ -72,8 +73,10 @@ const PRODUCT_VERSION = (() => {
     return "0.0.0";
   }
 })();
+/** The version people see, and the git tag: 2026.11v1 (package.json holds 2026.11.1; see version.ts). */
+const SHOWN_VERSION = displayVersion(PRODUCT_VERSION);
 const USER_AGENT =
-  process.env.DBB_USER_AGENT || brandedUserAgent(app.userAgentFallback, { name: "dbbasic-browser", version: PRODUCT_VERSION, url: "https://dbbasic.com" });
+  process.env.DBB_USER_AGENT || brandedUserAgent(app.userAgentFallback, { name: "dbbasic-browser", version: SHOWN_VERSION, url: "https://dbbasic.com" });
 app.userAgentFallback = USER_AGENT; // must be set before the app is ready
 
 
@@ -677,6 +680,13 @@ const tabCmd = (cmd: string) => () => mainWindow?.webContents.send("tab:cmd", cm
  * would reload the chrome itself and wipe every open tab.
  */
 function buildMenu(): void {
+  // dbbasic-browser ▸ About shows the version people see (Electron would show package.json's 2026.11.1).
+  app.setAboutPanelOptions({
+    applicationName: "dbbasic-browser",
+    applicationVersion: SHOWN_VERSION,
+    version: `Chromium ${process.versions.chrome}, Electron ${process.versions.electron}`,
+    website: "https://dbbasic.com",
+  });
   const template: MenuItemConstructorOptions[] = [
     ...(process.platform === "darwin" ? [{ role: "appMenu" } as MenuItemConstructorOptions] : []),
     {
@@ -823,6 +833,7 @@ function buildMenu(): void {
           enabled: false,
         },
         { type: "separator" },
+        { label: `Version ${SHOWN_VERSION}`, enabled: false },
         { label: "Report an Issue…", click: () => void shell.openExternal("https://github.com/askrobots/dbbasic-browser/issues/new") },
         { label: "Project on GitHub", click: () => void shell.openExternal("https://github.com/askrobots/dbbasic-browser") },
       ],
@@ -1527,6 +1538,7 @@ app.whenReady().then(async () => {
           last: () => (lastMenu ? { wcId: lastMenu.wcId, items: lastMenu.items } : null),
           pick: (id) => (lastMenu ? lastMenu.run(id) : false),
         },
+        about: { version: SHOWN_VERSION, semver: PRODUCT_VERSION, pluginApi: PLUGIN_API_LEVEL },
         getApproval: () => approval,
         setApproval: (p) => {
           approval = p;

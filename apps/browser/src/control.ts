@@ -72,6 +72,8 @@ export interface ControlDeps {
     /** Bring the address bar's copy of history up to date now (otherwise it happens on its own). */
     syncCopy(): Promise<unknown>;
   };
+  /** The browser's version as shown (2026.11v1), as in package.json (2026.11.1), and the plugin interface level. */
+  about: { version: string; semver: string; pluginApi: number };
   getApproval(): ApprovalPolicy;
   setApproval(p: ApprovalPolicy): void;
   spent(): string;
@@ -222,7 +224,7 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
   switch (method) {
     // ---- meta / tabs --------------------------------------------------------
     case "status":
-      return { version: 1, extensions: d.extensions.loadedNames(), tabs, approval: d.getApproval(), spent: d.spent(), vault: await d.vault.state() };
+      return { version: 1, browser: d.about, extensions: d.extensions.loadedNames(), tabs, approval: d.getApproval(), spent: d.spent(), vault: await d.vault.state() };
     case "tabs.list":
       return tabs;
     case "tabs.new":

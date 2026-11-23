@@ -3,7 +3,7 @@ import { brandedUserAgent, chromeMajor, chromiumRequestHeaders, isTrustworthy, r
 
 const ELECTRON_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) dbbasic-browser/33.4.11 Chrome/130.0.6723.191 Electron/33.4.11 Safari/537.36";
-const PRODUCT = { name: "dbbasic-browser", version: "0.1.0", url: "https://dbbasic.com" };
+const PRODUCT = { name: "dbbasic-browser", version: "2026.11v1", url: "https://dbbasic.com" };
 const HINTS: Hints = { brands: [{ brand: "Not?A_Brand", version: "99" }, { brand: "Chromium", version: "130" }], platform: "macOS", mobile: false };
 
 describe("brandedUserAgent", () => {
@@ -16,7 +16,7 @@ describe("brandedUserAgent", () => {
     expect(ua.startsWith("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.191 Safari/537.36")).toBe(true);
   });
   it("ends with our product token and a link back to dbbasic.com", () => {
-    expect(ua.endsWith("dbbasic-browser/0.1.0 (+https://dbbasic.com)")).toBe(true);
+    expect(ua.endsWith("dbbasic-browser/2026.11v1 (+https://dbbasic.com)")).toBe(true);
   });
   it("does not claim to be Firefox", () => {
     expect(ua).not.toMatch(/Firefox|Gecko\/\d/);
