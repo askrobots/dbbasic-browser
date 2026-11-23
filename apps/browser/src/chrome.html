@@ -1213,7 +1213,10 @@
         box.textContent = "";
         const h = document.createElement("h4"); const x = plugEl("button", "sbtn quiet", "✕"); x.onclick = () => setPlug(false);
         h.append(plugEl("span", "", "Plugins"), plugEl("span", "sp"), x); box.appendChild(h);
-        box.appendChild(plugEl("div", "sub", "Style rules from " + shortHost(plugSt.origin) + ". They change how a site looks, and can't run code, read the page or send anything."));
+        const sub = plugEl("div", "sub", "Style rules from " + shortHost(plugSt.origin) + ". They change how a site looks, and can't run code, read the page or send anything. ");
+        const browse = plugEl("a", "", "Browse all plugins"); browse.id = "plugBrowse"; browse.href = "#";
+        browse.onclick = (e) => { e.preventDefault(); setPlug(false); newTab(plugSt.origin + "/store/#plugins", true); }; // on a plugin's page there, the status bar offers Install
+        sub.appendChild(browse); box.appendChild(sub);
         if (plugSt.safeMode) box.appendChild(plugEl("div", "err", "Safe mode: no plugins are applied this time (the browser was started with DBB_SAFE_MODE=1)."));
         if (plugSt.callerNet) box.appendChild(plugEl("div", "err", "No plugins while the caller network is on."));
         const sw = plugEl("label", "sw"); const cb = document.createElement("input"); cb.type = "checkbox"; cb.id = "plugAllOff"; cb.checked = !!plugSt.allOff;

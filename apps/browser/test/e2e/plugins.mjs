@@ -84,6 +84,13 @@ export default async function (ctx) {
   check((await T("plugins.state")).plugins.length === 0, "and off the list");
   check((await waitFor(async () => (await pill()) === "Plugins|off" || null, "the status bar to say Plugins").catch(() => false)) !== false, "and the status bar goes back to Plugins", await pill());
   await q(`setPlug(false)`);
+  await q(`setPlug(true)`);
+  await waitFor(() => q(`return !!document.getElementById('plugBrowse')`), "the Browse all plugins link");
+  const nTabs = (await T("tabs.list")).length;
+  await q(`document.getElementById('plugBrowse').click()`);
+  const browsed = await waitFor(async () => { const t = await T("tabs.list"); return t.length === nTabs + 1 ? t.find((x) => x.active) : null; }, "the store tab");
+  check(browsed.url === base + "/store/#plugins", "Browse all plugins opens gitstable's list of plugins in a new tab", browsed.url);
+  await T("tabs.close", { tab: browsed.id });
 
   // ---- one click from the plugin's own page on gitstable (the list is fetched only on gitstable, at most every 5 minutes) ----
   const listHits = async () => (await (await fetch(base + "/o/_plugin-list-hits")).json()).hits;
