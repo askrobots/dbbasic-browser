@@ -23,7 +23,8 @@ export interface Fetched { status: number; header(name: string): string | null; 
 
 export interface PluginDeps {
   /** GET without cookies, outside the payment handler. Rejects on network failure. */
-  fetch(url: string): Promise<Fetched>;
+  /** `fresh`: ask the server whether a cached copy is still current (the plugin list); files at a commit never change. */
+  fetch(url: string, fresh?: boolean): Promise<Fetched>;
   /** The folder plugins are kept in. */
   dir: string;
   /** gitstable, e.g. https://gitstable.com. */
@@ -167,7 +168,7 @@ export class PluginStore {
     if (!force && this.d.now().getTime() - this.listingAt < LISTING_MS) return Promise.resolve(false);
     this.listingFetch ??= (async () => {
       try {
-        const r = await this.get(`${this.d.origin}/store/plugins.json`, MAX_LISTING_BYTES, "the plugin list");
+        const r = await this.get(`${this.d.origin}/store/plugins.json`, MAX_LISTING_BYTES, "the plugin list", true);
         const next = parseListing(JSON.parse(new TextDecoder().decode(r.bytes)), this.d.origin);
         this.listingAt = this.d.now().getTime();
         const changed = JSON.stringify(next) !== JSON.stringify(this.listing);
@@ -231,10 +232,10 @@ export class PluginStore {
     return out;
   }
 
-  private async get(url: string, limit: number, what: string): Promise<Fetched> {
+  private async get(url: string, limit: number, what: string, fresh = false): Promise<Fetched> {
     let r: Fetched;
     try {
-      r = await this.d.fetch(url);
+      r = await this.d.fetch(url, fresh);
     } catch (e) {
       throw new PluginError("network", `Could not reach ${new URL(url).host} (${(e as Error).message})`);
     }

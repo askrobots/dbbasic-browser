@@ -347,11 +347,12 @@ async function fetchIcon(url: string): Promise<Fetched | null> {
 }
 
 /** A plugin file from gitstable: no cookies, never through the payment handler, 15 s at most. */
-async function fetchPluginFile(url: string): Promise<PluginFetched> {
+async function fetchPluginFile(url: string, fresh = false): Promise<PluginFetched> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 15000);
   try {
-    const r = await session.defaultSession.fetch(url, { signal: ac.signal, credentials: "omit", bypassCustomProtocolHandlers: true, redirect: "error" } as RequestInit);
+    // fresh: revalidate a cached copy (an ETag check, so usually a short 304) instead of trusting it for its max-age.
+    const r = await session.defaultSession.fetch(url, { signal: ac.signal, credentials: "omit", bypassCustomProtocolHandlers: true, redirect: "error", ...(fresh ? { cache: "no-cache" } : {}) } as RequestInit);
     return { status: r.status, header: (n) => r.headers.get(n), bytes: new Uint8Array(await r.arrayBuffer()) };
   } finally {
     clearTimeout(timer);
