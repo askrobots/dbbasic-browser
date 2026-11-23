@@ -6,6 +6,8 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
 
 ## [Unreleased]
 
+## [2026.11v1] - 2026-11-23
+
 ### Added
 - **Plugins, starting with style rules.** **Tools ▸ Plugins** installs a style rule from gitstable.com: type its
   repository (owner/name), look it up, and the browser says which sites it changes before you install it. A style rule
@@ -23,7 +25,6 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
   release looked up, for plugins in gitstable's list only; Install is still your click. None are applied while the caller network is on, or when the
   browser is started with `DBB_SAFE_MODE=1`. Ask the assistant to change how a page looks and it points you to Plugins
   (it can't write one itself yet), not to extensions made for other browsers.
-
 - **View rules: a second kind of plugin, and card views.** A view rule names, by CSS selectors only, where a site keeps
   its posts. Installed from gitstable like a style rule, it adds a button to the status bar on its sites (its label and
   one of a few icons the browser draws: cards, grid, list, columns); the button shows the page's posts as dense cards
@@ -35,20 +36,9 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
   change the page or send anything, and asking for more than plain text and addresses is refused. Nothing is built in:
   for X, install `askrobots/x-cards`. The assistant can open a card view too, where one is installed. Plugin level 2
   (view rules need it).
-
-### Fixed
-- **Cookies on requests to other sites.** Since 2026-11-20 the browser sent no cookies on any request to another
-  origin: clicked links, frames, images and a page's own calls to its API on another subdomain. A form that answers with
-  a redirect to another site, such as an OAuth **Authorize** button, failed outright (`ERR_INVALID_ARGUMENT`). Navigations,
-  plain loads and a page's fetches carry cookies again; only loads made with an Origin header (`crossorigin` scripts,
-  styles and fonts) stay without them on other origins, which keeps CDN scripts and fonts loading.
-
-## [2026.11v1] - 2026-11-23
-
-### Added
 - **A version number: 2026.11v1**, the year and month of the release and a count. It is in **Help ▸ Version**, the About
-  panel and the browser's User-Agent (`dbbasic-browser/2026.11v1`). Plugins will get a separate interface level
-  (starting at 1) that goes up only when what a plugin can rely on changes.
+  panel and the browser's User-Agent (`dbbasic-browser/2026.11v1`). Plugins get a separate interface level that goes
+  up only when what a plugin can rely on changes: 2 in this release (view rules need it).
 - **Site icons (favicons)** in the tabs, the address bar's suggestions and the bookmarks and kept panels, so you can
   spot a site at a glance. Each site's icon is fetched once, from the first of its pages you open, without cookies and
   outside the payment handler, and kept on this computer in a file only you can read (looked at again after a week).
@@ -251,6 +241,11 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
 - Development tooling: esbuild 0.21 → 0.28, vitest 2 → 5, and in-range patch updates. `npm audit` reports 0 findings.
 
 ### Fixed
+- **Cookies on requests to other sites.** Since 2026-11-20 the browser sent no cookies on any request to another
+  origin: clicked links, frames, images and a page's own calls to its API on another subdomain. A form that answers with
+  a redirect to another site, such as an OAuth **Authorize** button, failed outright (`ERR_INVALID_ARGUMENT`). Navigations,
+  plain loads and a page's fetches carry cookies again; only loads made with an Origin header (`crossorigin` scripts,
+  styles and fonts) stay without them on other origins, which keeps CDN scripts and fonts loading.
 - **A link that opens a new tab now gives that page the keyboard**, so the space bar scrolls it or pauses its video
   straight away. The address bar took the focus instead, as if the tab were empty, and you had to click the page first.
   Switching to a tab gives its page the keyboard too, except while you are typing in the browser's own fields.
