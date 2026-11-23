@@ -24,13 +24,17 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
   browser is started with `DBB_SAFE_MODE=1`. Ask the assistant to change how a page looks and it points you to Plugins
   (it can't write one itself yet), not to extensions made for other browsers.
 
-- **Card view (X).** **View ▸ Card View (X)** (⌘⇧K), or ask the assistant: the posts on the X page you are on, shown
-  as dense cards in a tab of the browser's own, many at once and left to right, newest first. The browser reads the
-  posts itself (in a separate world the page can't reach) and scrolls the tab a few screens at a reading pace to gather
-  more; **More posts** reads further, showing the X tab for a few seconds while it scrolls. Promoted posts are set
-  aside behind a line that says how many. The card page has no scripts and sends nothing anywhere; each card links to
-  the post on X. Where a site keeps its posts is written as a *view rule* (selectors only, no code), so other sites can
-  be added the same way. It never clicks, likes, follows or posts.
+- **View rules: a second kind of plugin, and card views.** A view rule names, by CSS selectors only, where a site keeps
+  its posts. Installed from gitstable like a style rule, it adds a button to the status bar on its sites (its label and
+  one of a few icons the browser draws: cards, grid, list, columns); the button shows the page's posts as dense cards
+  in a tab of the browser's own, many at once and laid out as masonry with no gaps, newest across the top. The browser
+  reads the posts itself, in a separate world the page can't reach, and scrolls the tab a few screens at a reading pace
+  to gather more; **More posts** reads further, showing the site's tab for the few seconds it scrolls, and adds a new
+  block below. Posts marked as ads are set aside behind a line that says how many; long posts are cut to ten lines.
+  The card page has no scripts and sends nothing anywhere; each card links to the post. A view rule can't run code,
+  change the page or send anything, and asking for more than plain text and addresses is refused. Nothing is built in:
+  for X, install `askrobots/x-cards`. The assistant can open a card view too, where one is installed. Plugin level 2
+  (view rules need it).
 
 ### Fixed
 - **Cookies on requests to other sites.** Since 2026-11-20 the browser sent no cookies on any request to another

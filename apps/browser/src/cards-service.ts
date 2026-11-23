@@ -9,7 +9,7 @@
 
 import { randomBytes } from "node:crypto";
 import { webContents, type WebContents } from "electron";
-import { buildCardsHtml, mergePosts, readerSource, ruleFor, validatePosts, validateViewRule, type Post, type ViewRule } from "./cards.js";
+import { buildCardsHtml, mergePosts, readerSource, validatePosts, validateViewRule, type Post, type ViewRule } from "./cards.js";
 
 export const CARDS_SCHEME = "dbb-cards";
 const ID_RE = /^[0-9a-f]{18}$/;
@@ -97,22 +97,13 @@ export function createCards(deps: CardsDeps, opts: { stepMs?: number; max?: numb
     return v.html;
   }
 
-  /** `rule`: a view rule to use instead of the built-in one for the site (the automation API; later, installed view-rule plugins). */
-  async function open(o: { wcId: number; want?: number; rounds?: number; rule?: unknown }): Promise<CardsResult> {
+  /** `rule`: the view rule to read with (from an installed view-rule plugin; checked again here). */
+  async function open(o: { wcId: number; want?: number; rounds?: number; rule: unknown }): Promise<CardsResult> {
     const wc = webContents.fromId(o.wcId);
     if (!deps.isOurTab(wc)) return { ok: false, reason: "no-tab", message: "No such tab." };
-    let rule: ViewRule | null = null;
-    if (o.rule !== undefined) {
-      const r = validateViewRule(o.rule);
-      if (!r.ok) return { ok: false, reason: "no-rule", message: `That view rule was refused: ${r.error}` };
-      rule = r.rule;
-    } else {
-      try {
-        const u = new URL(wc.getURL());
-        if (u.protocol === "https:") rule = ruleFor(u.hostname);
-      } catch {}
-    }
-    if (!rule) return { ok: false, reason: "no-rule", message: "Card view works on X for now. Other sites need their own view rule." };
+    const checked = validateViewRule(o.rule);
+    if (!checked.ok) return { ok: false, reason: "no-rule", message: `That view rule was refused: ${checked.error}` };
+    const rule = checked.rule;
     const v: View = { rule, srcWcId: wc.id, source: wc.getURL(), title: "", posts: new Map(), html: "", at: Date.now(), busy: true, batches: [] };
     try {
       deps.emit({ kind: "cards-progress", wcId: wc.id, posts: 0, start: true });

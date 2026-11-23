@@ -18,7 +18,7 @@ describe("plugin manifest (dbbasic-rule.json)", () => {
   it("refuses what this browser can't honour, saying why", () => {
     const err = (m: object, api = 1) => { const r = validateManifest({ ...good, ...m }, api); return r.ok ? "" : r.error; };
     expect(err({ v: 2 })).toMatch(/format/);
-    expect(err({ kind: "userscript" })).toMatch(/style rules only/);
+    expect(err({ kind: "userscript" })).toMatch(/installs style rules and view rules, not "userscript"/);
     expect(err({ powers: ["style", "page-script"] })).toMatch(/page-script/);
     expect(err({ sites: [] })).toMatch(/sites/);
     expect(err({ sites: ["https://x.com/"] })).toMatch(/not a site name/);
@@ -50,6 +50,21 @@ describe("style rules stay look-only", () => {
   it("sees through comments", () => {
     expect(styleProblem("/* harmless */ a { background: url(x) }")).not.toBeNull();
     expect(styleProblem("/* url(x) is only mentioned */ a { color: red }")).toBeNull();
+  });
+});
+
+describe("view rules in dbbasic-rule.json", () => {
+  const vr = (over: Record<string, unknown> = {}) => ({ v: 1, id: "cards", name: "Cards", kind: "view-rule", version: "2026.11v1", sites: ["x.com"], powers: ["read-posts"], view: "cards.json", button: { label: "Cards", icon: "cards" }, min_api: 2, ...over });
+  it("accepts a view rule with its button", () => {
+    const r = validateManifest(vr(), 2);
+    expect(r.ok && r.manifest.kind === "view-rule" && r.manifest.button?.icon === "cards" && r.manifest.view === "cards.json").toBe(true);
+  });
+  it("refuses a view rule asking for more, a button with its own picture, and a style rule asking to read", () => {
+    expect(validateManifest(vr({ powers: ["read-posts", "style"] }), 2)).toMatchObject({ ok: false, error: expect.stringMatching(/"read-posts" and nothing else/) });
+    expect(validateManifest(vr({ button: { label: "Cards", icon: "https://evil.test/i.svg" } }), 2)).toMatchObject({ ok: false, error: expect.stringMatching(/icon must be one of cards, grid, list, columns/) });
+    expect(validateManifest(vr({ button: { label: "x".repeat(30), icon: "cards" } }), 2).ok).toBe(false);
+    expect(validateManifest(vr({ view: "../cards.json" }), 2).ok).toBe(false);
+    expect(validateManifest({ v: 1, id: "w", name: "W", kind: "style-rule", version: "2026.11v1", sites: ["x.com"], powers: ["style", "read-posts"], style: "w.css" }, 2)).toMatchObject({ ok: false, error: expect.stringMatching(/style rule may only ask for "style"/) });
   });
 });
 
@@ -212,6 +227,30 @@ describe("installing from gitstable (the stand-in)", () => {
     for (const p of s.list()) s.remove(p.id);
     expect((await s.preview("wide")).repository).toBe("demo/wide");
     await expect(s.preview("nothing-called-this")).rejects.toThrow(/no installed or listed plugin is called nothing-called-this/);
+  });
+
+  it("installs a view rule: a status-bar button for its sites, the posts read with its selectors", async () => {
+    const s2 = new PluginStore({ fetch: fetchVia, dir, origin, apiLevel: 2, browserVersion: "2026.11v1", now: () => new Date() });
+    s2.load();
+    const p = await s2.preview("demo/cards");
+    expect(p.says).toMatch(/adds a Cards button to the status bar on 127\.0\.0\.1: it reads the posts there and shows them as cards/);
+    expect(p.says).toMatch(/can't run code, change the page or send anything/);
+    s2.install(p.token);
+    const v = s2.viewsFor("127.0.0.1");
+    expect(v.map((x) => [x.id, x.button.label, x.button.icon, x.rule.post])).toEqual([["cards", "Cards", "cards", "article"]]);
+    expect(s2.viewsFor("localhost")).toEqual([]);
+    expect(s2.stylesFor("127.0.0.1").map((x) => x.id)).not.toContain("cards"); // a view rule adds no style
+    s2.setEnabled("cards", false);
+    expect(s2.viewsFor("127.0.0.1")).toEqual([]);
+    s2.setEnabled("cards", true);
+    const again = new PluginStore({ fetch: fetchVia, dir, origin, apiLevel: 2, browserVersion: "2026.11v1", now: () => new Date() });
+    again.load(); // checked again at every start
+    expect(again.viewsFor("127.0.0.1").map((x) => x.id)).toEqual(["cards"]);
+    await expect(s2.preview("demo/cards-sneaky")).rejects.toThrow(/refused: bad field text/);
+    await expect(s2.preview("demo/cards-elsewhere")).rejects.toThrow(/reads x\.com, which the plugin doesn't name/);
+    s2.remove("cards");
+    expect(s2.viewsFor("127.0.0.1")).toEqual([]);
+    await expect(store().preview("demo/cards")).rejects.toThrow(/needs plugin level 2; this browser has 1/);
   });
 
   it("all off, one off, and remove", async () => {

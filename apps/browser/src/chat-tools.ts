@@ -219,15 +219,16 @@ export function pageTools(run: Runner): ToolDef[] {
       name: "card_view",
       origin: "browser",
       description:
-        "Show a tab's posts as dense cards in a new tab of the browser's own, many at once, with promoted posts set aside. Works on X (x.com) for now. The browser reads the posts itself and scrolls the tab a few screens to gather more; nothing is sent anywhere. Use it when the person wants to see more of a timeline at once, a card or grid view, or fewer ads.",
+        "Show a tab's posts as dense cards in a new tab of the browser's own, many at once, with promoted posts set aside. It works on sites that have a card view plugin installed (a view rule from gitstable; for X, askrobots/x-cards). The browser reads the posts itself and scrolls the tab a few screens to gather more; nothing is sent anywhere. Use it when the person wants to see more of a timeline at once, a card or grid view, or fewer ads.",
       input_schema: { type: "object", properties: { ...tabProp }, additionalProperties: false },
       risk: "act",
       plan: async (input) => {
         const tabs = (await run("tabs.list", {})) as Array<{ id: number; url: string; title: string; active: boolean }>;
         const t = typeof input.tab === "number" ? tabs.find((x) => x.id === input.tab) : tabs.find((x) => x.active);
         if (!t) return { summary: "", refuse: "there is no such tab; call list_tabs" };
-        if (!/^https:\/\/([a-z0-9-]+\.)*(x|twitter)\.com\//i.test(t.url)) return { summary: "", refuse: "the card view works on X (x.com) only for now" };
-        return { summary: `Show the posts on “${short(t.title || t.url, 60)}” as cards (it scrolls that tab a few screens)`, safe: true };
+        const views = ((await run("cards.for", { tab: t.id })) as { views: Array<{ id: string; name: string }> }).views;
+        if (!views.length) return { summary: "", refuse: "no card view plugin is installed for this site; tell the person to look one up in Plugins (for X: askrobots/x-cards)" };
+        return { summary: `Show the posts on “${short(t.title || t.url, 60)}” as cards with the ${views[0]!.name} plugin (it scrolls that tab a few screens)`, safe: true };
       },
       run: async (input) => {
         const r = (await run("cards.open", tabParam(input))) as { ok: boolean; message?: string; posts?: number; promoted?: number };

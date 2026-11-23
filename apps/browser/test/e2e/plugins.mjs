@@ -15,7 +15,7 @@ export default async function (ctx) {
   const fails = (p) => p.then(() => null, (e) => e);
 
   let st = await T("plugins.state");
-  check(st.plugins.length === 0 && st.origin === base && st.apiLevel === 1, "no plugins at first; installs come from the configured gitstable", JSON.stringify({ n: st.plugins.length, origin: st.origin }));
+  check(st.plugins.length === 0 && st.origin === base && st.apiLevel === 2, "no plugins at first; installs come from the configured gitstable", JSON.stringify({ n: st.plugins.length, origin: st.origin }));
   await T("page.goto", { url: base + "/plugin-page" });
   check((await width()) === "300px", "the demo page's column is 300px wide on its own");
 

@@ -56,6 +56,8 @@
       #histBtn.paused { color: #f0c674; }
       #histBtn.off { color: #8a8a90; }
       #plugBtn { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #viewBtns { display: contents; }
+      .viewBtn { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
       #plugBtn.applied { color: #9fd8a8; }
       #plugBtn.unapplied { color: #8a8a90; }
       #plugBtn.offer { color: #8ab4ff; }
@@ -328,6 +330,7 @@
       <div id="cn">Caller network ON · this browser fetches nothing itself</div>
       <div id="ctlChip" style="display:none"></div>
       <button class="btn" id="plugBtn">Plugins</button>
+      <span id="viewBtns"></span>
       <button class="btn" id="histBtn" style="display:none" title="History: the pages you visit are kept on your askrobots account, so you can find one later. Click to pause or resume."></button>
       <button class="btn" id="resBtn" title="What the browser is using: memory, CPU, data, disk">Memory …</button>
       <button class="btn" id="inspectBtn" title="x402 inspector: every payment request, decision and payment"><!--icon:x402--> x402<span id="inspectCount">0</span></button>
@@ -859,12 +862,12 @@
       $("readerBtn").onclick = () => openReader();
       // Card view: the page's posts as dense cards in a new tab (X for now). The page is scrolled while it is read.
       let cardsBusy = false;
-      async function openCards() {
+      async function openCards(plugin) {
         if (!active || active.wcId == null || !active.url) { toast("skipped", "Open a web page first"); return; }
         if (cardsBusy) return;
         cardsBusy = true;
         try {
-          const r = await window.x402.cards.open({ wcId: active.wcId });
+          const r = await window.x402.cards.open({ wcId: active.wcId, plugin });
           if (!r.ok) toast("skipped", "▦ " + (r.message || "Couldn't make a card view"), 5000);
           else if (r.promoted) toast("quoted", "▦ " + r.posts + " posts as cards · " + r.promoted + " promoted hidden", 4000);
         } finally { cardsBusy = false; }
@@ -1273,7 +1276,9 @@
           on.onchange = async () => { const r = await window.x402.plugins.enable(p.id, on.checked); if (!r.ok) { plugErr = r.error; renderPlug(); } };
           const rm = plugEl("button", "sbtn quiet", "Remove"); rm.onclick = async () => { if (!rm.dataset.sure) { rm.dataset.sure = "1"; rm.textContent = "Remove it?"; return; } const r = await window.x402.plugins.remove(p.id); if (!r.ok) { plugErr = r.error; renderPlug(); } };
           t.append(on, plugEl("b", "", p.name + " " + p.version), rm); d.appendChild(t);
-          d.appendChild(plugEl("div", "h", "Changes how " + (p.sites.length > 1 ? p.sites.slice(0, -1).join(", ") + " and " + p.sites[p.sites.length - 1] : p.sites.join("")) + " look" + (p.sites.length === 1 ? "s" : "") + " · " + (p.testedHere ? "tested on this version" : "not tested on this version")));
+          const siteWords = p.sites.length > 1 ? p.sites.slice(0, -1).join(", ") + " and " + p.sites[p.sites.length - 1] : p.sites.join("");
+          const what = p.kind === "view-rule" && p.button ? "Adds a " + p.button.label + " button on " + siteWords + " (shows its posts as cards)" : "Changes how " + siteWords + " look" + (p.sites.length === 1 ? "s" : "");
+          d.appendChild(plugEl("div", "h", what + " · " + (p.testedHere ? "tested on this version" : "not tested on this version")));
           const src = plugEl("div", "h"); const link = plugEl("a", "", shortHost(plugSt.origin) + "/" + p.source.repository); link.href = "#";
           link.onclick = (e) => { e.preventDefault(); setPlug(false); newTab(plugSt.origin + "/repositories/" + p.source.repository + "/", true); };
           src.append(link, document.createTextNode(" · release " + p.source.tag + " · commit " + p.source.commit.slice(0, 7))); d.appendChild(src);
@@ -1294,9 +1299,29 @@
       // looking page can be told apart from a plugin at a glance; otherwise it just says Plugins. Click: the Plugins panel.
       function plugSiteMatch(host, sites) { const h = String(host || "").toLowerCase(); return sites.some((s) => s.startsWith("*.") ? h.endsWith(s.slice(1)) : h === s || h.endsWith("." + s)); }
       const plugPageKey = (u) => { try { const x = new URL(u); return x.origin + x.pathname.replace(/\/+$/, ""); } catch { return ""; } };
+      // View-rule plugins add a button here on the sites they cover, with an icon the browser draws (the plugin only names
+      // one of a fixed set, so its button can't pass for one of the browser's own).
+      let viewKey = "";
+      function paintViewBtns(host) {
+        const box = $("viewBtns"); if (!box) return;
+        const off = plugSt.safeMode || plugSt.callerNet || plugSt.allOff;
+        const views = host && !off ? (plugSt.plugins || []).filter((p) => p.kind === "view-rule" && p.enabled && !p.problem && p.button && plugSiteMatch(host, p.sites)) : [];
+        const key = views.map((p) => p.id + ":" + p.button.label + ":" + p.button.icon).join("|");
+        if (key === viewKey) return;
+        viewKey = key; box.textContent = "";
+        for (const p of views) {
+          const b = document.createElement("button"); b.className = "btn viewBtn"; b.dataset.plugin = p.id;
+          b.innerHTML = ICONS["plugin-" + p.button.icon] || "";
+          const t = document.createElement("span"); t.textContent = " " + p.button.label; b.appendChild(t);
+          b.title = p.button.label + ": " + p.name + " (a plugin). Shows this page's posts as cards in a new tab; it scrolls this page to read more.";
+          b.onclick = () => openCards(p.id);
+          box.appendChild(b);
+        }
+      }
       function paintPlugBtn() {
         const b = $("plugBtn"); if (!b) return;
         let host = ""; try { const u = new URL(active && !active.reader ? active.url : ""); if (/^https?:$/.test(u.protocol)) host = u.hostname; } catch {}
+        paintViewBtns(host);
         // On a plugin's own page on gitstable (from gitstable's list): offer to install it, or to update to its newest release.
         const key = active && !active.reader ? plugPageKey(active.url) : "";
         const offer = key ? (plugSt.listed || []).find((it) => (it.url && plugPageKey(it.url) === key) || (it.repositoryUrl && plugPageKey(it.repositoryUrl) === key)) : null;
@@ -1401,7 +1426,6 @@
         else if (cmd === "reload") { try { active.wv.reload(); } catch {} }
         else if (cmd.startsWith("motion:")) setMotionMode(cmd.slice(7));
         else if (cmd === "reader") openReader();
-        else if (cmd === "cards") openCards();
         else if (cmd === "chat") toggleChat();
         // The menu bar has every feature: a menu item does what its button does.
         else if (cmd.startsWith("click:") && MENU_BUTTONS.has(cmd.slice(6))) $(cmd.slice(6)).click();

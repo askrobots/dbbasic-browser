@@ -816,7 +816,6 @@ function buildMenu(): void {
         },
         { type: "separator" },
         { label: "AI Reader", accelerator: "CmdOrCtrl+Shift+R", click: tabCmd("reader") },
-        { label: "Card View (X)", accelerator: "CmdOrCtrl+Shift+K", click: tabCmd("cards") },
         { label: "Assistant chat", accelerator: "CmdOrCtrl+J", click: tabCmd("chat") },
         { label: "x402 Inspector", click: tabCmd("click:inspectBtn") },
         { label: "What the Browser Is Using (Memory, CPU, Data)", click: tabCmd("click:resBtn") },
@@ -1117,11 +1116,28 @@ app.whenReady().then(async () => {
     const r = await cards.serve(request.url);
     return new Response(r.html, { status: r.status, headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": CARDS_CSP, "referrer-policy": "no-referrer", "cache-control": "no-store" } });
   });
-  const openCards = async (wcId: number, extra: { rule?: unknown; want?: number; rounds?: number } = {}) => {
-    if (callerNet.enabled) return { ok: false, reason: "caller-network-on", message: "Card view is switched off while the caller network is on." };
-    return cards.open({ wcId, ...extra });
+  // Card views come from view-rule plugins: the ones installed for the tab's site (none built in).
+  const cardViewsFor = (wcId: number) => {
+    const wc = webContents.fromId(wcId);
+    let host = "";
+    try {
+      const u = new URL(wc && !wc.isDestroyed() ? wc.getURL() : "");
+      if (/^https?:$/.test(u.protocol)) host = u.hostname;
+    } catch {}
+    return SAFE_MODE || callerNet.enabled || !plugins ? [] : plugins.viewsFor(host);
   };
-  ipcMain.handle("cards:open", (_e, a: { wcId?: number }) => openCards(Number(a?.wcId)));
+  const openCards = async (wcId: number, extra: { plugin?: string; rule?: unknown; want?: number; rounds?: number } = {}) => {
+    if (callerNet.enabled) return { ok: false, reason: "caller-network-on", message: "Card view is switched off while the caller network is on." };
+    let rule = extra.rule;
+    if (rule === undefined) {
+      const views = cardViewsFor(wcId);
+      const v = extra.plugin ? views.find((x) => x.id === extra.plugin) : views[0];
+      if (!v) return { ok: false, reason: "no-rule", message: "No card view plugin covers this site. Plugins in the status bar finds them on gitstable." };
+      rule = v.rule;
+    }
+    return cards.open({ wcId, rule, ...(extra.want !== undefined ? { want: extra.want } : {}), ...(extra.rounds !== undefined ? { rounds: extra.rounds } : {}) });
+  };
+  ipcMain.handle("cards:open", (_e, a: { wcId?: number; plugin?: string }) => openCards(Number(a?.wcId), typeof a?.plugin === "string" ? { plugin: a.plugin } : {}));
   // From the chrome UI (a human clicked Reader): ask before anything is sent.
   ipcMain.handle("reader:open", async (_e, a: { wcId?: number }) => {
     if (callerNet.enabled) return { ok: false, reason: "caller-network-on", message: "The reader is switched off while the caller network is on." };
@@ -1675,7 +1691,8 @@ app.whenReady().then(async () => {
           approval = p;
           emit({ kind: "approval-changed", mode: p.mode, maxUsd: p.maxUsd });
         },
-        cards: async (p) => openCards(Number(p.wcId), { ...(p.rule !== undefined ? { rule: p.rule } : {}), ...(typeof p.want === "number" ? { want: p.want } : {}), ...(typeof p.rounds === "number" ? { rounds: p.rounds } : {}) }),
+        cards: async (p) => openCards(Number(p.wcId), { ...(typeof p.plugin === "string" ? { plugin: p.plugin } : {}), ...(p.rule !== undefined ? { rule: p.rule } : {}), ...(typeof p.want === "number" ? { want: p.want } : {}), ...(typeof p.rounds === "number" ? { rounds: p.rounds } : {}) }),
+        cardsFor: (wcId: number) => cardViewsFor(wcId).map((v) => ({ id: v.id, name: v.name, button: v.button })),
         reader: async (p) => {
           const r = await reader.open({ wcId: Number(p.wcId), interactive: false, withAi: p.ai !== false, acknowledge: p.acknowledge === true });
           const ai = r.done && p.wait !== false ? await r.done : undefined;

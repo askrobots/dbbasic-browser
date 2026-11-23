@@ -19,7 +19,6 @@
  *   - The toolbar shows a visible 🤖 chip whenever it is on.
  */
 
-import { BUILT_IN_RULES } from "./cards";
 import { FIND_JS, FORMS_JS, elementExpr, pointOf } from "./page-tools";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
@@ -93,6 +92,8 @@ export interface ControlDeps {
   reader(p: Record<string, unknown>): Promise<unknown>;
   /** Card view: read a tab's posts with its site's view rule and open them as cards in a new tab. */
   cards(p: Record<string, unknown>): Promise<unknown>;
+  /** The card views (view-rule plugins) installed for a tab's site. */
+  cardsFor(wcId: number): Array<{ id: string; name: string; button: unknown }>;
   aiStatus(): unknown;
   /** The in-browser chat (see chat-service.ts). */
   chat: ChatService;
@@ -537,14 +538,17 @@ export async function handle(d: ControlDeps, method: string, p: Record<string, u
       if (!d.setAiProvider(p.provider)) throw new RpcError("bad-params", 'provider must be "anthropic" or "openai" and have a key');
       return d.aiStatus();
     }
-    case "cards.rules":
-      // The built-in view rules (what the card view knows how to read).
-      return { rules: BUILT_IN_RULES };
+    case "cards.for": {
+      // The card views (view-rule plugins) installed for a tab's site.
+      const t = resolveTab(p);
+      if (t.wcId == null) throw new RpcError("tab-not-ready", `tab ${t.id} is not ready yet`);
+      return { views: d.cardsFor(t.wcId) };
+    }
     case "cards.open": {
       // Reads the tab's posts (scrolling it, as a person reading would) and opens them as cards. Nothing leaves this computer.
       const t = resolveTab(p);
       if (t.wcId == null) throw new RpcError("tab-not-ready", `tab ${t.id} is not ready yet`);
-      return d.cards({ wcId: t.wcId, ...(p.rule !== undefined ? { rule: p.rule } : {}), ...(typeof p.want === "number" ? { want: p.want } : {}), ...(typeof p.rounds === "number" ? { rounds: p.rounds } : {}) });
+      return d.cards({ wcId: t.wcId, ...(typeof p.plugin === "string" ? { plugin: p.plugin } : {}), ...(p.rule !== undefined ? { rule: p.rule } : {}), ...(typeof p.want === "number" ? { want: p.want } : {}), ...(typeof p.rounds === "number" ? { rounds: p.rounds } : {}) });
     }
     case "reader.open": {
       provider(() => d.assertNotCallerNet("the reader"));

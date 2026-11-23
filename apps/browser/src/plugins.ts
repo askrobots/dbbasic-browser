@@ -1,5 +1,9 @@
 /**
- * Plugins, first kind: the style rule. A style rule is CSS for the sites it names and nothing else: it cannot run code,
+ * Plugins, of two kinds. A view rule (kind "view-rule", power "read-posts") names, by CSS selectors only, where its
+ * sites keep their posts; it adds a button to the status bar on those sites that shows the posts as cards (cards.ts
+ * reads them and checks the rule). Its button's icon is one of a fixed set the browser draws.
+ *
+ * The first kind: the style rule. A style rule is CSS for the sites it names and nothing else: it cannot run code,
  * read the page or send anything. That last promise is kept here, by refusing any CSS that could make a request (url(),
  * @import, image-set(), @font-face…) or hide one behind an escape, so "style only" means what it says.
  *
@@ -20,17 +24,38 @@ export const MANIFEST_FILE = "dbbasic-rule.json";
 export const MAX_MANIFEST_BYTES = 16 * 1024;
 export const MAX_STYLE_BYTES = 256 * 1024;
 /** The powers this browser knows. A plugin asking for any other is refused, never half-installed. */
-export const KNOWN_POWERS = ["style"] as const;
+export const KNOWN_POWERS = ["style", "read-posts"] as const;
+export const MAX_VIEW_BYTES = 64 * 1024;
+/**
+ * The icons a plugin's status-bar button may use. They are drawn by the browser: a plugin names one and can't bring its
+ * own picture, so its button can't look like one of the browser's own controls.
+ */
+export const PLUGIN_ICONS = ["cards", "grid", "list", "columns"] as const;
+
+export type PluginKind = "style-rule" | "view-rule";
+export interface PluginButton {
+  label: string;
+  icon: (typeof PLUGIN_ICONS)[number];
+}
 
 export interface RuleManifest {
   v: 1;
   id: string;
   name: string;
-  kind: "style-rule";
+  /**
+   * "style-rule": CSS for its sites (`style`, power "style"). "view-rule": where its sites keep their posts (`view`, a
+   * view rule: selectors only), shown as cards from a button in the status bar (`button`, power "read-posts").
+   */
+  kind: PluginKind;
   version: string;
   sites: string[];
   powers: string[];
+  /** The .css file (style rules). */
   style: string;
+  /** The view rule's .json file (view rules). */
+  view?: string;
+  /** Its status-bar button (view rules). */
+  button?: PluginButton;
   min_api: number;
   tested_on: string[];
   license: string;
@@ -47,6 +72,10 @@ export interface Installed {
   sites: string[];
   powers: string[];
   testedOn: string[];
+  /** "style-rule" when missing (installed before view rules existed). */
+  kind?: PluginKind;
+  /** A view rule's status-bar button. */
+  button?: PluginButton;
   /** Where it came from: the gitstable host, "owner/repo", the tag and the commit it was installed at. */
   source: { host: string; repository: string; tag: string; commit: string };
   files: Array<{ path: string; blob: string; sha256: string; bytes: number }>;
@@ -74,7 +103,7 @@ export function validateManifest(raw: unknown, apiLevel: number): { ok: true; ma
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return bad("dbbasic-rule.json is not a JSON object");
   const m = raw as Record<string, unknown>;
   if (m.v !== 1) return bad(`dbbasic-rule.json is format ${JSON.stringify(m.v)}; this browser reads format 1`);
-  if (m.kind !== "style-rule") return bad(`this browser installs style rules only, not "${String(m.kind)}"`);
+  if (m.kind !== "style-rule" && m.kind !== "view-rule") return bad(`this browser installs style rules and view rules, not "${String(m.kind)}"`);
   if (typeof m.id !== "string" || !ID.test(m.id)) return bad("the plugin's id must be lowercase letters, digits and dashes");
   if (typeof m.name !== "string" || !m.name.trim() || m.name.length > 80) return bad("the plugin needs a name (up to 80 characters)");
   if (typeof m.version !== "string" || !TAG.test(m.version)) return bad("the plugin needs a version, such as 2026.11v1");
@@ -85,7 +114,19 @@ export function validateManifest(raw: unknown, apiLevel: number): { ok: true; ma
   if (!Array.isArray(m.powers) || !m.powers.length) return bad("the plugin must say what it may do (powers)");
   const unknown = m.powers.find((p) => !(KNOWN_POWERS as readonly string[]).includes(String(p)));
   if (unknown !== undefined) return bad(`the plugin asks for "${String(unknown)}", which this browser does not give plugins`);
-  if (!safeRepoPath(m.style, ".css")) return bad("the plugin's style must be a .css file in its repository");
+  const powers = [...new Set(m.powers.map(String))];
+  let button: PluginButton | undefined;
+  if (m.kind === "style-rule") {
+    if (!safeRepoPath(m.style, ".css")) return bad("the plugin's style must be a .css file in its repository");
+    if (powers.some((p) => p !== "style")) return bad(`a style rule may only ask for "style"`);
+  } else {
+    if (!safeRepoPath(m.view, ".json")) return bad("the plugin's view must be a .json file in its repository");
+    if (powers.length !== 1 || powers[0] !== "read-posts") return bad(`a view rule asks for "read-posts" and nothing else`);
+    const b = m.button as Record<string, unknown> | undefined;
+    if (!b || typeof b.label !== "string" || !b.label.trim() || b.label.trim().length > 24) return bad("a view rule needs a button label (up to 24 characters)");
+    if (!(PLUGIN_ICONS as readonly string[]).includes(String(b.icon))) return bad(`its button's icon must be one of ${PLUGIN_ICONS.join(", ")}`);
+    button = { label: b.label.trim(), icon: b.icon as PluginButton["icon"] };
+  }
   const minApi = m.min_api ?? 1;
   if (typeof minApi !== "number" || !Number.isInteger(minApi) || minApi < 1) return bad("min_api must be a whole number from 1");
   if (minApi > apiLevel) return bad(`the plugin needs plugin level ${minApi}; this browser has ${apiLevel}. A newer browser will install it`);
@@ -93,8 +134,9 @@ export function validateManifest(raw: unknown, apiLevel: number): { ok: true; ma
   return {
     ok: true,
     manifest: {
-      v: 1, id: m.id, name: m.name.trim(), kind: "style-rule", version: m.version, sites: [...new Set(sites)],
-      powers: [...new Set(m.powers.map(String))], style: m.style, min_api: minApi, tested_on: tested,
+      v: 1, id: m.id, name: m.name.trim(), kind: m.kind, version: m.version, sites: [...new Set(sites)],
+      powers, style: m.kind === "style-rule" ? (m.style as string) : "", ...(m.kind === "view-rule" ? { view: m.view as string, button } : {}),
+      min_api: minApi, tested_on: tested,
       license: typeof m.license === "string" ? m.license.slice(0, 40) : "",
       description: typeof m.description === "string" ? m.description.slice(0, 300) : "",
     },

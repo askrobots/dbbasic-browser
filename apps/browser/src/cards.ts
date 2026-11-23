@@ -71,40 +71,6 @@ export function validateViewRule(raw: unknown): { ok: true; rule: ViewRule } | {
 }
 
 /**
- * X (x.com, twitter.com), both its layouts: the older one many signed-in accounts get (data-testid on every part) and
- * the newer one (plain markup). Written as a view rule so it can move to gitstable as a plugin.
- */
-export const X_VIEW_RULE: ViewRule = {
-  v: 1,
-  id: "x-cards",
-  name: "X as cards",
-  sites: ["x.com", "twitter.com"],
-  post: "article",
-  fields: {
-    link: [{ sel: 'a[href*="/status/"]:has(> time)', take: "href" }, { sel: 'a[href*="/status/"]', take: "href" }],
-    author: [{ sel: '[data-testid="User-Name"] a', take: "text" }, { sel: 'a > div[dir="auto"]', take: "text" }],
-    handle: { sel: "span", take: "text", match: "^@\\w{1,30}$" },
-    avatar: [{ sel: '[data-testid="Tweet-User-Avatar"] img', take: "src" }, { sel: "[data-post-avatar] img", take: "src" }],
-    time: { sel: "time", take: "datetime" },
-    timeText: { sel: 'a[href*="/status/"]', take: "text", match: "^\\d+[smhd]$|^[A-Z][a-z]{2} \\d{1,2}" },
-    text: [{ sel: '[data-testid="tweetText"]', take: "text" }, { sel: 'div[dir="auto"][lang]', take: "text" }],
-    images: [{ sel: 'img[src*="pbs.twimg.com/media/"], img[src*="pbs.twimg.com/card_img/"]', take: "src", all: true }, { sel: "video[poster]", take: "poster", all: true }],
-    stats: { sel: '[role="group"][aria-label]', take: "aria-label" },
-    context: { sel: '[data-testid="socialContext"]', take: "text" },
-    // X's "Ad" label. (Not data-testid="placementTracking": on the older layout that wraps video posts too.)
-    promoted: { sel: "span", take: "exists", match: "^(Ad|Promoted)$" },
-  },
-};
-
-export const BUILT_IN_RULES: readonly ViewRule[] = [X_VIEW_RULE];
-
-/** The built-in rule for a host, if any (a site and its subdomains). */
-export function ruleFor(host: string, rules: readonly ViewRule[] = BUILT_IN_RULES): ViewRule | null {
-  const h = host.toLowerCase().replace(/^www\./, "");
-  return rules.find((r) => r.sites.some((s) => h === s || h.endsWith("." + s))) ?? null;
-}
-
-/**
  * The reader, as source to run in an isolated world of the tab. It reads at most 200 posts and returns plain strings.
  * (A function serialised with the rule as JSON: the rule is data, so it can't add code.)
  */

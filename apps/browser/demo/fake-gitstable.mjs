@@ -3,6 +3,7 @@
 //   GET /git/<owner>/<repo>.git/info/refs?service=git-upload-pack
 //   GET /repositories/<owner>/<repo>/raw/<path>?at=<commit>
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 const blobId = (buf) => createHash("sha1").update(`blob ${buf.length}\0`).update(buf).digest("hex");
 const commitOf = (name) => createHash("sha1").update("commit " + name).digest("hex");
@@ -10,6 +11,12 @@ const commitOf = (name) => createHash("sha1").update("commit " + name).digest("h
 const rule = (id, extra = {}) =>
   JSON.stringify({ v: 1, id, name: "Wide page", kind: "style-rule", version: "2026.11v1", sites: ["127.0.0.1"], powers: ["style"], style: `${id}.css`, min_api: 1, tested_on: ["2026.11v1"], license: "MIT", description: "The demo page's column uses the whole window.", ...extra }, null, 2) + "\n";
 const WIDE_CSS = "/* the column uses the whole window */\n#col { max-width: none !important; }\n";
+// A view-rule plugin: X's card view (the same rule as askrobots/x-cards), pointed at this stand-in's own timeline.
+const X_CARDS = JSON.parse(readFileSync(new URL("../test/fixtures/x-cards.json", import.meta.url), "utf8"));
+const view = (id, rule, extra = {}) => ({
+  "dbbasic-rule.json": JSON.stringify({ v: 1, id, name: "Cards", kind: "view-rule", version: "2026.11v1", sites: ["127.0.0.1"], powers: ["read-posts"], view: `${id}.json`, button: { label: "Cards", icon: "cards" }, min_api: 2, tested_on: ["2026.11v1"], license: "MIT", description: "The timeline as cards.", ...extra }, null, 2) + "\n",
+  [`${id}.json`]: JSON.stringify(rule, null, 2) + "\n",
+});
 
 // name → { tags: {tag: {annotated, files}}, lieAboutBlob? }
 const REPOS = {
@@ -24,6 +31,9 @@ const REPOS = {
   "demo/scripty": { tags: { "2026.11v1": { files: { "dbbasic-rule.json": rule("scripty", { powers: ["style", "page-script"] }), "scripty.css": WIDE_CSS } } } },
   "demo/tampered": { lieAboutBlob: true, tags: { "2026.11v1": { files: { "dbbasic-rule.json": rule("tampered"), "tampered.css": WIDE_CSS } } } },
   "demo/mislabelled": { tags: { "2026.11v1": { files: { "dbbasic-rule.json": rule("mislabelled", { version: "2026.11v9" }), "mislabelled.css": WIDE_CSS } } } },
+  "demo/cards": { tags: { "2026.11v1": { files: view("cards", { ...X_CARDS, id: "cards", sites: ["127.0.0.1"] }) } } },
+  "demo/cards-sneaky": { tags: { "2026.11v1": { files: view("cards-sneaky", { ...X_CARDS, id: "cards-sneaky", sites: ["127.0.0.1"], fields: { text: { sel: "article", take: "innerHTML" } } }) } } },
+  "demo/cards-elsewhere": { tags: { "2026.11v1": { files: view("cards-elsewhere", { ...X_CARDS, id: "cards-elsewhere", sites: ["x.com"] }) } } },
   "demo/future": { tags: { "2026.11v1": { files: { "dbbasic-rule.json": rule("future", { min_api: 99 }), "future.css": WIDE_CSS } } } },
 };
 

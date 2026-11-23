@@ -11,7 +11,7 @@
  */
 
 /** What a plugin can rely on. Raise it only when the plugin interface changes; plugins declare `min_api`. */
-export const PLUGIN_API_LEVEL = 1;
+export const PLUGIN_API_LEVEL = 2;
 
 export interface Version { year: number; month: number; n: number; pre: string }
 

@@ -263,14 +263,14 @@ const server = createServer(async (req, res) => {
   // Not counted in /hits either.
   if (fakeGitstable(req, res)) return;
   // A timeline in the shape of X's older layout, for the card view: 15 posts, 10 more each time the end of the list
-  // comes into view (up to 60), and the third one promoted.
+  // comes into view (up to 200), the third one promoted and the fifth a video.
   if (path === "/timeline") {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(`<!doctype html><title>Timeline</title><style>article { height: 140px; border-bottom: 1px solid #ddd; margin: 0 auto; max-width: 600px; }</style><main id="tl"></main>
 <script>
 let n = 0;
 function add(k) {
-  for (let i = 0; i < k && n < 60; i++) {
+  for (let i = 0; i < k && n < 200; i++) {
     n++;
     const a = document.createElement("article");
     a.setAttribute("data-testid", "tweet");

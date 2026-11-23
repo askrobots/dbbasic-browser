@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { X_VIEW_RULE, buildCardsHtml, mergePosts, readerSource, ruleFor, shortStats, shortTime, validatePosts, validateViewRule, type Post } from "../src/cards";
+import { readFileSync } from "node:fs";
+import { buildCardsHtml, mergePosts, readerSource, shortStats, shortTime, validatePosts, validateViewRule, type Post, type ViewRule } from "../src/cards";
+
+// X's view rule, as published in the askrobots/x-cards plugin (no card view is built into the browser).
+const X_VIEW_RULE = JSON.parse(readFileSync(new URL("./fixtures/x-cards.json", import.meta.url), "utf8")) as ViewRule;
 
 const post = (over: Partial<Post> = {}): Post => ({
   link: "https://x.com/a/status/1", author: "A", handle: "@a", avatar: "", time: "", timeText: "2h", text: "hi", images: [], stats: "", context: "", promoted: false, ...over,
 });
 
 describe("view rules are data", () => {
-  it("accepts the built-in X rule, and finds it for x.com and its subdomains", () => {
+  it("accepts X's rule", () => {
     expect(validateViewRule(X_VIEW_RULE).ok).toBe(true);
-    expect(ruleFor("x.com")?.id).toBe("x-cards");
-    expect(ruleFor("mobile.twitter.com")?.id).toBe("x-cards");
-    expect(ruleFor("notx.com")).toBeNull();
   });
 
   it("refuses anything but selectors, known fields and plain takes", () => {

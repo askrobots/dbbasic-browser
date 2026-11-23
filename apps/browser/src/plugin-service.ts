@@ -15,9 +15,10 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { dirname, join } from "node:path";
 import { compareVersions, parseVersion } from "./version.js";
 import {
-  MANIFEST_FILE, MAX_MANIFEST_BYTES, MAX_STYLE_BYTES, gitBlobId, isCommit, parsePluginSource, parseTagRefs, safeRepoPath, sha256,
-  siteMatches, styleProblem, validateManifest, type Installed, type RuleManifest,
+  MANIFEST_FILE, MAX_MANIFEST_BYTES, MAX_STYLE_BYTES, MAX_VIEW_BYTES, gitBlobId, isCommit, parsePluginSource, parseTagRefs, safeRepoPath, sha256,
+  siteMatches, styleProblem, validateManifest, type Installed, type PluginButton, type PluginKind, type RuleManifest,
 } from "./plugins.js";
+import { validateViewRule, type ViewRule } from "./cards.js";
 
 export interface Fetched { status: number; header(name: string): string | null; bytes: Uint8Array }
 
@@ -71,6 +72,7 @@ export interface PreviewView {
 /** One plugin in gitstable's list (/store/plugins.json), as much as the browser uses. */
 export interface Listed {
   id: string;
+  kind: PluginKind;
   name: string;
   summary: string;
   repository: string;
@@ -101,11 +103,11 @@ export function parseListing(raw: unknown, origin: string): Listed[] {
   };
   const out: Listed[] = [];
   for (const it of doc.items.slice(0, 1000) as Array<Record<string, unknown>>) {
-    if (!it || typeof it !== "object" || it.kind !== "style-rule") continue;
+    if (!it || typeof it !== "object" || (it.kind !== "style-rule" && it.kind !== "view-rule")) continue;
     const src = parsePluginSource(String(it.repository ?? ""), origin);
     if ("error" in src || typeof it.id !== "string" || typeof it.name !== "string" || typeof it.tag !== "string" || !isCommit(it.commit)) continue;
     out.push({
-      id: it.id, name: it.name.slice(0, 80), summary: typeof it.summary === "string" ? it.summary.slice(0, 300) : "", repository: src.repository,
+      id: it.id, kind: it.kind as PluginKind, name: it.name.slice(0, 80), summary: typeof it.summary === "string" ? it.summary.slice(0, 300) : "", repository: src.repository,
       tag: it.tag, commit: it.commit, sites: Array.isArray(it.sites) ? it.sites.map(String).slice(0, 50) : [],
       url: onSite(it.url), repositoryUrl: onSite(it.repository_url),
     });
@@ -129,8 +131,11 @@ export function siteList(sites: readonly string[]): string {
   return sites.length <= 1 ? sites.join("") : `${sites.slice(0, -1).join(", ")} and ${sites[sites.length - 1]}`;
 }
 
-export function describePowers(sites: readonly string[]): string {
+export function describePowers(sites: readonly string[], kind: PluginKind = "style-rule", button?: PluginButton): string {
   const list = siteList(sites);
+  if (kind === "view-rule") {
+    return `It adds a ${button?.label ?? "view"} button to the status bar on ${list}: it reads the posts there and shows them as cards in a tab of the browser's own, scrolling the page to read more. It can't run code, change the page or send anything.`;
+  }
   return `It changes how ${list} look${sites.length === 1 ? "s" : ""}. It can't run code, read the page or send anything.`;
 }
 
@@ -149,6 +154,7 @@ export class PluginStore {
   private plugins: Installed[] = [];
   private problems = new Map<string, string>();
   private css = new Map<string, string>();
+  private views = new Map<string, ViewRule>();
   private pending = new Map<string, Pending>();
   allOff = false;
   private listing: Listed[] = [];
@@ -232,6 +238,7 @@ export class PluginStore {
     this.plugins = [];
     this.problems.clear();
     this.css.clear();
+    this.views.clear();
     let raw: { allOff?: unknown; plugins?: unknown } = {};
     try {
       raw = JSON.parse(readFileSync(this.indexPath, "utf8"));
@@ -246,13 +253,24 @@ export class PluginStore {
           if (!safeRepoPath(f.path, f.path.endsWith(".json") ? ".json" : ".css")) throw new Error("bad path");
           const bytes = readFileSync(join(this.d.dir, p.id, f.path));
           if (sha256(bytes) !== f.sha256) throw new Error("changed");
-          if (f.path.endsWith(".css")) this.css.set(p.id, new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+          const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+          if ((p.kind ?? "style-rule") === "style-rule" && f.path.endsWith(".css")) this.css.set(p.id, text);
+          if (p.kind === "view-rule" && f.path !== MANIFEST_FILE && f.path.endsWith(".json")) {
+            const r = validateViewRule(JSON.parse(text));
+            if (!r.ok) throw new Error(r.error);
+            this.views.set(p.id, r.rule);
+          }
         }
-        const css = this.css.get(p.id);
-        const why = css === undefined ? "its style file is missing" : styleProblem(css);
-        if (why) throw new Error(why);
+        if (p.kind === "view-rule") {
+          if (!this.views.has(p.id)) throw new Error("its view file is missing");
+        } else {
+          const css = this.css.get(p.id);
+          const why = css === undefined ? "its style file is missing" : styleProblem(css);
+          if (why) throw new Error(why);
+        }
       } catch {
         this.css.delete(p.id);
+        this.views.delete(p.id);
         this.problems.set(p.id, "Its files changed on this computer since it was installed, so it is switched off. Remove it and install it again.");
       }
     }
@@ -269,6 +287,17 @@ export class PluginStore {
     for (const p of this.plugins) {
       const css = this.css.get(p.id);
       if (p.enabled && css !== undefined && !this.problems.has(p.id) && siteMatches(host, p.sites)) out.push({ id: p.id, css });
+    }
+    return out;
+  }
+
+  /** The view rules for `host`: enabled, intact, matching plugins (none when all are off), each with its button. */
+  viewsFor(host: string): Array<{ id: string; name: string; button: PluginButton; rule: ViewRule }> {
+    if (this.allOff || !host) return [];
+    const out: Array<{ id: string; name: string; button: PluginButton; rule: ViewRule }> = [];
+    for (const p of this.plugins) {
+      const rule = this.views.get(p.id);
+      if (p.kind === "view-rule" && p.button && rule && p.enabled && !this.problems.has(p.id) && siteMatches(host, p.sites)) out.push({ id: p.id, name: p.name, button: p.button, rule });
     }
     return out;
   }
@@ -350,15 +379,29 @@ export class PluginStore {
     if (owner && owner.source.repository.toLowerCase() !== src.repository.toLowerCase()) {
       throw new PluginError("taken", `a different plugin called "${m.id}" is installed already (from ${owner.source.repository})`);
     }
-    const style = await this.fileAt(src.repository, commit, m.style, MAX_STYLE_BYTES);
-    let css: string;
+    const mainPath = m.kind === "view-rule" ? m.view! : m.style;
+    const main = await this.fileAt(src.repository, commit, mainPath, m.kind === "view-rule" ? MAX_VIEW_BYTES : MAX_STYLE_BYTES);
+    let text: string;
     try {
-      css = new TextDecoder("utf-8", { fatal: true }).decode(style.bytes);
+      text = new TextDecoder("utf-8", { fatal: true }).decode(main.bytes);
     } catch {
-      throw new PluginError("bad-plugin", `${m.style} is not text`);
+      throw new PluginError("bad-plugin", `${mainPath} is not text`);
     }
-    const why = styleProblem(css);
-    if (why) throw new PluginError("not-style-only", `${m.style} is refused: ${why}. A style rule may only change how pages look`);
+    if (m.kind === "view-rule") {
+      let rawRule: unknown;
+      try {
+        rawRule = JSON.parse(text);
+      } catch {
+        throw new PluginError("bad-plugin", `${mainPath} is not valid JSON`);
+      }
+      const r = validateViewRule(rawRule);
+      if (!r.ok) throw new PluginError("not-view-only", `${mainPath} is refused: ${r.error}. A view rule may only name where a page keeps its posts`);
+      const outside = r.rule.sites.find((site) => !siteMatches(site, m.sites));
+      if (outside) throw new PluginError("bad-plugin", `${mainPath} reads ${outside}, which the plugin doesn't name in its sites`);
+    } else {
+      const why = styleProblem(text);
+      if (why) throw new PluginError("not-style-only", `${m.style} is refused: ${why}. A style rule may only change how pages look`);
+    }
 
     for (const [t, p] of this.pending) if (this.d.now().getTime() - p.at > PENDING_MS) this.pending.delete(t);
     const token = randomUUID();
@@ -366,11 +409,11 @@ export class PluginStore {
       token, id: m.id, name: m.name, version: m.version, description: m.description, license: m.license, sites: m.sites, powers: m.powers,
       repository: src.repository, tag, commit, testedOn: m.tested_on, testedHere: m.tested_on.includes(this.d.browserVersion),
       replaces: owner ? owner.version : null, relation: relationTo(owner, m.version, commit),
-      installedProblem: owner ? this.problems.has(owner.id) : false, says: describePowers(m.sites),
+      installedProblem: owner ? this.problems.has(owner.id) : false, says: describePowers(m.sites, m.kind, m.button),
     };
     this.pending.set(token, {
       view, manifest: m, at: this.d.now().getTime(),
-      files: [{ path: MANIFEST_FILE, ...mf }, { path: m.style, ...style }],
+      files: [{ path: MANIFEST_FILE, ...mf }, { path: mainPath, ...main }],
     });
     return view;
   }
@@ -391,7 +434,7 @@ export class PluginStore {
     const was = this.plugins.find((x) => x.id === m.id);
     const rec: Installed = {
       id: m.id, name: m.name, version: m.version, description: m.description, license: m.license, sites: m.sites, powers: m.powers,
-      testedOn: m.tested_on, source: { host: new URL(this.d.origin).host, repository: p.view.repository, tag: p.view.tag, commit: p.view.commit },
+      testedOn: m.tested_on, kind: m.kind, ...(m.button ? { button: m.button } : {}), source: { host: new URL(this.d.origin).host, repository: p.view.repository, tag: p.view.tag, commit: p.view.commit },
       files: p.files.map((f) => ({ path: f.path, blob: f.blob, sha256: sha256(f.bytes), bytes: f.bytes.length })),
       installedAt: this.d.now().toISOString(), enabled: was ? was.enabled : true,
     };
@@ -420,6 +463,7 @@ export class PluginStore {
     rmSync(join(this.d.dir, id), { recursive: true, force: true });
     this.problems.delete(id);
     this.css.delete(id);
+    this.views.delete(id);
   }
 
   private save(): void {

@@ -117,7 +117,7 @@ async function launchApp(suite) {
       ...(suite === "chat" || suite === "mcp" || suite === "bookmarks" || suite === "keep" || suite === "history" ? { DBB_AI_BASE_URL: `${base}/v1`, DBB_AI_PROVIDER: "openai", DBB_AI_MODEL: "fake-model", OPENAI_API_KEY: "e2e-fake-key", ANTHROPIC_API_KEY: "", DBB_AI_CONSENT: "1" } : {}),
       // The mcp suite signs in to a stand-in MCP server on the demo server; sign-ins stay in memory, never in the keychain.
       ...(suite === "history" ? { DBB_HISTORY_LOCAL_TEST: "1" } : {}), // the stand-in runs on this machine
-      ...(suite === "plugins" ? { DBB_GITSTABLE: base } : {}), // the stand-in for gitstable, on the demo server
+      ...(suite === "plugins" || suite === "cards" ? { DBB_GITSTABLE: base } : {}), // the stand-in for gitstable, on the demo server
       ...(suite === "mcp" || suite === "bookmarks" || suite === "omnibox" || suite === "history" ? { DBB_MCP_STORE: "memory", DBB_MCP_SERVERS: mcpServersFile } : {}),
       ...(process.env.E2E_BACKGROUND === "1" ? { DBB_BACKGROUND: "1" } : {}),
       ...(suite === "keep" || suite === "omnibox" ? { DBB_KEEP_DIR: join(tmp, "kept-" + suite) } : {}),
