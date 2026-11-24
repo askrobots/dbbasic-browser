@@ -16,6 +16,8 @@
       #zoomBtn[hidden] { display: none; }
       .btn { padding: 7px 10px; border-radius: 7px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; cursor: pointer; white-space: nowrap; }
       .btn:hover { background: #1c1c20; }
+      .btn:disabled { opacity: 0.35; cursor: default; }
+      .btn:disabled:hover { background: #131316; }
       .btn .ico { width: 16px; height: 16px; vertical-align: -3px; flex-shrink: 0; }
       .btn.on { background: #23324e; border-color: #3a5a9a; color: #cde0ff; }
       #inspectBtn { position: relative; }
@@ -451,12 +453,14 @@
           if (tab === active) renderInspector();
         });
         const onNav = (e) => {
+          if (tab === active) paintNav();
           if (!shown(e.url)) return;
           tab.url = e.url;
           if (tab === active && !omniEditing) urlInput.value = e.url;
         };
         wv.addEventListener("did-navigate", onNav);
         wv.addEventListener("did-navigate-in-page", (e) => { if (e.isMainFrame) onNav(e); });
+        for (const ev of ["dom-ready", "did-stop-loading"]) wv.addEventListener(ev, () => { if (tab === active) paintNav(); });
         wv.addEventListener("page-title-updated", (e) => { tab.title = e.title; renderTabs(); });
         wv.addEventListener("found-in-page", (e) => {
           const r = e.result || {};
@@ -496,6 +500,7 @@
         refreshThrobber(tab);
         paintReload();
         paintZoom();
+        paintNav();
         renderInspector();
         renderOffer();
         if (vaultPanelOpen) renderVaultPanel();
@@ -1845,6 +1850,13 @@
       }
       paintReload();
       $("reload").onclick = () => { if (!active) return; try { active.loading ? active.wv.stop() : active.wv.reload(); } catch {} };
+      // Back and Forward are greyed out when the tab has nowhere to go that way (a new tab, the newest page).
+      function paintNav() {
+        let back = false, fwd = false;
+        try { back = !!active && active.wv.canGoBack(); fwd = !!active && active.wv.canGoForward(); } catch {} // not attached yet
+        $("back").disabled = !back;
+        $("fwd").disabled = !fwd;
+      }
       $("back").onclick = () => { try { active.wv.canGoBack() && active.wv.goBack(); } catch {} };
       $("fwd").onclick = () => { try { active.wv.canGoForward() && active.wv.goForward(); } catch {} };
 

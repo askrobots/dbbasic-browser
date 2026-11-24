@@ -58,6 +58,20 @@ export default async function (ctx) {
   check(/dbbasic-browser Help/.test(title) && /#automation/.test(title), "the Help page renders in a tab, at its anchor", title);
   await T("tabs.close", { tab: nt.id });
 
+  // Back and Forward are greyed out when there is nowhere to go that way.
+  const navBtns = () => c.ev(`(document.getElementById('back').disabled ? 'back-off' : 'back-on') + ' ' + (document.getElementById('fwd').disabled ? 'fwd-off' : 'fwd-on')`);
+  const waitNav = async (want) => { let v = ""; for (let i = 0; i < 50; i++) { v = await navBtns(); if (v === want) break; await sleep(100); } return v; };
+  const navTab = await T("tabs.new", { url: base + "/free", wait: true });
+  let nb = await waitNav("back-off fwd-off");
+  check(nb === "back-off fwd-off", "a new tab's first page: Back and Forward are both greyed out", nb);
+  await T("page.goto", { url: base + "/links" });
+  nb = await waitNav("back-on fwd-off");
+  check(nb === "back-on fwd-off", "after going to a second page, Back works and Forward is still greyed out", nb);
+  await c.ev(`document.getElementById('back').click(); 1`);
+  nb = await waitNav("back-off fwd-on");
+  check(nb === "back-off fwd-on", "after going back, Forward works and Back is greyed out", nb);
+  await T("tabs.close", { tab: navTab.id });
+
   // Hovering a link shows its address in the status area: green for this site, amber for another, and not by colour alone.
   const linkBar = () => c.ev(`(() => { const e = document.getElementById('link'); return e.classList.contains('show') ? { text: e.innerText.replace(/\\s+/g, ' ').trim(), cls: e.className } : null })()`);
   await T("page.goto", { url: base + "/links" });

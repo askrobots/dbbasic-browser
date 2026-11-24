@@ -6,6 +6,10 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
 
 ## [Unreleased]
 
+### Changed
+- **Back and Forward are greyed out when there's nowhere to go,** as in other browsers: both on a new tab's first page,
+  Forward on the newest page, Back after going back to the first one.
+
 ## [2026.11v2] - 2026-11-24
 
 ### Added
