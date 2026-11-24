@@ -7,6 +7,13 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
 ## [Unreleased]
 
 ### Fixed
+- **Cloudflare's invisible check (Turnstile) passes**, so forms behind it can be sent (OpenAI's OpenWorks application
+  never could). The browser's network layer only gets a stripped copy of each request, so it had been guessing the
+  fetch-metadata headers a real browser sends, and got them wrong: every request said it came from nowhere
+  (`Sec-Fetch-Site: none`), Cloudflare's own frame said it was a page, its scripts said they were fetches, and its
+  data calls had no Origin. The browser now records each request's real kind and the document that made it as the
+  page makes it, and sends Chromium's own values. A fetch to another origin still goes as before, with the page's
+  cookies.
 - **⌘R reloads while the page has the keyboard** (Ctrl+R on Linux and Windows). It's now one of the keys the browser
   keeps for itself, like ⌘T, ⌘W and ⌘L, so a page that takes every key can't swallow it.
 

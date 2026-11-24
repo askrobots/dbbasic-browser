@@ -125,6 +125,29 @@ export function refererFor(target: URL, referrer: URL, policy: string): string |
 export interface RequestContext {
   referrer?: string;
   referrerPolicy?: string;
+  /**
+   * What kind of request the page made and the origin of the document that made it, as Chromium's loader knew them
+   * (request-kinds.ts). When given, the fetch metadata is Chromium's own, not guessed from Accept.
+   */
+  kind?: { type: string; initiator: string | null } | null;
+}
+
+/** Sec-Fetch-Dest and Sec-Fetch-Mode for a resource type, as Chromium sends them (null: not one we know). */
+export function fetchMetadataFor(type: string, hasOrigin: boolean): { dest: string; mode: string } | null {
+  switch (type) {
+    case "mainFrame": return { dest: "document", mode: "navigate" };
+    case "subFrame": return { dest: "iframe", mode: "navigate" };
+    case "script": return { dest: "script", mode: hasOrigin ? "cors" : "no-cors" };
+    case "stylesheet": return { dest: "style", mode: hasOrigin ? "cors" : "no-cors" };
+    case "image": return { dest: "image", mode: hasOrigin ? "cors" : "no-cors" };
+    case "font": return { dest: "font", mode: "cors" };
+    case "media": return { dest: "video", mode: hasOrigin ? "cors" : "no-cors" };
+    case "object": return { dest: "object", mode: "navigate" };
+    case "xhr": return { dest: "empty", mode: "cors" };
+    case "ping": return { dest: "empty", mode: "no-cors" };
+    case "cspReport": return { dest: "report", mode: "no-cors" };
+    default: return null;
+  }
 }
 
 /**
@@ -137,7 +160,7 @@ export interface RequestContext {
  * indistinguishable here and are reported as `empty`, which is still far closer than the
  * unconditional `no-cors`/`empty`/`none` the loader would otherwise send.
  */
-export function chromiumRequestHeaders(url: URL, input: Headers, hints: Hints | null, ctx: RequestContext = {}): Headers {
+export function chromiumRequestHeaders(url: URL, input: Headers, hints: Hints | null, ctx: RequestContext = {}, method = "GET"): Headers {
   const h = new Headers(input);
   const refUrl = parseUrl(ctx.referrer ?? null);
   const hasWebReferrer = !!refUrl && (refUrl.protocol === "https:" || refUrl.protocol === "http:");
@@ -156,6 +179,25 @@ export function chromiumRequestHeaders(url: URL, input: Headers, hints: Hints | 
 
   // fetch metadata
   const accept = h.get("accept") ?? "";
+  const known = ctx.kind ? fetchMetadataFor(ctx.kind.type, h.has("origin")) : null;
+  if (known && ctx.kind) {
+    // The page's real request kind and the document that made it: Chromium's own values.
+    const from = parseUrl(ctx.kind.initiator);
+    const site = siteRelation(url, from);
+    h.set("sec-fetch-site", site);
+    // A fetch to another origin: the page's credentials mode isn't known here, so it goes as before (no Origin, the page's
+    // cookies, "no-cors"). Marked "cors" with cookies and no Origin, Chromium refuses it (ERR_INVALID_ARGUMENT).
+    const crossFetch = ctx.kind.type === "xhr" && site !== "same-origin" && !h.has("origin");
+    h.set("sec-fetch-mode", crossFetch ? "no-cors" : known.mode);
+    h.set("sec-fetch-dest", known.dest);
+    if (ctx.kind.type === "mainFrame") h.set("sec-fetch-user", "?1");
+    else h.delete("sec-fetch-user");
+    // Chromium sends Origin on a fetch/XHR other than GET or HEAD, and on every cross-origin one. Only the same-origin case
+    // is added here: a cross-origin request carries the page's cookies (see requestCredentials), and with an Origin the
+    // network stack would then refuse a response that allows any site ("Access-Control-Allow-Origin: *").
+    if (ctx.kind.type === "xhr" && !h.has("origin") && from && site === "same-origin" && method !== "GET" && method !== "HEAD") h.set("origin", from.origin);
+    return h;
+  }
   const navigation = /\btext\/html\b/.test(accept) && h.get("upgrade-insecure-requests") === "1";
   const initiator = parseUrl(h.get("origin")) ?? (hasWebReferrer ? refUrl : null) ?? parseUrl(h.get("referer"));
   const site = siteRelation(url, initiator);

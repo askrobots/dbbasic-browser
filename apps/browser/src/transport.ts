@@ -49,6 +49,12 @@ const hintsReady = new Promise<Hints | null>((resolve) => {
   resolveHints = resolve;
   setTimeout(() => resolve(null), 3000).unref?.();
 });
+/** How to find what kind of request the page made (request-kinds.ts, filled by main.ts from webRequest). */
+let kindOf: ((method: string, url: string) => { type: string; initiator: string | null } | null) | null = null;
+export function setRequestKindLookup(fn: typeof kindOf): void {
+  kindOf = fn;
+}
+
 export function setClientHints(h: Hints | null): void {
   hintsValue = h;
   resolveHints(h);
@@ -133,10 +139,13 @@ export function netRequestFetch(ses: Session = session.defaultSession): RawFetch
     // Buffer the request body: simplest correct thing for ClientRequest, and bodies here are form posts/API calls.
     const body = input.body ? Buffer.from(await input.arrayBuffer()) : null;
     // What a real Chromium would send (client hints + fetch metadata) — net.request doesn't add them.
+    // The page's real request kind and the document that made it, when webRequest saw the request first.
+    const kind = kindOf ? kindOf(input.method, input.url) : null;
     const headers = chromiumRequestHeaders(new URL(input.url), input.headers, hintsValue ?? (await hintsReady), {
       referrer: input.referrer,
       referrerPolicy: input.referrerPolicy,
-    });
+      kind,
+    }, input.method.toUpperCase());
 
     const id = ++netSeq;
     const url = input.url;
@@ -160,6 +169,14 @@ export function netRequestFetch(ses: Session = session.defaultSession): RawFetch
         redirect: "manual",
         credentials,
         useSessionCookies: credentials === "include",
+        // The document that made the request: without it Chromium treats this as the browser's own request and says
+        // Sec-Fetch-Site: none, whatever we set. Not for a page load (Chromium would then hold back the cookies that only
+        // go with top-level navigations: a form answered by a redirect to another site would arrive signed out), and not
+        // for a CORS request to another origin that carries cookies (Chromium would then enforce CORS itself and refuse a
+        // response that allows any site).
+        ...(kind?.initiator && kind.type !== "mainFrame" && !(headers.get("sec-fetch-mode") === "cors" && headers.get("sec-fetch-site") !== "same-origin" && credentials === "include")
+          ? { origin: kind.initiator }
+          : {}),
       });
 
       bypassProtocolHandlers(req);

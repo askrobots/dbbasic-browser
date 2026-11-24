@@ -22,7 +22,8 @@ import { PolicyEngine, Ledger, X402Engine, formatUsd, signExactEvm } from "@dbba
 import { createPaymentHandler, type RawFetch } from "./intercept.js";
 import { brandedUserAgent } from "./compat.js";
 import { displayVersion, PLUGIN_API_LEVEL } from "./version.js";
-import { emitNet, netEvents, netRequestFetch, nextNetId, setClientHints, type NetEvent } from "./transport.js";
+import { emitNet, netEvents, netRequestFetch, nextNetId, setClientHints, setRequestKindLookup, type NetEvent } from "./transport.js";
+import { RequestKinds } from "./request-kinds.js";
 import { ExtensionRegistry, loadExtensions, parseExtensionPaths } from "./extensions.js";
 import { CallerNetwork, ProviderError, clampAnswerTimeout, type Answer, type CookieJar, type Document } from "./provider.js";
 import { safeExternalUrl } from "./urls.js";
@@ -66,6 +67,9 @@ protocol.registerSchemesAsPrivileged([
   { scheme: CARDS_SCHEME, privileges: { standard: true, secure: true } },
 ]);
 const readerPages = new ReaderPages();
+// The kind of each request a page makes, seen by webRequest before our network layer gets it (request-kinds.ts).
+const requestKinds = new RequestKinds();
+setRequestKindLookup((method, url) => requestKinds.take(method, url));
 
 // Who we say we are to web servers: a Chromium-compatible UA with our own product token and a
 // link back to dbbasic.com (see compat.ts for why, and why not "Firefox"). DBB_USER_AGENT
@@ -412,7 +416,23 @@ function setupNetPolicy(): void {
     callback(!callerNet.enabled);
   });
   session.defaultSession.setPermissionCheckHandler(() => !callerNet.enabled);
-  session.defaultSession.webRequest.onBeforeRequest({ urls: ["ws://*/*", "wss://*/*"] }, (details, callback) => {
+  // One listener (Electron keeps only one per event): WebSockets for the policy, and every page request's kind for our
+  // network layer, which can't see it otherwise (request-kinds.ts).
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => {
+    if (!/^wss?:/i.test(details.url)) {
+      if (details.webContentsId != null && /^https?:/i.test(details.url)) {
+        let frameUrl: string | null = null;
+        let parentUrl: string | null = null;
+        try {
+          frameUrl = details.frame?.url ?? null;
+          parentUrl = details.frame?.parent?.url ?? null;
+        } catch {
+          // the frame is already gone
+        }
+        requestKinds.record({ method: details.method, url: details.url, type: details.resourceType, frameUrl, parentUrl, referrer: details.referrer });
+      }
+      return callback({});
+    }
     // Always refused while the caller network is on: a WebSocket is a connection the caller never sees.
     const refuse = netPolicy.blockWebSockets || callerNet.enabled;
     if (refuse) emit({ kind: "websocket-refused", url: details.url });
