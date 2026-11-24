@@ -48,6 +48,7 @@ import { KEPT_SCHEME, KeepStore, keptFilename, keptPageHtml, keptUrl, parseKeptU
 import { diskUsage, type DiskUsage } from "./disk-usage.js";
 import { reservedShortcut } from "./shortcuts.js";
 import { stepZoom, zoomSite, ZoomStore, type ZoomMove } from "./zoom.js";
+import { DownloadList } from "./downloads-store.js";
 import { contextMenuItems, type MenuItem } from "./context-menu.js";
 import { commandArgs, commandRows, describeResult, parseCommand, parseSuggestions, remoteAllowed, suggest, toCommand, type OmniTab } from "./omnibox.js";
 import { macFootprints } from "./process-memory.js";
@@ -446,22 +447,27 @@ function setupNetPolicy(): void {
 // any sign of progress, completion or failure. This tracks each download, announces it to the UI and the
 // automation event log, and links paid downloads to the x402 payment that unlocked them.
 // DBB_DOWNLOAD_DIR skips the dialog and saves there (scripted runs and tests, so nothing blocks).
-interface DownloadRecord {
-  id: number;
-  name: string;
-  host: string;
-  total: number;
-  received: number;
-  state: "progressing" | "paused" | "completed" | "cancelled" | "interrupted";
-  path: string;
-  /** The x402 amount paid for this URL just before the download started, e.g. "$0.001". */
-  paid?: string;
-  /** macOS: whether the file was marked as downloaded from the internet (so Gatekeeper vets it). */
-  quarantined?: boolean;
-  startedAt: number;
+// The list itself (kept in the profile, so it is there after a restart): downloads-store.ts.
+let downloadList: DownloadList | null = null;
+function dls(): DownloadList {
+  if (downloadList) return downloadList;
+  const file = join(app.getPath("userData"), "downloads.json");
+  let saved: string | null = null;
+  try {
+    saved = readFileSync(file, "utf8");
+  } catch {
+    /* none yet */
+  }
+  return (downloadList = new DownloadList(saved, (text) => {
+    try {
+      writeFileSync(file, text);
+    } catch {
+      /* the list still shows until the browser closes */
+    }
+  }));
 }
-const downloads = new Map<number, DownloadRecord>();
-let downloadSeq = 0;
+/** Downloads still running, so the panel can cancel one. */
+const downloadItems = new Map<number, Electron.DownloadItem>();
 
 /** A file name that is safe to create: no directories, no control or reserved characters, no leading dots. */
 export function cleanFileName(name: string): string {
@@ -575,30 +581,31 @@ function setupDownloads(): void {
       emit({ kind: "download-refused", name: cleanFileName(item.getFilename()) });
       return;
     }
-    const id = ++downloadSeq;
     let host = "";
     try {
       host = new URL(item.getURL()).host;
     } catch {
       /* data: or blob: URL */
     }
-    const rec: DownloadRecord = { id, name: cleanFileName(item.getFilename()), host, total: item.getTotalBytes(), received: 0, state: "progressing", path: "", startedAt: Date.now() };
-    const paid = paidFor(item.getURL());
-    if (paid) rec.paid = paid;
+    const name = cleanFileName(item.getFilename());
+    let path = "";
     const dir = process.env.DBB_DOWNLOAD_DIR;
     if (dir) {
       mkdirSync(dir, { recursive: true });
-      rec.path = uniquePath(dir, rec.name);
-      item.setSavePath(rec.path);
+      path = uniquePath(dir, name);
+      item.setSavePath(path);
     }
-    downloads.set(id, rec);
+    const paid = paidFor(item.getURL());
+    const rec = dls().add({ name: path ? basename(path) : name, host, url: /^https?:\/\//i.test(item.getURL()) ? item.getURL() : "", total: item.getTotalBytes(), received: 0, state: "progressing", path, startedAt: Date.now(), ...(paid ? { paid } : {}) });
+    const id = rec.id;
+    downloadItems.set(id, item);
     const announce = () => emit({ kind: "download", ...rec });
     announce();
     let last = 0;
     item.on("updated", (_e, state) => {
-      rec.received = item.getReceivedBytes();
-      rec.total = item.getTotalBytes();
-      rec.state = state === "interrupted" ? "interrupted" : item.isPaused() ? "paused" : "progressing";
+      // The path is known once the person has picked it in the Save dialog.
+      const path = item.getSavePath() || rec.path;
+      dls().update(id, { received: item.getReceivedBytes(), total: item.getTotalBytes(), path, ...(path ? { name: basename(path) } : {}), state: state === "interrupted" ? "interrupted" : item.isPaused() ? "paused" : "progressing" });
       const now = Date.now();
       if (now - last > 150 || state === "interrupted") {
         last = now;
@@ -606,19 +613,20 @@ function setupDownloads(): void {
       }
     });
     item.once("done", (_e, state) => {
-      rec.received = item.getReceivedBytes();
-      rec.total = item.getTotalBytes() || rec.received;
-      rec.path = item.getSavePath() || rec.path; // the path the user chose in the Save dialog
+      downloadItems.delete(id);
+      const received = item.getReceivedBytes();
+      const path = item.getSavePath() || rec.path; // the path the user chose in the Save dialog
+      // Listed under the name it was saved as ("report (1).pdf" when there was one already), as in other browsers.
+      dls().update(id, { received, total: item.getTotalBytes() || received, path, ...(path ? { name: basename(path) } : {}) });
       if (state === "completed" && rec.path) {
         // The download only counts as completed once it is quarantined, and the state and the announcement change
         // together — so nothing (UI, automation, a person) is told "done" before the file is marked.
         void quarantine(rec.path).then((ok) => {
-          rec.quarantined = ok;
-          rec.state = "completed";
+          dls().update(id, { quarantined: ok, state: "completed" });
           announce();
         });
       } else {
-        rec.state = state === "interrupted" ? "interrupted" : "cancelled";
+        dls().update(id, { state: state === "interrupted" ? "interrupted" : "cancelled" });
         announce();
       }
     });
@@ -626,7 +634,7 @@ function setupDownloads(): void {
 }
 
 function showLastDownload(): void {
-  const done = [...downloads.values()].filter((d) => d.state === "completed" && d.path).pop();
+  const done = dls().list().filter((d) => d.state === "completed" && d.path && existsSync(d.path)).pop();
   if (done) shell.showItemInFolder(done.path);
   else void shell.openPath(app.getPath("downloads"));
 }
@@ -721,8 +729,8 @@ async function savePdf(wc: WebContents): Promise<{ ok: boolean; reason?: string;
   // What is on screen, backgrounds included: a saved page should look like the page.
   const pdf = await wc.printToPDF({ printBackground: true, preferCSSPageSize: true });
   writeFileSync(path, pdf);
-  const id = ++downloadSeq;
-  downloads.set(id, { id, name: basename(path), host: site, total: pdf.length, received: pdf.length, state: "completed", path, startedAt: Date.now() });
+  const rec = dls().add({ name: basename(path), host: site, url: "", total: pdf.length, received: pdf.length, state: "completed", path, kind: "pdf", startedAt: Date.now(), endedAt: Date.now() });
+  emit({ kind: "download", ...rec });
   return { ok: true, path, name: basename(path), bytes: pdf.length };
 }
 
@@ -891,6 +899,7 @@ function buildMenu(): void {
         { label: "Print…", accelerator: "CmdOrCtrl+P", click: tabCmd("print") },
         { label: "Save as PDF…", accelerator: "CmdOrCtrl+Shift+S", click: tabCmd("save-pdf") },
         { type: "separator" },
+        { label: "Downloads", accelerator: "CmdOrCtrl+Shift+J", click: tabCmd("downloads") },
         { label: "Show Last Download in Finder", click: () => showLastDownload() },
         { label: "Show Downloads Folder", click: () => void shell.openPath(app.getPath("downloads")) },
         { label: "Next Tab (alt)", accelerator: "CmdOrCtrl+Alt+Right", click: tabCmd("next"), visible: false },
@@ -1290,6 +1299,40 @@ app.whenReady().then(async () => {
     } catch (e) {
       return { ok: false, reason: (e as Error).message };
     }
+  });
+  // The Downloads panel. It names a download by its id; the path and address always come from the list, never from the UI.
+  ipcMain.handle("downloads:list", () => dls().list().map((d) => ({ ...d, exists: !!d.path && existsSync(d.path) })));
+  ipcMain.handle("downloads:act", async (_e, a: { id?: number; act?: string }) => {
+    const act = String(a?.act ?? "");
+    if (act === "clear") return { ok: true, removed: dls().clear() };
+    if (act === "folder") return { ok: !(await shell.openPath(app.getPath("downloads"))) };
+    const d = dls().get(Number(a?.id));
+    if (!d) return { ok: false, reason: "no-download" };
+    const there = !!d.path && existsSync(d.path);
+    switch (act) {
+      case "open":
+        if (d.state !== "completed" || !there) return { ok: false, reason: "missing" };
+        if (background) return emit({ kind: "download-opened", id: d.id }), { ok: true }; // a scripted run opens nothing
+        return { ok: !(await shell.openPath(d.path)) };
+      case "show":
+        if (!there) return { ok: false, reason: "missing" };
+        if (!background) shell.showItemInFolder(d.path);
+        return { ok: true };
+      case "cancel": {
+        const item = downloadItems.get(d.id);
+        if (!item) return { ok: false, reason: "not-running" };
+        item.cancel();
+        return { ok: true };
+      }
+      case "retry":
+        // A paid download is not fetched again from here: that could pay twice. The page it came from can do it.
+        if (!d.url || d.paid || callerNet.enabled) return { ok: false, reason: d.paid ? "paid" : "no-address" };
+        session.defaultSession.downloadURL(d.url);
+        return { ok: true };
+      case "remove":
+        return { ok: dls().remove(d.id) };
+    }
+    return { ok: false, reason: "bad-act" };
   });
   ipcMain.handle("page:zoom", (_e, a: { wcId?: number; move?: string }) => {
     const wc = pageById(a?.wcId);
@@ -1856,7 +1899,7 @@ app.whenReady().then(async () => {
           const ai = r.done && p.wait !== false ? await r.done : undefined;
           return { ok: r.ok, reason: r.reason, message: r.message, tab: r.tab, state: r.ai, summary: ai };
         },
-        downloads: () => [...downloads.values()],
+        downloads: () => dls().list(),
         getNetPolicy: () => ({ blockWebSockets: netPolicy.blockWebSockets || callerNet.enabled }),
         setNetPolicy: (p) => {
           if (typeof p.websockets === "boolean") netPolicy.blockWebSockets = p.websockets;

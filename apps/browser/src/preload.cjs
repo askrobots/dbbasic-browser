@@ -43,6 +43,11 @@ contextBridge.exposeInMainWorld("x402", {
   cards: {
     open: (args) => ipcRenderer.invoke("cards:open", args),
   },
+  /** The Downloads panel: the list, and what to do with one (open, show, cancel, retry, remove) by its id. */
+  downloads: {
+    list: () => ipcRenderer.invoke("downloads:list"),
+    act: (id, act) => ipcRenderer.invoke("downloads:act", { id, act }),
+  },
   /** Print, Save as PDF and zoom for one tab (by its webContents id). */
   page: {
     print: (wcId) => ipcRenderer.invoke("page:print", { wcId }),

@@ -1,7 +1,7 @@
 // Downloads: tracked, announced, saved safely, linked to the payment that unlocked them.
 // (The e2e runner sets DBB_DOWNLOAD_DIR so nothing blocks on the native Save dialog.)
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { sleep } from "./lib.mjs";
 
@@ -72,6 +72,70 @@ export default async function (ctx) {
   await T("x402.approval", { mode: "ask", maxUsd: 0 });
   check(d?.state === "completed" && readFileSync(d.path, "utf8").startsWith("id,value"), "a paid download completes after the payment", d?.name);
   check(d?.paid === "$0.001", "…and the record carries the amount that unlocked it", d?.paid);
+
+  // ---- the Downloads panel (status bar, File ▸ Downloads, ⌘⇧J) ----
+  const panel = () => c.ev(`(() => [...document.querySelectorAll("#dlPanel .dl")].map((r) => ({ name: r.querySelector(".nm").textContent, link: r.querySelector(".nm").tagName === "A", gone: r.classList.contains("gone"), info: r.querySelector(".t2").textContent, buttons: [...r.querySelectorAll("button")].map((b) => b.textContent) })))()`);
+  const press = (name, label) => c.ev(`(() => { const r = [...document.querySelectorAll("#dlPanel .dl")].find((r) => r.querySelector(".nm").textContent === ${JSON.stringify(name)}); const b = r && [...r.querySelectorAll("button")].find((b) => b.textContent === ${JSON.stringify(label)}); if (!b) return false; b.click(); return true; })()`);
+  const waitPanel = async (fn, what) => { for (let i = 0; i < 60; i++) { const p = await panel(); if (fn(p)) return p; await sleep(100); } return panel(); };
+  await c.ev(`(onTabCmd("downloads"), true)`);
+  let rows = await waitPanel((p) => p.length >= 5, "the panel");
+  check(await c.ev(`document.getElementById("dlPanel").classList.contains("open")`), "File ▸ Downloads opens the Downloads panel");
+  check(rows.length === 5 && rows[0].name === "dataset.csv" && rows.at(-1).name === "hello-report.txt", "it lists every download, newest first", rows.map((r) => r.name).join(", "));
+  const paidRow = rows.find((r) => r.name === "dataset.csv");
+  check(/127\.0\.0\.1/.test(paidRow.info) && /paid \$0\.001/.test(paidRow.info) && paidRow.link, "a row says the site, the size and what was paid, and its name opens the file", paidRow.info);
+  check(rows.find((r) => r.name === "big.bin").info.includes("3.0 MB"), "and the size", rows.find((r) => r.name === "big.bin").info);
+  let since = (await T("x402.events", { since: 0 })).next;
+  await c.ev(`(document.querySelector('#dlPanel .dl a.nm').click(), true)`);
+  let opened = null;
+  for (let i = 0; i < 40 && !opened; i++) { opened = (await T("x402.events", { since })).events.find((e) => e.kind === "download-opened"); await sleep(100); }
+  check(!!opened, "clicking a name opens the file (recorded here, not opened)");
+  check(await press("big.bin", "Show in Finder"), "each file has Show in Finder");
+
+  // a file moved or deleted outside the browser
+  const report = (await list()).find((x) => x.name === "hello-report.txt");
+  rmSync(report.path);
+  await c.ev(`(setDl(false), setDl(true), true)`);
+  rows = await waitPanel((p) => p.some((r) => r.name === "hello-report.txt" && r.gone), "the deleted file");
+  const goneRow = rows.find((r) => r.name === "hello-report.txt");
+  check(goneRow?.gone && !goneRow.link && /Moved or deleted/.test(goneRow.info) && !goneRow.buttons.includes("Show in Finder"), "a file deleted since is shown as moved or deleted, and can't be opened", goneRow?.info);
+
+  // take one off the list: the file stays
+  const one = (await list()).find((x) => x.name === "hello-report (1).txt");
+  await press("hello-report (1).txt", "✕");
+  rows = await waitPanel((p) => !p.some((r) => r.name === "hello-report (1).txt"), "the row to go");
+  check(!rows.some((r) => r.name === "hello-report (1).txt") && existsSync(one.path), "✕ takes a download off the list, and the file stays where it is");
+
+  // cancel a running one from the panel, then retry it
+  T("page.goto", { url: base + "/download/big", wait: false }).catch(() => {});
+  rows = await waitPanel((p) => p[0]?.name === "big (1).bin" && p[0].buttons.includes("Cancel"), "the running download");
+  const btn = await c.ev(`document.getElementById("dlBtn").textContent`);
+  check(rows[0]?.buttons.includes("Cancel") && /^⬇ \d+%$/.test(btn), "a running download has Cancel, and the status bar button shows its progress", btn);
+  await press("big (1).bin", "Cancel");
+  rows = await waitPanel((p) => /Cancelled/.test(p[0]?.info ?? ""), "the cancel");
+  check(/Cancelled/.test(rows[0]?.info ?? "") && rows[0].buttons.includes("Retry"), "Cancel stops it, and it can be retried", rows[0]?.info);
+  check(!paidRow.buttons.includes("Retry"), "a paid download has no Retry (fetching it again could pay twice)");
+  await press("big (1).bin", "Retry");
+  let again = null;
+  for (let i = 0; i < 200 && !again; i++) { again = (await list()).find((x) => x.id > rows.length && x.name.startsWith("big") && x.state === "completed" && x.received === 3 * 1024 * 1024 && x.startedAt > Date.now() - 30000); await sleep(100); }
+  check(!!again, "Retry downloads it again, in full", again?.name);
+  check((await c.ev(`document.getElementById("dlBtn").textContent`)) === "Downloads", "and the status bar button goes back to Downloads");
+
+  // kept for the next start
+  const saved = JSON.parse(readFileSync(join(ctx.tmp, "profile-downloads", "downloads.json"), "utf8"));
+  check(saved.v === 1 && saved.items.some((x) => x.name === "dataset.csv" && x.paid === "$0.001") && !saved.items.some((x) => x.name === "hello-report (1).txt"), "the list is saved in the profile for the next start", `${saved.items.length} items`);
+
+  // ⌘⇧J from the page closes it; Clear list keeps only what is running
+  await c.ev(`(() => { active.wv.focus(); const m = ${JSON.stringify(process.platform === "darwin" ? "meta" : "control")}; active.wv.sendInputEvent({ type: "keyDown", keyCode: "J", modifiers: [m, "shift"] }); active.wv.sendInputEvent({ type: "keyUp", keyCode: "J", modifiers: [m, "shift"] }); return true; })()`);
+  let closed = false;
+  for (let i = 0; i < 30 && !closed; i++) { closed = !(await c.ev(`document.getElementById("dlPanel").classList.contains("open")`)); await sleep(100); }
+  check(closed, "⌘⇧J while the page has the keyboard closes it again");
+  await c.ev(`(setDl(true), true)`);
+  await waitPanel((p) => p.length > 0, "the panel");
+  await c.ev(`(() => { [...document.querySelectorAll("#dlPanel h4 button")].find((b) => b.textContent === "Clear list").click(); return true; })()`);
+  await waitPanel((p) => p.length === 0, "an empty list");
+  check((await list()).length === 0 && /Nothing downloaded yet/.test(await c.ev(`document.getElementById("dlPanel").textContent`)), "Clear list takes the finished ones off, and the panel says there is nothing yet");
+  check(existsSync(join(dir, "big.bin")), "and no file was deleted");
+  await c.ev(`(setDl(false), true)`);
 
   // ---- macOS quarantine: a downloaded file must be marked so Gatekeeper vets anything you run ----
   if (process.platform === "darwin" && big) {

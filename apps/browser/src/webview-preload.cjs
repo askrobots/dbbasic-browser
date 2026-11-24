@@ -49,7 +49,7 @@ window.addEventListener("keydown", (e) => {
   if (editable(e.target) || editable(document.activeElement)) return;
   setTimeout(() => { if (!e.defaultPrevented) ipcRenderer.sendToHost("nav-key", e.key === "ArrowLeft" ? "back" : "forward"); }, 0);
 });
-// ---- 0c. ⌘P, ⌘⇧S, ⌘+ ⌘− ⌘0 (Ctrl elsewhere): print, save as PDF, zoom ----
+// ---- 0c. ⌘P, ⌘⇧S, ⌘+ ⌘− ⌘0, ⌘⇧J (Ctrl elsewhere): print, save as PDF, zoom, downloads ----
 // The menu's keys never reach the menu while a page has the keyboard. As in Chrome, the page gets them first (a
 // document editor prints its own way, a map zooms itself); when it leaves one alone, the browser runs it. By the key's
 // place, so any layout works.
@@ -58,7 +58,7 @@ window.addEventListener("keydown", (e) => {
   if (!e.isTrusted || e.altKey) return;
   const mac = /Mac/.test(navigator.platform);
   if (mac ? !e.metaKey || e.ctrlKey : !e.ctrlKey || e.metaKey) return;
-  const cmd = e.code === "KeyS" && e.shiftKey ? "save-pdf" : e.shiftKey && e.code !== "Equal" ? null : PAGE_KEYS[e.code];
+  const cmd = e.code === "KeyS" && e.shiftKey ? "save-pdf" : e.code === "KeyJ" && e.shiftKey ? "downloads" : e.shiftKey && e.code !== "Equal" ? null : PAGE_KEYS[e.code];
   if (!cmd) return;
   setTimeout(() => { if (!e.defaultPrevented) ipcRenderer.sendToHost("page-cmd", cmd); }, 0);
 });

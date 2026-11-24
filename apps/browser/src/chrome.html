@@ -171,6 +171,22 @@
       #resBtn.warn { color: #f0c674; border-color: #5a4514; background: #2a1f0a; }
       #resPanel { position: fixed; bottom: 36px; right: 10px; width: 420px; max-height: calc(100vh - 130px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12px; }
       #resPanel.open { display: block; }
+      #dlPanel { position: fixed; bottom: 36px; right: 10px; width: 440px; max-height: calc(100vh - 130px); overflow: auto; z-index: 20; background: #1e1e24; border: 1px solid #3a3a40; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.55); padding: 12px; display: none; font-size: 12px; }
+      #dlPanel.open { display: block; }
+      #dlPanel h4 { margin: 0 0 6px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+      #dlPanel h4 .sp { flex: 1; }
+      #dlPanel .empty { color: #8a8a90; line-height: 1.5; padding: 8px 2px; }
+      #dlPanel .dl { padding: 7px 2px; border-bottom: 1px solid #2a2a30; }
+      #dlPanel .dl .t1 { display: flex; align-items: center; gap: 6px; }
+      #dlPanel .dl .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e8e8ea; }
+      #dlPanel .dl a.nm { color: #8ab4ff; cursor: pointer; text-decoration: none; }
+      #dlPanel .dl a.nm:hover { text-decoration: underline; }
+      #dlPanel .dl.gone .nm { color: #8a8a90; text-decoration: line-through; }
+      #dlPanel .dl .t2 { color: #8a8a90; font-size: 11px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+      #dlPanel .dl .t2 .bad { color: #ff9a9a; }
+      #dlPanel .dl .bar { height: 4px; border-radius: 2px; background: #131316; margin: 5px 0 2px; overflow: hidden; }
+      #dlPanel .dl .bar i { display: block; height: 100%; background: #5b8cff; }
+      #dlPanel .sbtn { padding: 3px 8px; font-size: 11px; }
       #resPanel h4 { margin: 0 0 6px; font-size: 13px; display: flex; align-items: center; gap: 8px; }
       #resPanel h4 .sp { flex: 1; }
       #resPanel .sec { margin: 12px 0 4px; color: #7a7a82; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
@@ -285,6 +301,7 @@
     <div id="offerbar"></div>
     <div id="vaultPanel"></div>
     <div id="resPanel"></div>
+    <div id="dlPanel" role="dialog" aria-label="Downloads"></div>
     <div id="bmPanel"></div>
     <div id="plugPanel"></div>
     <div id="main">
@@ -332,6 +349,7 @@
       <div id="sleft"><div id="link"></div><div id="status"><span class="ic"></span><span class="tx"></span></div></div>
       <div id="cn">Caller network ON · this browser fetches nothing itself</div>
       <div id="ctlChip" style="display:none"></div>
+      <button class="btn" id="dlBtn" title="Downloads, and pages saved as PDF (⌘⇧J)">Downloads</button>
       <button class="btn" id="plugBtn">Plugins</button>
       <span id="viewBtns"></span>
       <button class="btn" id="histBtn" style="display:none" title="History: the pages you visit are kept on your askrobots account, so you can find one later. Click to pause or resume."></button>
@@ -382,7 +400,11 @@
         wv.addEventListener("ipc-message", (e) => { if (e.channel === "link-hover") { tab.hoverLink = typeof e.args[0] === "string" ? e.args[0] : null; if (tab === active) paintLink(); } });
         // ⌘← / ⌘→ pressed in the page (and not used by it): back and forward, like the buttons.
         wv.addEventListener("ipc-message", (e) => { if (e.channel === "nav-key" && tab === active) $(e.args[0] === "forward" ? "fwd" : "back").click(); });
-        wv.addEventListener("ipc-message", (e) => { if (e.channel === "page-cmd" && tab === active && PAGE_CMDS.has(e.args[0])) pageCmd(e.args[0], "page"); });
+        wv.addEventListener("ipc-message", (e) => {
+          if (e.channel !== "page-cmd" || tab !== active) return;
+          if (PAGE_CMDS.has(e.args[0])) pageCmd(e.args[0], "page");
+          else if (e.args[0] === "downloads" && !samePress("downloads", "page")) setDl(!dlOpen);
+        });
         wv.addEventListener("did-start-loading", () => { tab.loading = true; refreshThrobber(tab); syncTabs(); if (tab === active) paintReload(); });
         wv.addEventListener("did-fail-load", (e) => {
           if (!e.isMainFrame || e.errorCode === -3) return; // -3 = aborted (a newer navigation replaced it)
@@ -1444,6 +1466,7 @@
         else if (cmd === "find-next") findStep(1);
         else if (cmd === "find-prev") findStep(-1);
         else if (PAGE_CMDS.has(cmd)) pageCmd(cmd, "menu");
+        else if (cmd === "downloads") { if (!samePress(cmd, "menu")) setDl(!dlOpen); }
         else if (cmd === "open-external") {
           if (active && /^https?:\/\//i.test(active.url)) window.x402.openExternal(active.url);
           else toast("skipped", "Only web pages can be opened in the default browser");
@@ -1454,10 +1477,14 @@
       // A key the page left alone comes from the page (webview-preload.cjs); should the menu also see the same press, the
       // second one within 150 ms is the same press, not another step.
       let lastPageCmd = { cmd: "", from: "", at: 0 };
-      async function pageCmd(cmd, from = "menu") {
+      function samePress(cmd, from) {
         const now = Date.now();
-        if (lastPageCmd.cmd === cmd && lastPageCmd.from !== from && now - lastPageCmd.at < 150) return;
+        const same = lastPageCmd.cmd === cmd && lastPageCmd.from !== from && now - lastPageCmd.at < 150;
         lastPageCmd = { cmd, from, at: now };
+        return same;
+      }
+      async function pageCmd(cmd, from = "menu") {
+        if (samePress(cmd, from)) return;
         if (!active || active.wcId == null || !active.url) return toast("skipped", "Open a page first");
         const wcId = active.wcId;
         if (cmd === "print") {
@@ -1465,7 +1492,7 @@
           if (!r.ok && r.reason !== "cancelled" && r.reason !== "Print job canceled") toast("bad", "Could not print: " + (r.reason || "unknown"));
         } else if (cmd === "save-pdf") {
           const r = await window.x402.page.pdf(wcId);
-          if (r.ok) toast("paid", "Saved " + r.name + " (File ▸ Show Last Download in Finder)", 6000);
+          if (r.ok) { /* the download event's toast says where it went */ }
           else if (r.reason === "caller-network-on") toast("skipped", "Saving is off while the caller network is on");
           else if (r.reason !== "cancelled") toast("bad", "Could not save the PDF: " + (r.reason || "unknown"));
         } else {
@@ -1485,6 +1512,85 @@
         t.zoom = z.factor;
         if (t === active) paintZoom();
       });
+
+      // ---- the Downloads panel (status bar, File ▸ Downloads, ⌘⇧J): downloads and saved PDFs, newest first ----
+      // The list lives in the main process (downloads-store.ts) and survives restarts; a row is acted on by its id only.
+      let dlOpen = false, dlRows = [], dlTimer = 0;
+      const dlAgo = (t) => {
+        const s = Math.max(0, (Date.now() - t) / 1000);
+        if (s < 60) return "just now";
+        if (s < 3600) return Math.floor(s / 60) + " min ago";
+        if (s < 86400) return Math.floor(s / 3600) + " h ago";
+        const d = new Date(t);
+        return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+      };
+      function paintDlBtn() {
+        const run = [...downloads.values()].filter((d) => d.state === "progressing" || d.state === "paused");
+        const b = $("dlBtn");
+        if (!run.length) { b.textContent = "Downloads"; return; }
+        const got = run.reduce((n, d) => n + (d.received || 0), 0), all = run.reduce((n, d) => n + (d.total || 0), 0);
+        b.textContent = "⬇ " + (run.length > 1 ? run.length + " · " : "") + (all ? Math.floor((got / all) * 100) + "%" : fmtBytes(got));
+      }
+      function loadDl() {
+        clearTimeout(dlTimer);
+        dlTimer = setTimeout(async () => { dlRows = await window.x402.downloads.list(); renderDl(); }, 120);
+      }
+      async function dlAct(id, act) {
+        const r = await window.x402.downloads.act(id, act);
+        if (!r.ok && r.reason === "missing") toast("skipped", "That file has been moved or deleted");
+        else if (!r.ok && r.reason === "paid") toast("skipped", "A paid download is fetched again from its page, so it isn't paid for twice");
+        else if (!r.ok && act !== "cancel") toast("bad", "Could not " + act + (r.reason ? " (" + r.reason + ")" : ""));
+        loadDl();
+      }
+      function renderDl() {
+        const box = $("dlPanel");
+        box.textContent = "";
+        const h = document.createElement("h4");
+        const ttl = document.createElement("span"); ttl.textContent = "Downloads";
+        const sp = document.createElement("span"); sp.className = "sp";
+        const mk = (label, title, fn) => { const b = document.createElement("button"); b.className = "sbtn"; b.textContent = label; b.title = title; b.onclick = fn; return b; };
+        h.append(ttl, sp, mk("Open folder", "Open your Downloads folder", () => dlAct(0, "folder")), mk("Clear list", "Take the finished downloads off this list (the files stay where they are)", () => dlAct(0, "clear")), mk("✕", "Close (Esc)", () => setDl(false)));
+        box.appendChild(h);
+        if (!dlRows.length) {
+          const e = document.createElement("div"); e.className = "empty";
+          e.textContent = "Nothing downloaded yet. Files you download and pages you save as PDF (⌘⇧S) show here, and stay listed after a restart.";
+          box.appendChild(e);
+          return;
+        }
+        for (const d of [...dlRows].reverse()) {
+          const running = d.state === "progressing" || d.state === "paused";
+          const done = d.state === "completed";
+          const row = document.createElement("div"); row.className = "dl" + (done && !d.exists ? " gone" : ""); row.dataset.id = d.id;
+          const t1 = document.createElement("div"); t1.className = "t1";
+          const nm = document.createElement(done && d.exists ? "a" : "span"); nm.className = "nm"; nm.textContent = d.name; nm.title = d.path || d.name;
+          if (done && d.exists) nm.onclick = () => dlAct(d.id, "open");
+          t1.appendChild(nm);
+          if (running) t1.appendChild(mk("Cancel", "Stop this download", () => dlAct(d.id, "cancel")));
+          if ((d.state === "interrupted" || d.state === "cancelled") && d.url && !d.paid) t1.appendChild(mk("Retry", "Download it again from " + d.host, () => dlAct(d.id, "retry")));
+          if (d.exists) t1.appendChild(mk("Show in Finder", "Show the file in its folder", () => dlAct(d.id, "show")));
+          if (!running) t1.appendChild(mk("✕", "Take it off the list (the file stays where it is)", () => dlAct(d.id, "remove")));
+          row.appendChild(t1);
+          if (running) {
+            const bar = document.createElement("div"); bar.className = "bar"; const bi = document.createElement("i");
+            bi.style.width = (d.total ? Math.max(2, Math.floor((d.received / d.total) * 100)) : 30) + "%"; bar.appendChild(bi); row.appendChild(bar);
+          }
+          const t2 = document.createElement("div"); t2.className = "t2";
+          const bits = [];
+          if (d.kind === "pdf") bits.push("PDF of a page on " + d.host);
+          else if (d.host) bits.push(d.host);
+          bits.push(running || (!done && d.total && d.received < d.total) ? fmtBytes(d.received) + (d.total ? " of " + fmtBytes(d.total) : "") + (d.state === "paused" ? " · paused" : "") : fmtBytes(d.total || d.received));
+          if (d.paid) bits.push("paid " + d.paid);
+          bits.push(dlAgo(d.endedAt || d.startedAt));
+          t2.textContent = bits.join(" · ");
+          const word = d.state === "interrupted" ? "Failed" : d.state === "cancelled" ? "Cancelled" : done && !d.exists ? "Moved or deleted" : "";
+          if (word) { const w = document.createElement("span"); w.className = "bad"; w.textContent = " · " + word; t2.appendChild(w); }
+          row.appendChild(t2);
+          box.appendChild(row);
+        }
+      }
+      function setDl(open) { dlOpen = open; $("dlPanel").classList.toggle("open", open); if (open) { if (resOpen) setRes(false); loadDl(); } }
+      $("dlBtn").onclick = () => setDl(!dlOpen);
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && dlOpen) setDl(false); });
 
       // target=_blank / window.open from a page → a new tab beside it.
       // ⌘-click, middle-click and the right-click menu open it behind the page you are on.
@@ -2205,9 +2311,11 @@
           const prev = downloads.get(ev.id);
           downloads.set(ev.id, ev);
           if (active) refreshThrobber(active);
+          paintDlBtn();
+          if (dlOpen) loadDl();
           const finished = !prev || prev.state === "progressing" || prev.state === "paused";
           if (finished && ev.state === "completed") {
-            toast("paid", "⬇ Saved " + ev.name + " (" + fmtBytes(ev.total || ev.received) + ")" + (ev.paid ? " · paid " + ev.paid : "") + " — File ▸ Show Last Download in Finder", 7000);
+            toast("paid", "⬇ Saved " + ev.name + " (" + fmtBytes(ev.total || ev.received) + ")" + (ev.paid ? " · paid " + ev.paid : "") + " — Downloads in the status bar (⌘⇧J)", 7000);
           } else if (finished && ev.state === "interrupted") {
             toast("skipped", "⬇ Download failed: " + ev.name, 6000);
           }

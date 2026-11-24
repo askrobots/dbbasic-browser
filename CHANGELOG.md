@@ -10,6 +10,12 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
 - **Print and Save as PDF.** File ▸ Print… (⌘P) opens the system's print dialog. File ▸ Save as PDF… (⌘⇧S) saves the
   page as a PDF named after its title, backgrounds included, where you choose (Downloads to start with). Both are on
   the page's right-click menu too. As in Chrome, a site with its own print (a document editor) gets ⌘P first.
+- **A Downloads panel.** Downloads in the status bar, or File ▸ Downloads (⌘⇧J), lists your downloads and saved
+  PDFs, newest first, and still lists them after a restart. Click a name to open the file; Show in Finder, Cancel one
+  that is running, Retry one that failed or was cancelled (a paid one is fetched again from its page, so it is never
+  paid for twice), ✕ to take one off the list, Clear list for all the finished ones. A file moved or deleted since
+  says so. The button shows the progress while a download runs. Files are always listed under the name they were
+  saved as.
 - **Zoom, remembered per site.** View ▸ Zoom In, Zoom Out and Actual Size (⌘+ or ⌘=, ⌘−, ⌘0), or Ctrl+scroll, in
   Chrome's steps from 25% to 500%. A site keeps its size after a restart, and its other open tabs follow. When a site
   isn't at 100%, its size shows next to the address; clicking it goes back to actual size.
