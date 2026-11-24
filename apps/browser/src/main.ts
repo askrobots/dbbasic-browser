@@ -62,6 +62,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 app.setName("dbbasic-browser");
 const ICON_PATH = join(__dirname, "icon.png");
 
+// One browser per profile. Two copies writing the same cookies and lists at once would damage them: say, the downloaded
+// app opened while a copy built from the repository is running. A second start brings the running window forward instead.
+// A copy started with its own --user-data-dir is a separate profile and runs alongside.
+if (!app.requestSingleInstanceLock()) app.exit(0);
+app.on("second-instance", () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
+
 // Reader views are served from dbb-reader://<id>/ (see reader-pages.ts). The scheme must be registered before ready.
 protocol.registerSchemesAsPrivileged([
   { scheme: READER_SCHEME, privileges: { standard: true, secure: true } },

@@ -21,6 +21,9 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
   isn't at 100%, its size shows next to the address; clicking it goes back to actual size.
 
 ### Fixed
+- **One browser per profile.** Starting a second copy on the same profile (the downloaded app while a copy built from
+  the repository is running, say) brings the running window forward instead of both writing the same cookies and
+  lists. A copy with its own `--user-data-dir` still runs alongside.
 - **Cloudflare's invisible check (Turnstile) passes**, so forms behind it can be sent (OpenAI's OpenWorks application
   never could). The browser's network layer only gets a stripped copy of each request, so it had been guessing the
   fetch-metadata headers a real browser sends, and got them wrong: every request said it came from nowhere
