@@ -89,7 +89,9 @@ setRequestKindLookup((method, url) => requestKinds.take(method, url));
 // overrides it entirely — handy for debugging a site that misbehaves.
 const PRODUCT_VERSION = (() => {
   try {
-    return (JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string }).version;
+    // The standalone build and the Mac app keep package.json beside main.js; dist/ (the dev build) has it one folder up.
+    const here = join(__dirname, "package.json");
+    return (JSON.parse(readFileSync(existsSync(here) ? here : join(__dirname, "..", "package.json"), "utf8")) as { version: string }).version;
   } catch {
     return "0.0.0";
   }

@@ -14,3 +14,6 @@ apps/browser/standalone/
 
 # Local notes for Claude (personal ids, never published)
 CLAUDE.local.md
+
+# The Mac app and its zip (scripts/build-mac.mjs)
+apps/browser/release/
