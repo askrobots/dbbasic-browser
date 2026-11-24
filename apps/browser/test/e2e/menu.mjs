@@ -76,7 +76,7 @@ export default async function (ctx) {
   // anywhere else
   await T("page.eval", { js: "getSelection().removeAllRanges(), document.activeElement && document.activeElement.blur(), true" });
   items = await rightClick(150, 260);
-  check(items.join(",") === "back,forward,reload,inspect" || items.join(",") === "forward,reload,inspect" || items.join(",") === "back,reload,inspect" || items.join(",") === "reload,inspect", "right-click on the page offers Back, Forward and Reload", items.join(","));
+  check(/^(back,)?(forward,)?reload,print,save-pdf,inspect$/.test(items.join(",")), "right-click on the page offers Back, Forward and Reload, then Print and Save as PDF", items.join(","));
   await T("menu.pick", { id: "reload" });
   const reloaded = await waitFor(async () => { const v = await T("page.eval", { js: "window.__marker || 'gone'" }).catch(() => null); return v && v.value === "gone" ? true : null; }, "the reload").catch(() => false);
   check(reloaded === true, "Reload reloads the page");

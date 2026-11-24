@@ -43,6 +43,13 @@ contextBridge.exposeInMainWorld("x402", {
   cards: {
     open: (args) => ipcRenderer.invoke("cards:open", args),
   },
+  /** Print, Save as PDF and zoom for one tab (by its webContents id). */
+  page: {
+    print: (wcId) => ipcRenderer.invoke("page:print", { wcId }),
+    pdf: (wcId) => ipcRenderer.invoke("page:pdf", { wcId }),
+    zoom: (wcId, move) => ipcRenderer.invoke("page:zoom", { wcId, move }),
+    onZoom: sub("tab:zoom"),
+  },
   reader: {
     open: (args) => ipcRenderer.invoke("reader:open", args),
     ai: () => ipcRenderer.invoke("reader:ai"),

@@ -12,6 +12,8 @@
       #url { flex: 1; padding: 7px 12px; border-radius: 7px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; font-size: 13px; }
       #back, #fwd, #reload { min-width: 36px; height: 32px; display: inline-flex; align-items: center; justify-content: center; font-size: 17px; line-height: 1; }
       #url:focus { outline: none; border-color: #5b8cff; }
+      #zoomBtn { padding: 6px 9px; font-size: 12px; font-variant-numeric: tabular-nums; color: #b9c6ff; }
+      #zoomBtn[hidden] { display: none; }
       .btn { padding: 7px 10px; border-radius: 7px; border: 1px solid #3a3a40; background: #131316; color: #e8e8ea; cursor: pointer; white-space: nowrap; }
       .btn:hover { background: #1c1c20; }
       .btn .ico { width: 16px; height: 16px; vertical-align: -3px; flex-shrink: 0; }
@@ -270,6 +272,7 @@
       <button class="btn" id="fwd" aria-label="Forward"><!--icon:forward--></button>
       <button class="btn" id="reload" title="Reload (⌘R)" aria-label="Reload"></button>
       <input id="url" placeholder="Search askrobots.com or enter a URL — http(s) requests are x402 pay-aware" spellcheck="false" />
+      <button class="btn" id="zoomBtn" hidden title="This site is zoomed. Click for actual size (⌘0); ⌘+ and ⌘− change it." aria-label="Page zoom"></button>
       <button class="btn" id="keepBtn" title="Keep a copy of this page (what is on screen and its text) and close the tab"><!--icon:keep--><span class="lbl"> Keep</span></button>
       <button class="btn" id="starBtn" title="Save this page to your askrobots bookmarks (one click)"><!--icon:save--><span class="lbl"> Save</span></button>
       <button class="btn" id="galleryBtn" title="Open the local x402 test gallery (http://127.0.0.1:8899/) — start it with: node apps/browser/demo/x402-demo-server.mjs"><!--icon:tests--> x402 tests</button>
@@ -379,6 +382,7 @@
         wv.addEventListener("ipc-message", (e) => { if (e.channel === "link-hover") { tab.hoverLink = typeof e.args[0] === "string" ? e.args[0] : null; if (tab === active) paintLink(); } });
         // ⌘← / ⌘→ pressed in the page (and not used by it): back and forward, like the buttons.
         wv.addEventListener("ipc-message", (e) => { if (e.channel === "nav-key" && tab === active) $(e.args[0] === "forward" ? "fwd" : "back").click(); });
+        wv.addEventListener("ipc-message", (e) => { if (e.channel === "page-cmd" && tab === active && PAGE_CMDS.has(e.args[0])) pageCmd(e.args[0], "page"); });
         wv.addEventListener("did-start-loading", () => { tab.loading = true; refreshThrobber(tab); syncTabs(); if (tab === active) paintReload(); });
         wv.addEventListener("did-fail-load", (e) => {
           if (!e.isMainFrame || e.errorCode === -3) return; // -3 = aborted (a newer navigation replaced it)
@@ -469,6 +473,7 @@
         renderTabs();
         refreshThrobber(tab);
         paintReload();
+        paintZoom();
         renderInspector();
         renderOffer();
         if (vaultPanelOpen) renderVaultPanel();
@@ -1438,11 +1443,49 @@
         else if (cmd === "find") openFind();
         else if (cmd === "find-next") findStep(1);
         else if (cmd === "find-prev") findStep(-1);
+        else if (PAGE_CMDS.has(cmd)) pageCmd(cmd, "menu");
         else if (cmd === "open-external") {
           if (active && /^https?:\/\//i.test(active.url)) window.x402.openExternal(active.url);
           else toast("skipped", "Only web pages can be opened in the default browser");
         }
       }
+      // ---- print, save as PDF, zoom (File and View menus, the page's right-click menu, the zoom badge) ----
+      const PAGE_CMDS = new Set(["print", "save-pdf", "zoom-in", "zoom-out", "zoom-reset"]);
+      // A key the page left alone comes from the page (webview-preload.cjs); should the menu also see the same press, the
+      // second one within 150 ms is the same press, not another step.
+      let lastPageCmd = { cmd: "", from: "", at: 0 };
+      async function pageCmd(cmd, from = "menu") {
+        const now = Date.now();
+        if (lastPageCmd.cmd === cmd && lastPageCmd.from !== from && now - lastPageCmd.at < 150) return;
+        lastPageCmd = { cmd, from, at: now };
+        if (!active || active.wcId == null || !active.url) return toast("skipped", "Open a page first");
+        const wcId = active.wcId;
+        if (cmd === "print") {
+          const r = await window.x402.page.print(wcId);
+          if (!r.ok && r.reason !== "cancelled" && r.reason !== "Print job canceled") toast("bad", "Could not print: " + (r.reason || "unknown"));
+        } else if (cmd === "save-pdf") {
+          const r = await window.x402.page.pdf(wcId);
+          if (r.ok) toast("paid", "Saved " + r.name + " (File ▸ Show Last Download in Finder)", 6000);
+          else if (r.reason === "caller-network-on") toast("skipped", "Saving is off while the caller network is on");
+          else if (r.reason !== "cancelled") toast("bad", "Could not save the PDF: " + (r.reason || "unknown"));
+        } else {
+          const r = await window.x402.page.zoom(wcId, cmd.slice(5));
+          if (r.ok) toast("skipped", "Zoom " + Math.round(r.factor * 100) + "%" + (r.site ? " on " + r.site : ""), 1500);
+        }
+      }
+      function paintZoom() {
+        const b = $("zoomBtn"), f = active && active.zoom || 1;
+        b.hidden = Math.abs(f - 1) < 0.001;
+        b.textContent = Math.round(f * 100) + "%";
+      }
+      $("zoomBtn").onclick = () => pageCmd("zoom-reset");
+      window.x402.page.onZoom((z) => {
+        const t = tabs.find((x) => x.wcId === z.wcId);
+        if (!t) return;
+        t.zoom = z.factor;
+        if (t === active) paintZoom();
+      });
+
       // target=_blank / window.open from a page → a new tab beside it.
       // ⌘-click, middle-click and the right-click menu open it behind the page you are on.
       window.x402.onOpenTab((url, o) => newTab(url, !o.background));

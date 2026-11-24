@@ -16,7 +16,7 @@ describe("right-click menu", () => {
 
   it("a link that is not a web address can be copied but not opened", () => {
     expect(ids({ linkURL: "mailto:a@example.com" })).toEqual(["copy-link", "—", "inspect"]);
-    expect(ids({ linkURL: "javascript:alert(1)" })).toEqual(["back", "forward", "reload", "—", "inspect"]);
+    expect(ids({ linkURL: "javascript:alert(1)" })).toEqual(["back", "forward", "reload", "—", "print", "save-pdf", "—", "inspect"]);
   });
 
   it("no new tabs while new tabs are off", () => {
@@ -50,9 +50,9 @@ describe("right-click menu", () => {
     expect(contextMenuItems({ isEditable: true, misspelledWord: "zxqv", dictionarySuggestions: [] }, page)[0]).toMatchObject({ id: "no-suggestions", enabled: false });
   });
 
-  it("anywhere else on a page: back, forward, reload", () => {
+  it("anywhere else on a page: back, forward, reload, then print and save as PDF", () => {
     const items = contextMenuItems({}, page);
-    expect(items.map((it) => ("id" in it ? `${it.id}${it.enabled === false ? "(off)" : ""}` : "—"))).toEqual(["back", "forward(off)", "reload", "—", "inspect"]);
+    expect(items.map((it) => ("id" in it ? `${it.id}${it.enabled === false ? "(off)" : ""}` : "—"))).toEqual(["back", "forward(off)", "reload", "—", "print", "save-pdf", "—", "inspect"]);
   });
 
   it("the browser's own fields get only the text items", () => {

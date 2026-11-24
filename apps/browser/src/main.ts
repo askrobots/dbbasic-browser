@@ -47,6 +47,7 @@ import { BookmarksService } from "./bookmarks-service.js";
 import { KEPT_SCHEME, KeepStore, keptFilename, keptPageHtml, keptUrl, parseKeptUrl, type KeptRecord } from "./keep-store.js";
 import { diskUsage, type DiskUsage } from "./disk-usage.js";
 import { reservedShortcut } from "./shortcuts.js";
+import { stepZoom, zoomSite, ZoomStore, type ZoomMove } from "./zoom.js";
 import { contextMenuItems, type MenuItem } from "./context-menu.js";
 import { commandArgs, commandRows, describeResult, parseCommand, parseSuggestions, remoteAllowed, suggest, toCommand, type OmniTab } from "./omnibox.js";
 import { macFootprints } from "./process-memory.js";
@@ -558,6 +559,9 @@ function runMenuItem(wc: WebContents, p: Electron.ContextMenuParams, id: string)
     case "back": return wc.navigationHistory.goBack();
     case "forward": return wc.navigationHistory.goForward();
     case "reload": return wc.reload();
+    // The chrome says how it went (a toast for the saved file): it runs these for the tab, as the File menu does.
+    case "print":
+    case "save-pdf": return void mainWindow?.webContents.send("tab:cmd", id);
     case "inspect": return wc.inspectElement(p.x, p.y);
   }
 }
@@ -625,6 +629,101 @@ function showLastDownload(): void {
   const done = [...downloads.values()].filter((d) => d.state === "completed" && d.path).pop();
   if (done) shell.showItemInFolder(done.path);
   else void shell.openPath(app.getPath("downloads"));
+}
+
+// ---- print, save as PDF, zoom (the steps and the per-site memory: zoom.ts) ------------------------------
+let zoomStore: ZoomStore | null = null;
+function zooms(): ZoomStore {
+  if (zoomStore) return zoomStore;
+  const file = join(app.getPath("userData"), "zoom.json");
+  let saved: string | null = null;
+  try {
+    saved = readFileSync(file, "utf8");
+  } catch {
+    /* none yet */
+  }
+  return (zoomStore = new ZoomStore(saved, (text) => {
+    try {
+      writeFileSync(file, text);
+    } catch {
+      /* the size still applies until the browser closes */
+    }
+  }));
+}
+
+/** A tab's page, by its webContents id, or null when it is gone or not a page. */
+function pageById(wcId: unknown): WebContents | null {
+  const wc = Number.isInteger(wcId) ? webContents.fromId(wcId as number) : undefined;
+  return wc && !wc.isDestroyed() && wc.getType() === "webview" ? wc : null;
+}
+
+function tellZoom(wc: WebContents): void {
+  mainWindow?.webContents.send("tab:zoom", { wcId: wc.id, factor: wc.getZoomFactor() });
+}
+
+/** A page that has just loaded opens at its site's remembered size. */
+function applyZoom(wc: WebContents): void {
+  const f = zooms().get(zoomSite(wc.getURL()));
+  if (Math.abs(wc.getZoomFactor() - f) > 0.001) wc.setZoomFactor(f);
+  tellZoom(wc);
+}
+
+/** One step in or out, or back to 100%. The site remembers it, and its pages open in other tabs follow, as in other browsers. */
+function zoomPage(wc: WebContents, move: ZoomMove): { factor: number; site: string | null } {
+  const site = zoomSite(wc.getURL());
+  const factor = stepZoom(wc.getZoomFactor(), move);
+  wc.setZoomFactor(factor);
+  tellZoom(wc);
+  if (site) {
+    zooms().set(site, factor);
+    for (const o of webContents.getAllWebContents()) {
+      if (o === wc || o.isDestroyed() || o.getType() !== "webview" || zoomSite(o.getURL()) !== site) continue;
+      o.setZoomFactor(factor);
+      tellZoom(o);
+    }
+  }
+  return { factor, site };
+}
+
+/**
+ * The system's print dialog for a page (on a Mac it has its own PDF menu too). A scripted run in the background must not
+ * put a dialog on someone's screen: it is recorded instead, as the right-click menu is.
+ */
+function printPage(wc: WebContents): Promise<{ ok: boolean; reason?: string }> {
+  if (background || process.env.DBB_RECORD_MENUS === "1") {
+    emit({ kind: "print-dialog", wcId: wc.id, url: wc.getURL() });
+    return Promise.resolve({ ok: true, reason: "recorded" });
+  }
+  return new Promise((resolve) => wc.print({ printBackground: false }, (ok, reason) => resolve(ok ? { ok } : { ok, reason: reason || "failed" })));
+}
+
+/** The page as a PDF, its name from the title, saved where the person picks (Downloads to start with). */
+async function savePdf(wc: WebContents): Promise<{ ok: boolean; reason?: string; path?: string; name?: string; bytes?: number }> {
+  const site = zoomSite(wc.getURL()) ?? "page";
+  const name = cleanFileName(`${(wc.getTitle() || site).replace(/[/\\]/g, "-").trim() || site}.pdf`);
+  let path: string;
+  const dir = process.env.DBB_DOWNLOAD_DIR;
+  if (dir || background) {
+    // Scripted runs: straight into the download folder, no dialog.
+    const to = dir || app.getPath("downloads");
+    mkdirSync(to, { recursive: true });
+    path = uniquePath(to, name);
+  } else {
+    const pick = await dialog.showSaveDialog(mainWindow ?? (undefined as unknown as BrowserWindow), {
+      title: "Save as PDF",
+      defaultPath: uniquePath(app.getPath("downloads"), name),
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (pick.canceled || !pick.filePath) return { ok: false, reason: "cancelled" };
+    path = pick.filePath;
+  }
+  if (wc.isDestroyed()) return { ok: false, reason: "tab-closed" };
+  // What is on screen, backgrounds included: a saved page should look like the page.
+  const pdf = await wc.printToPDF({ printBackground: true, preferCSSPageSize: true });
+  writeFileSync(path, pdf);
+  const id = ++downloadSeq;
+  downloads.set(id, { id, name: basename(path), host: site, total: pdf.length, received: pdf.length, state: "completed", path, startedAt: Date.now() });
+  return { ok: true, path, name: basename(path), bytes: pdf.length };
 }
 
 function buildEngine(): X402Engine {
@@ -789,6 +888,9 @@ function buildMenu(): void {
         // Escape hatch for sites that refuse embedded-Chromium browsers (see Help ▸ How we identify ourselves).
         { label: "Open Page in Default Browser", accelerator: "CmdOrCtrl+Shift+O", click: tabCmd("open-external") },
         { type: "separator" },
+        { label: "Print…", accelerator: "CmdOrCtrl+P", click: tabCmd("print") },
+        { label: "Save as PDF…", accelerator: "CmdOrCtrl+Shift+S", click: tabCmd("save-pdf") },
+        { type: "separator" },
         { label: "Show Last Download in Finder", click: () => showLastDownload() },
         { label: "Show Downloads Folder", click: () => void shell.openPath(app.getPath("downloads")) },
         { label: "Next Tab (alt)", accelerator: "CmdOrCtrl+Alt+Right", click: tabCmd("next"), visible: false },
@@ -826,6 +928,13 @@ function buildMenu(): void {
       label: "View",
       submenu: [
         { label: "Reload Page", accelerator: "CmdOrCtrl+R", click: tabCmd("reload") },
+        { type: "separator" },
+        // Like other browsers: each site remembers its size (zoom.ts). ⌘= works as well as ⌘+ (no Shift needed).
+        { label: "Actual Size", accelerator: "CmdOrCtrl+0", click: tabCmd("zoom-reset") },
+        { label: "Zoom In", accelerator: "CmdOrCtrl+Plus", click: tabCmd("zoom-in") },
+        { label: "Zoom In (⌘=)", accelerator: "CmdOrCtrl+=", click: tabCmd("zoom-in"), visible: false },
+        { label: "Zoom Out", accelerator: "CmdOrCtrl+-", click: tabCmd("zoom-out") },
+        { type: "separator" },
         {
           label: "Loading Animations",
           submenu: [
@@ -1044,6 +1153,15 @@ app.whenReady().then(async () => {
       mainWindow?.webContents.send("tab:cmd", cmd);
     });
     wc.on("context-menu", (_e, p) => showContextMenu(wc, p, true));
+    // Each page opens at its site's remembered size (zoom.ts); Ctrl+scroll steps it like ⌘+ and ⌘−.
+    wc.on("did-navigate", () => applyZoom(wc));
+    // A trackpad sends a burst of these for one gesture: one step per 150 ms keeps it from racing to 500%.
+    let lastWheelZoom = 0;
+    wc.on("zoom-changed", (_e, dir) => {
+      if (Date.now() - lastWheelZoom < 150) return;
+      lastWheelZoom = Date.now();
+      zoomPage(wc, dir === "in" ? "in" : "out");
+    });
     if (callerNet.enabled) wc.setWebRTCIPHandlingPolicy("disable_non_proxied_udp"); // no UDP for ICE/STUN: it would bypass the caller
     wc.setWindowOpenHandler(({ url, disposition }) => {
       if (callerNet.enabled) {
@@ -1158,6 +1276,26 @@ app.whenReady().then(async () => {
     return cards.open({ wcId, rule, ...(extra.want !== undefined ? { want: extra.want } : {}), ...(extra.rounds !== undefined ? { rounds: extra.rounds } : {}) });
   };
   ipcMain.handle("cards:open", (_e, a: { wcId?: number; plugin?: string }) => openCards(Number(a?.wcId), typeof a?.plugin === "string" ? { plugin: a.plugin } : {}));
+  // Print, Save as PDF and zoom, for the tab the chrome UI names (File and View menus, the right-click menu).
+  ipcMain.handle("page:print", (_e, a: { wcId?: number }) => {
+    const wc = pageById(a?.wcId);
+    return wc ? printPage(wc) : { ok: false, reason: "no-page" };
+  });
+  ipcMain.handle("page:pdf", async (_e, a: { wcId?: number }) => {
+    const wc = pageById(a?.wcId);
+    if (!wc) return { ok: false, reason: "no-page" };
+    if (callerNet.enabled) return { ok: false, reason: "caller-network-on" }; // nothing is written to disk in that mode
+    try {
+      return await savePdf(wc);
+    } catch (e) {
+      return { ok: false, reason: (e as Error).message };
+    }
+  });
+  ipcMain.handle("page:zoom", (_e, a: { wcId?: number; move?: string }) => {
+    const wc = pageById(a?.wcId);
+    const move = a?.move === "in" || a?.move === "out" || a?.move === "reset" ? a.move : null;
+    return wc && move ? { ok: true, ...zoomPage(wc, move) } : { ok: false, reason: wc ? "bad-move" : "no-page" };
+  });
   // From the chrome UI (a human clicked Reader): ask before anything is sent.
   ipcMain.handle("reader:open", async (_e, a: { wcId?: number }) => {
     if (callerNet.enabled) return { ok: false, reason: "caller-network-on", message: "The reader is switched off while the caller network is on." };

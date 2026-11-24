@@ -6,7 +6,7 @@
  *   on an image          Open Image in New Tab, Copy Image, Copy Image Address, Save Image As…
  *   in a text field      spelling suggestions, Undo, Redo, Cut, Copy, Paste, Select All
  *   on selected text     Copy, Search askrobots for "…", Ask the Assistant About This
- *   anywhere else        Back, Forward, Reload
+ *   anywhere else        Back, Forward, Reload; Print…, Save as PDF…
  *   and last             Inspect Element (pages only)
  */
 
@@ -94,6 +94,8 @@ export function contextMenuItems(p: ClickedOn, c: MenuContext): MenuItem[] {
       { id: "forward", label: "Forward", enabled: c.canGoForward },
       { id: "reload", label: "Reload" },
     );
+    sep();
+    out.push({ id: "print", label: "Print…" }, { id: "save-pdf", label: "Save as PDF…" });
     sep();
   }
   if (c.page) out.push({ id: "inspect", label: "Inspect Element" });
