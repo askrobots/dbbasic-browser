@@ -6,6 +6,8 @@ then 2026.11v2, and 2026.12v1 is the first of December. (package.json spells it 
 
 ## [Unreleased]
 
+## [2026.11v2] - 2026-11-24
+
 ### Added
 - **A Mac app to download.** `npm run build:mac` (in apps/browser) makes dbbasic-browser.app for Apple-chip Macs and
   zips it as dbbasic-browser-<version>-macos-arm64.zip, with a note of its size, SHA-256 and the commit it was built
