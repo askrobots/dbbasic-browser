@@ -25,7 +25,7 @@
     "@dbbasic/vault": "*",
     "@dbbasic/x402-engine": "*",
     "@mozilla/readability": "^0.6.0",
-    "openai": "^7.60.0",
+    "openai": "^7.62.0",
     "viem": "^2.21.0"
   },
   "devDependencies": {
