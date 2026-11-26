@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "viem": "^2.21.0"
+    "viem": "^2.58.4"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
